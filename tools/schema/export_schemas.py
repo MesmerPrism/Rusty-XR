@@ -2889,7 +2889,9 @@ def schemas() -> dict[str, dict]:
             "vulkan-hwb-direct-camera2-raw",
             "gles-oes-direct-camera2-raw",
             "makepad-cpuyuv-direct-camera2-raw",
+            "makepad-cpuyuv-broker-h264-raw",
             "makepad-hwb-external-direct-camera2-raw",
+            "makepad-hwb-external-broker-h264-raw",
             "other",
         ],
     )
@@ -2913,14 +2915,16 @@ def schemas() -> dict[str, dict]:
             "cpu-yuv-plane-textures",
             "hardware-buffer-yuv-plane-textures",
             "sampled-image-and-sampler",
+            "sampled-image-and-sampler-ycbcr-conversion",
             "combined-image-sampler",
+            "combined-immutable-sampler-ycbcr-conversion",
             "sampler-external-oes",
             "not-applicable",
         ],
     )
     camera_texture_color_status = enum(
         "CameraTextureColorStatus",
-        ["accepted-reference", "experimental", "diagnostic-only", "unknown"],
+        ["accepted-reference", "experimental", "experimental-candidate", "diagnostic-only", "unknown"],
     )
     optional_non_negative_integer = {"type": ["integer", "null"], "minimum": 0}
     optional_integer = {"type": ["integer", "null"]}

@@ -205,6 +205,7 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
             ("blurRadiusPx", "blurRadiusPx"),
             ("xrRenderScale", "xrRenderScale"),
             ("directCameraTexturePath", "directCameraTexturePath"),
+            ("brokerH264DecodeOutputMode", "brokerH264DecodeOutputMode"),
         ):
             value = nonempty_text(manifest.get(source_key))
             if value is not None:
@@ -575,6 +576,8 @@ def makepad_lane_kind(path: str) -> str:
         return "makepad-cpuyuv-direct-camera2-raw"
     if path == "broker-h264-mediacodec-cpu-yuv":
         return "makepad-cpuyuv-broker-h264-raw"
+    if path == "broker-h264-mediacodec-hardware-buffer":
+        return "makepad-hwb-external-broker-h264-raw"
     if path in {
         "direct-camera-hardware-buffer-external",
         "direct-camera-hardware-buffer-yuv-plane",
@@ -583,10 +586,24 @@ def makepad_lane_kind(path: str) -> str:
     return "other"
 
 
+def is_makepad_cpu_yuv_path(path: str) -> bool:
+    return path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}
+
+
+def is_makepad_hwb_external_path(path: str) -> bool:
+    return path == "broker-h264-mediacodec-hardware-buffer" or path.startswith(
+        "direct-camera-hardware-buffer"
+    )
+
+
+def is_makepad_broker_h264_path(path: str) -> bool:
+    return path.startswith("broker-h264-mediacodec-")
+
+
 def makepad_resource_kind(path: str) -> str:
-    if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}:
+    if is_makepad_cpu_yuv_path(path):
         return "cpu-yuv-plane-textures"
-    if path.startswith("direct-camera-hardware-buffer"):
+    if is_makepad_hwb_external_path(path):
         return "makepad-hardware-buffer-external"
     return "other"
 
@@ -595,15 +612,16 @@ def makepad_descriptor_shape(path: str, fields: dict[str, Any]) -> str:
     descriptor_shape = fields.get("descriptorShape")
     if descriptor_shape:
         normalized = str(descriptor_shape)
-        return normalized if normalized in KNOWN_DESCRIPTOR_SHAPES else "unknown"
-    if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}:
+        if normalized.strip().lower() not in {"", "none", "null", "unspecified"}:
+            return normalized if normalized in KNOWN_DESCRIPTOR_SHAPES else "unknown"
+    if is_makepad_cpu_yuv_path(path):
         return "cpu-yuv-plane-textures"
     combined = parse_bool(fields.get("combinedImageSampler"))
     if combined is True:
         return "combined-image-sampler"
     if combined is False:
         return "sampled-image-and-sampler"
-    return "sampled-image-and-sampler" if path.startswith("direct-camera-hardware-buffer") else "unknown"
+    return "sampled-image-and-sampler" if is_makepad_hwb_external_path(path) else "unknown"
 
 
 def makepad_path_from_flow_path(path: str) -> str | None:
@@ -611,6 +629,8 @@ def makepad_path_from_flow_path(path: str) -> str | None:
         "cpu-yuv": "direct-camera-cpu-yuv-plane",
         "cpu-yuv-fallback": "direct-camera-cpu-yuv-plane",
         "broker-h264-mediacodec-cpu-yuv": "broker-h264-mediacodec-cpu-yuv",
+        "broker-h264-mediacodec-hardware-buffer": "broker-h264-mediacodec-hardware-buffer",
+        "broker-h264-mediacodec-hardware-buffer-vulkan-import": "broker-h264-mediacodec-hardware-buffer",
         "hardware-buffer-external": "direct-camera-hardware-buffer-external",
         "direct-camera-cpu-yuv-plane": "direct-camera-cpu-yuv-plane",
         "direct-camera-hardware-buffer-external": "direct-camera-hardware-buffer-external",
@@ -620,11 +640,6 @@ def makepad_path_from_flow_path(path: str) -> str | None:
 
 
 def makepad_path_from_fields_or_context(fields: dict[str, Any], context_fields: dict[str, Any]) -> str | None:
-    import_plan = str(fields.get("importPlan") or "").strip().lower()
-    source_mode = str(fields.get("sourceMode") or "").strip().lower()
-    source = str(fields.get("source") or "").strip().lower()
-    if "broker-h264" in import_plan or source_mode.startswith("broker-") or "broker_app" in source:
-        return "broker-h264-mediacodec-cpu-yuv"
     for key in (
         "cameraTexturePath",
         "cpuUploadPath",
@@ -637,15 +652,34 @@ def makepad_path_from_fields_or_context(fields: dict[str, Any], context_fields: 
         path = makepad_path_from_flow_path(str(fields.get(key) or ""))
         if path:
             return path
+    import_plan = str(fields.get("importPlan") or "").strip().lower()
+    source_mode = str(fields.get("sourceMode") or "").strip().lower()
+    source = str(fields.get("source") or "").strip().lower()
+    decode_output_mode = str(
+        fields.get("decodeOutputMode") or context_fields.get("brokerH264DecodeOutputMode") or ""
+    ).strip().lower()
+    if "broker-h264" in import_plan or source_mode.startswith("broker-") or "broker_app" in source:
+        if "hardware-buffer" in import_plan or decode_output_mode in {
+            "hardware-buffer",
+            "hardware_buffer",
+            "hwb",
+        }:
+            return "broker-h264-mediacodec-hardware-buffer"
+        return "broker-h264-mediacodec-cpu-yuv"
     context_source_mode = str(context_fields.get("sourceMode") or "").strip().lower()
+    context_decode_output_mode = str(
+        context_fields.get("brokerH264DecodeOutputMode") or ""
+    ).strip().lower()
     if context_source_mode.startswith("broker-"):
+        if context_decode_output_mode in {"hardware-buffer", "hardware_buffer", "hwb"}:
+            return "broker-h264-mediacodec-hardware-buffer"
         return "broker-h264-mediacodec-cpu-yuv"
     return makepad_path_from_flow_path(str(context_fields.get("directCameraTexturePath") or ""))
 
 
 def makepad_color_status(path: str, fields: dict[str, Any] | None = None) -> tuple[str, str, str, str, str]:
     fields = fields or {}
-    if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}:
+    if is_makepad_cpu_yuv_path(path):
         return (
             "accepted-reference",
             "android-yuv420-888-plane-order",
@@ -653,7 +687,7 @@ def makepad_color_status(path: str, fields: dict[str, Any] | None = None) -> tup
             "limited",
             "yuv-plane-shader",
         )
-    if path.startswith("direct-camera-hardware-buffer"):
+    if is_makepad_hwb_external_path(path):
         effective_model = nonempty_text(fields.get("effectiveYcbcrModel"))
         effective_range = nonempty_text(fields.get("effectiveYcbcrRange"))
         conversion_mode = nonempty_text(fields.get("conversionMode"))
@@ -948,18 +982,17 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
     source_kind = normalized_source_kind(fields.get("sourceMode") or fields.get("source") or path)
     source_label = (
         str(fields.get("source") or "broker-h264-stream")
-        if path == "broker-h264-mediacodec-cpu-yuv"
+        if is_makepad_broker_h264_path(path)
         else "headset-camera2"
     )
-    handoff_label = (
-        "MediaCodec CPU YUV planes"
-        if path == "broker-h264-mediacodec-cpu-yuv"
-        else (
-            "AImageReader CPU YUV planes"
-            if path == "direct-camera-cpu-yuv-plane"
-            else "AImageReader AHardwareBuffer"
-        )
-    )
+    if path == "broker-h264-mediacodec-cpu-yuv":
+        handoff_label = "MediaCodec CPU YUV planes"
+    elif path == "broker-h264-mediacodec-hardware-buffer":
+        handoff_label = "MediaCodec ImageReader HardwareBuffer"
+    elif path == "direct-camera-cpu-yuv-plane":
+        handoff_label = "AImageReader CPU YUV planes"
+    else:
+        handoff_label = "AImageReader AHardwareBuffer"
     contract = base_contract(
         makepad_lane_kind(path),
         source_kind,
@@ -1002,14 +1035,14 @@ def build_makepad_contract(path: str, fields: dict[str, Any]) -> dict[str, Any]:
         {
             "transform_stage": (
                 "post-homography-pre-yuv-sample"
-                if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}
+                if is_makepad_cpu_yuv_path(path)
                 else "post-homography-pre-texture-sample"
             ),
             "transform_label": "source_sample_uv"
-            if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}
+            if is_makepad_cpu_yuv_path(path)
             else "external-hardware-buffer-sampler",
             "transform_owner": "makepad-camera-yuv-shader"
-            if path in {"direct-camera-cpu-yuv-plane", "broker-h264-mediacodec-cpu-yuv"}
+            if is_makepad_cpu_yuv_path(path)
             else "makepad-vulkan-video-texture",
             "yuv_rotation_steps": parse_int(fields.get("rotationSteps")),
         }
@@ -1189,6 +1222,7 @@ class ScanState:
         self.oes_transform: dict[str, Any] | None = None
         self.makepad_global_fields: dict[str, Any] = dict(makepad_context_fields or {})
         self.makepad_fields_by_path: dict[str, dict[str, Any]] = {}
+        self.last_makepad_hwb_path: str | None = None
 
     def update_hwb(self, fields: dict[str, Any]) -> None:
         self.hwb_fields.update(fields)
@@ -1199,6 +1233,8 @@ class ScanState:
     def update_makepad(self, path: str, fields: dict[str, Any]) -> None:
         lane_fields = self.makepad_fields_by_path.setdefault(path, dict(self.makepad_global_fields))
         merge_makepad_fields(lane_fields, fields)
+        if is_makepad_hwb_external_path(path):
+            self.last_makepad_hwb_path = path
 
     def update_makepad_global(self, fields: dict[str, Any]) -> None:
         merge_makepad_fields(self.makepad_global_fields, fields)
@@ -1270,7 +1306,12 @@ def scan_line(line: str, state: ScanState) -> None:
                 state.update_makepad_global(fields)
     if MAKEPAD_DESCRIPTOR_MARKER in line:
         fields = parse_marker_fields(line.split(MAKEPAD_DESCRIPTOR_MARKER, 1)[1])
-        state.update_makepad("direct-camera-hardware-buffer-external", fields)
+        path = state.last_makepad_hwb_path or makepad_path_from_fields_or_context(
+            fields, state.makepad_global_fields
+        )
+        if path is None or not is_makepad_hwb_external_path(path):
+            path = "direct-camera-hardware-buffer-external"
+        state.update_makepad(path, fields)
 
 
 def build_records(
@@ -1591,7 +1632,8 @@ def self_test() -> None:
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane eventResourcePath=cpu-yuv-planes descriptorShape=cpu-yuv-plane-textures cameraInputId=10 cameraFormatId=20 cameraFrameSeq=2 cameraTimestampNs=123 acquireTimeNs=111 uploadSeq=3 uploadTimeNs=456 textureUpdateSeq=3 textureWidth=1280 textureHeight=1280",
             "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=draw-vars-bound status=ok cameraReady=true yuvMode=false cameraTextureBinding=false projectionPanelDrawEnabled=false leftYuvTextureBound=false rightYuvTextureBound=false cameraTexturePath=direct-camera-cpu-yuv-plane",
             "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=combined-immutable-sampler-ycbcr-conversion cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false suggestedYcbcrModel=YCBCR_IDENTITY suggestedYcbcrRange=ITU_FULL effectiveYcbcrModel=YCBCR_601 effectiveYcbcrRange=ITU_NARROW ycbcrComponents=r,g,b,a suggestedXChromaOffset=COSITED_EVEN suggestedYChromaOffset=MIDPOINT conversionMode=forced-bt601-limited-cpuyuv-reference samplerBindingMode=combined-immutable-sampler samplerBindingCompliance=pure-hwb-reference-combined-immutable shaderSampleLowering=textureSampleLevel_combined_image_sampler_same_binding colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap",
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=combined-immutable-sampler-ycbcr-conversion cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false suggestedYcbcrModel=YCBCR_IDENTITY suggestedYcbcrRange=ITU_FULL effectiveYcbcrModel=YCBCR_601 effectiveYcbcrRange=ITU_NARROW ycbcrComponents=r,g,b,a suggestedXChromaOffset=COSITED_EVEN suggestedYChromaOffset=MIDPOINT conversionMode=forced-bt601-limited-cpuyuv-reference samplerBindingMode=combined-immutable-sampler samplerBindingCompliance=pure-hwb-reference-combined-immutable combinedImageSampler=true immutableSampler=true shaderSampleLowering=textureSampleLevel_combined_image_sampler_same_binding colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap",
+            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=broker-h264-mediacodec-hardware-buffer makepadVulkanImport=true textureImportPath=broker-h264-mediacodec-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=combined-immutable-sampler-ycbcr-conversion sourceMode=broker-camera source=broker_app.camera2_h264_stream cameraFrameSeq=8 cameraTimestampNs=456 importSeq=9 importTimeNs=1000 textureUpdateSeq=9 textureWidth=1280 textureHeight=1280",
             "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE schema=rusty.xr.makepad-vulkan-video-descriptor-shape.v1 textureDescriptorType=COMBINED_IMAGE_SAMPLER samplerDescriptorType=COMBINED_IMAGE_SAMPLER combinedImageSampler=true immutableSampler=true samplerBindingMode=combined-immutable-sampler samplerBindingCompliance=pure-hwb-reference-combined-immutable effectiveYcbcrModel=YCBCR_601 effectiveYcbcrRange=ITU_NARROW conversionMode=forced-bt601-limited-cpuyuv-reference shaderSampleLowering=textureSampleLevel_combined_image_sampler_same_binding colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap",
             "RUSTY_XR_MAKEPAD_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=xr-end-frame status=submitted renderPath=makepad-xr xrFrameSeq=9 shouldRender=true submitTimeNs=900 predictedDisplayTimeNs=1000 predictedDisplayPeriodNs=13888888 resultCode=0 layerCount=1",
         ]
@@ -1678,6 +1720,7 @@ def self_test() -> None:
             "gles-oes-direct-camera2-raw",
             "makepad-cpuyuv-direct-camera2-raw",
             "makepad-hwb-external-direct-camera2-raw",
+            "makepad-hwb-external-broker-h264-raw",
         }
         if set(lanes) != expected:
             raise AssertionError(f"unexpected lanes: {sorted(lanes)}")
@@ -1723,13 +1766,27 @@ def self_test() -> None:
             raise AssertionError("Makepad HWB color fix marker was not parsed")
         if lanes["makepad-hwb-external-direct-camera2-raw"]["timing"]["import_time_ns"] != 800:
             raise AssertionError("Makepad HWB event import time was not parsed")
+        broker_hwb = lanes["makepad-hwb-external-broker-h264-raw"]
+        if broker_hwb["source"]["source_kind"] != "broker-h264":
+            raise AssertionError("Makepad broker HWB source kind was not parsed")
+        if broker_hwb["source"]["handoff_label"] != "MediaCodec ImageReader HardwareBuffer":
+            raise AssertionError("Makepad broker HWB handoff label was not parsed")
+        if broker_hwb["resource"]["resource_kind"] != "makepad-hardware-buffer-external":
+            raise AssertionError("Makepad broker HWB resource kind was not parsed")
+        if (
+            broker_hwb["resource"]["resource_label"]
+            != "broker-h264-mediacodec-hardware-buffer-vulkan-import"
+        ):
+            raise AssertionError("Makepad broker HWB resource label was not parsed")
+        if broker_hwb["transform"]["transform_owner"] != "makepad-vulkan-video-texture":
+            raise AssertionError("Makepad broker HWB transform owner was not parsed")
         if lanes["gles-oes-direct-camera2-raw"]["timing"]["texture_update_sequence"] != 4:
             raise AssertionError("OES texture update count was not parsed")
-        if summary["record_count"] != 4:
+        if summary["record_count"] != 5:
             raise AssertionError("summary record count mismatch")
-        if summary["timing_field_counts"]["xr_end_frame_time_ns"] != 2:
+        if summary["timing_field_counts"]["xr_end_frame_time_ns"] != 3:
             raise AssertionError("summary did not count Makepad XR end-frame timing")
-        if summary["projection_border_policy_counts"].get("solid-red") != 4:
+        if summary["projection_border_policy_counts"].get("solid-red") != 5:
             raise AssertionError("summary did not apply projection context")
         if summary["run_config"]["xr_render_scale"] != 0.75:
             raise AssertionError("summary did not expose XR render scale")
@@ -1751,7 +1808,7 @@ def self_test() -> None:
             raise AssertionError("summary did not expose target scale")
         if summary["run_config"]["projection_target_joystick_controls"] != "offset-scale":
             raise AssertionError("summary did not expose target joystick controls")
-        if summary["processing_run_kind_counts"].get("raw-mask-footprint") != 4:
+        if summary["processing_run_kind_counts"].get("raw-mask-footprint") != 5:
             raise AssertionError("summary did not classify raw runs as raw-mask-footprint")
         fallback_record = {
             "projection": {

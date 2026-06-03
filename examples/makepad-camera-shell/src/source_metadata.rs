@@ -433,10 +433,15 @@ pub(crate) fn makepad_hardware_buffer_import_timer_armed_marker_fields(
     )
 }
 
-pub(crate) fn makepad_stream_header_metadata_ignored_marker_fields(video_id: u64) -> String {
+pub(crate) fn makepad_stream_header_metadata_ignored_marker_fields(
+    video_id: u64,
+    texture_path: MakepadCameraTexturePath,
+) -> String {
     format!(
-        "phase=stream-header-metadata status=ignored side=unknown videoId={} reason=unexpected_video_id importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+        "phase=stream-header-metadata status=ignored side=unknown videoId={} reason=unexpected_video_id textureMode={} importPlan={}",
         video_id,
+        texture_path.stable_id(),
+        texture_path.import_plan(),
     )
 }
 
@@ -444,12 +449,15 @@ pub(crate) fn makepad_stream_header_metadata_error_marker_fields(
     side_label: &str,
     metadata_bytes: usize,
     error: &str,
+    texture_path: MakepadCameraTexturePath,
 ) -> String {
     format!(
-        "phase=stream-header-metadata status=error side={} metadataBytes={} error={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+        "phase=stream-header-metadata status=error side={} metadataBytes={} error={} textureMode={} importPlan={}",
         side_label,
         metadata_bytes,
         marker_token(error),
+        texture_path.stable_id(),
+        texture_path.import_plan(),
     )
 }
 
@@ -460,22 +468,27 @@ pub(crate) fn makepad_hardware_buffer_import_broker_h264_startup_marker_fields(
     left_stream_port: u16,
     right_stream_port: u16,
     source_mode: &str,
+    decode_output_mode: &str,
     synthetic_pattern: &str,
     preferred_width: u32,
     preferred_height: u32,
     live_stream: bool,
+    texture_path: MakepadCameraTexturePath,
 ) -> String {
     format!(
-        "phase=startup status=broker-h264-enabled brokerHost={} brokerPort={} leftStreamPort={} rightStreamPort={} sourceMode={} syntheticPattern={} preferredWidth={} preferredHeight={} liveStream={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+        "phase=startup status=broker-h264-enabled brokerHost={} brokerPort={} leftStreamPort={} rightStreamPort={} sourceMode={} decodeOutputMode={} syntheticPattern={} preferredWidth={} preferredHeight={} liveStream={} textureMode={} importPlan={}",
         marker_token(broker_host),
         broker_port,
         left_stream_port,
         right_stream_port,
         marker_token(source_mode),
+        marker_token(decode_output_mode),
         marker_token(synthetic_pattern),
         preferred_width,
         preferred_height,
         live_stream,
+        texture_path.stable_id(),
+        texture_path.import_plan(),
     )
 }
 
@@ -531,18 +544,23 @@ pub(crate) fn makepad_hardware_buffer_import_broker_h264_prepare_request_marker_
     broker_port: u16,
     stream_port: u16,
     source_mode: &str,
+    decode_output_mode: &str,
     synthetic_pattern: &str,
     live_stream: bool,
+    texture_path: MakepadCameraTexturePath,
 ) -> String {
     format!(
-        "phase=broker-h264-prepare-request status=sent side={} textureHandle=0 textureMode=cpu-yuv brokerHost={} brokerPort={} streamPort={} sourceMode={} syntheticPattern={} liveStream={} importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+        "phase=broker-h264-prepare-request status=sent side={} textureHandle=0 textureMode={} brokerHost={} brokerPort={} streamPort={} sourceMode={} decodeOutputMode={} syntheticPattern={} liveStream={} importPlan={}",
         side_label,
+        texture_path.stable_id(),
         marker_token(broker_host),
         broker_port,
         stream_port,
         marker_token(source_mode),
+        marker_token(decode_output_mode),
         marker_token(synthetic_pattern),
         live_stream,
+        texture_path.import_plan(),
     )
 }
 
@@ -550,14 +568,8 @@ pub(crate) fn makepad_hardware_buffer_import_prepared_marker_fields(
     side_label: &str,
     width: u32,
     height: u32,
-    broker_h264_enabled: bool,
-    direct_texture_path: MakepadCameraTexturePath,
+    texture_path: MakepadCameraTexturePath,
 ) -> String {
-    let texture_path = if broker_h264_enabled {
-        MakepadCameraTexturePath::BrokerH264CpuYuv
-    } else {
-        direct_texture_path
-    };
     format!(
         "phase=prepared status=ok side={} width={} height={} importPath={} textureMode={} importPlan={} {}",
         side_label,
@@ -593,7 +605,7 @@ pub(crate) fn makepad_hardware_buffer_import_start_marker_fields(
     left_stream_port: &str,
     right_stream_port: &str,
     delayed_after_acquisition_seconds: f64,
-    direct_texture_path: MakepadCameraTexturePath,
+    texture_path: MakepadCameraTexturePath,
 ) -> String {
     hardware_buffer_import_start_marker_fields(
         broker_h264_enabled,
@@ -611,7 +623,7 @@ pub(crate) fn makepad_hardware_buffer_import_start_marker_fields(
         left_stream_port,
         right_stream_port,
         delayed_after_acquisition_seconds,
-        direct_texture_path,
+        texture_path,
     )
 }
 
@@ -689,28 +701,24 @@ fn hardware_buffer_import_start_marker_fields(
     left_stream_port: &str,
     right_stream_port: &str,
     delayed_after_acquisition_seconds: f64,
-    direct_texture_path: MakepadCameraTexturePath,
+    texture_path: MakepadCameraTexturePath,
 ) -> String {
-    let (import_plan, import_path, texture_format) = if broker_h264_enabled {
-        (
-            "broker-h264-stereo-mediacodec-yuv-texture",
-            "broker-h264-mediacodec-cpu-yuv",
-            "VideoYuvPlaneStereo",
-        )
-    } else {
-        (
-            direct_texture_path.import_plan(),
-            direct_texture_path.texture_import_path(),
-            if direct_texture_path.makepad_vulkan_import() {
-                "VideoExternal"
-            } else {
-                "VideoYuvPlane"
-            },
-        )
+    let texture_format = match texture_path {
+        MakepadCameraTexturePath::BrokerH264CpuYuv => "VideoYuvPlaneStereo",
+        MakepadCameraTexturePath::DirectCpuYuvPlane => "VideoYuvPlane",
+        MakepadCameraTexturePath::DirectHardwareBufferExternal
+        | MakepadCameraTexturePath::DirectHardwareBufferYuvPlane
+        | MakepadCameraTexturePath::BrokerH264HardwareBuffer
+        | MakepadCameraTexturePath::BrokerH264SurfaceTexture => "VideoExternal",
     };
+    let (import_plan, import_path) = (
+        texture_path.import_plan(),
+        texture_path.texture_import_path(),
+    );
     format!(
-        "phase=start status=started importPlan={} leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftFrameRate={} rightFrameRate={} pixelFormat={} leftStreamPort={} rightStreamPort={} importPath={} textureFormat={} depthClip=false environmentDepthClip=false delayedAfterAcquisitionSeconds={:.0}",
+        "phase=start status=started importPlan={} brokerH264Enabled={} leftSourceIndex={} rightSourceIndex={} leftSourceClass={} rightSourceClass={} leftWidth={} leftHeight={} rightWidth={} rightHeight={} leftFrameRate={} rightFrameRate={} pixelFormat={} leftStreamPort={} rightStreamPort={} importPath={} textureMode={} textureFormat={} depthClip=false environmentDepthClip=false delayedAfterAcquisitionSeconds={:.0}",
         import_plan,
+        broker_h264_enabled,
         left_source_index,
         right_source_index,
         left_source_class,
@@ -725,6 +733,7 @@ fn hardware_buffer_import_start_marker_fields(
         left_stream_port,
         right_stream_port,
         import_path,
+        texture_path.stable_id(),
         texture_format,
         delayed_after_acquisition_seconds,
     )
@@ -1533,10 +1542,11 @@ pub(crate) fn missing_broker_content_geometry_marker_fields() -> String {
 pub(crate) fn stream_header_metadata_marker_fields(
     side_label: &str,
     metadata: &BrokerH264ProjectionMetadata,
+    texture_path: MakepadCameraTexturePath,
 ) -> String {
     let content_geometry = ContentGeometryRecord::from_broker_metadata(metadata);
     format!(
-        "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} projectionGeometryProfile={} geometry_profile={} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} deliveredWidth={} deliveredHeight={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} sourceSamplingMode={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={} targetFootprintSchema={} targetCoordinateSpace={} targetScreenUvRect={} targetClipPolicy={} targetFootprintMetadataSource={} targetFootprintDefault={} effectBoundary=target-footprint importPlan=broker-h264-stereo-mediacodec-yuv-texture",
+        "phase=stream-header-metadata status=ok side={} metadataBytes={} cameraId={} projectionMetadataReady={} poseSource={} poseCoordinateConvention={} source={} projectionGeometryProfile={} geometry_profile={} syntheticPattern={} orientationKind={} rasterOrientation={} uprightMarker={} orientationMetadataSource={} orientationDefault={} stimulusRasterOrientation={} stimulusUprightMarker={} stimulusOrientationDefault={} deliveredWidth={} deliveredHeight={} contentKind={} contentWidth={} contentHeight={} contentAspectRatio={:.6} desiredDisplayAspectRatio={:.6} desiredProjectionAspectRatio={:.6} contentCoordinateSpace={} contentOrigin={} contentXAxis={} contentYAxis={} contentMappingIntent={} sourceSamplingMode={} contentGeometryMetadataSource={} contentGeometryDefault={} sourceValidUvRect={} targetFootprintSchema={} targetCoordinateSpace={} targetScreenUvRect={} targetClipPolicy={} targetFootprintMetadataSource={} targetFootprintDefault={} effectBoundary=target-footprint textureMode={} importPlan={}",
         side_label,
         metadata.metadata_bytes,
         marker_token(&metadata.camera_id),
@@ -1583,6 +1593,8 @@ pub(crate) fn stream_header_metadata_marker_fields(
         marker_token(&metadata.target_clip_policy),
         marker_token(&metadata.target_footprint_metadata_source),
         metadata.target_footprint_default,
+        texture_path.stable_id(),
+        texture_path.import_plan(),
     )
 }
 
@@ -1921,7 +1933,11 @@ mod tests {
         )
         .unwrap();
 
-        let fields = stream_header_metadata_marker_fields("left", &metadata);
+        let fields = stream_header_metadata_marker_fields(
+            "left",
+            &metadata,
+            MakepadCameraTexturePath::BrokerH264CpuYuv,
+        );
 
         assert!(fields.starts_with("phase=stream-header-metadata status=ok side=left"));
         assert!(fields.contains("cameraId=left_camera"));
@@ -1930,7 +1946,9 @@ mod tests {
         assert!(fields.contains("contentWidth=640 contentHeight=480"));
         assert!(fields.contains("contentMappingIntent=map_full_frame_content"));
         assert!(fields.contains("sourceValidUvRect=0.100000,0.200000,0.800000,0.600000"));
-        assert!(fields.ends_with("importPlan=broker-h264-stereo-mediacodec-yuv-texture"));
+        assert!(fields.ends_with(
+            "textureMode=broker-h264-mediacodec-cpu-yuv importPlan=broker-h264-stereo-mediacodec-yuv-texture"
+        ));
     }
 
     #[test]
@@ -2035,10 +2053,12 @@ mod tests {
                 8765,
                 8880,
                 "synthetic h264",
+                "hardware buffer",
                 "diagnostic grid",
                 false,
+                MakepadCameraTexturePath::BrokerH264HardwareBuffer,
             ),
-            "phase=broker-h264-prepare-request status=sent side=right textureHandle=0 textureMode=cpu-yuv brokerHost=127.0.0.1 brokerPort=8765 streamPort=8880 sourceMode=synthetic_h264 syntheticPattern=diagnostic_grid liveStream=false importPlan=broker-h264-stereo-mediacodec-yuv-texture"
+            "phase=broker-h264-prepare-request status=sent side=right textureHandle=0 textureMode=broker-h264-mediacodec-hardware-buffer brokerHost=127.0.0.1 brokerPort=8765 streamPort=8880 sourceMode=synthetic_h264 decodeOutputMode=hardware_buffer syntheticPattern=diagnostic_grid liveStream=false importPlan=broker-h264-stereo-mediacodec-hardware-buffer"
         );
         assert_eq!(
             makepad_hardware_buffer_import_broker_h264_startup_marker_fields(
@@ -2047,20 +2067,30 @@ mod tests {
                 8879,
                 8880,
                 "broker camera",
+                "cpu-yuv",
                 "uv grid",
                 1280,
                 720,
                 true,
+                MakepadCameraTexturePath::BrokerH264CpuYuv,
             ),
-            "phase=startup status=broker-h264-enabled brokerHost=127.0.0.1 brokerPort=8765 leftStreamPort=8879 rightStreamPort=8880 sourceMode=broker_camera syntheticPattern=uv_grid preferredWidth=1280 preferredHeight=720 liveStream=true importPlan=broker-h264-stereo-mediacodec-yuv-texture"
+            "phase=startup status=broker-h264-enabled brokerHost=127.0.0.1 brokerPort=8765 leftStreamPort=8879 rightStreamPort=8880 sourceMode=broker_camera decodeOutputMode=cpu-yuv syntheticPattern=uv_grid preferredWidth=1280 preferredHeight=720 liveStream=true textureMode=broker-h264-mediacodec-cpu-yuv importPlan=broker-h264-stereo-mediacodec-yuv-texture"
         );
         assert_eq!(
-            makepad_stream_header_metadata_ignored_marker_fields(99),
-            "phase=stream-header-metadata status=ignored side=unknown videoId=99 reason=unexpected_video_id importPlan=broker-h264-stereo-mediacodec-yuv-texture"
+            makepad_stream_header_metadata_ignored_marker_fields(
+                99,
+                MakepadCameraTexturePath::BrokerH264HardwareBuffer,
+            ),
+            "phase=stream-header-metadata status=ignored side=unknown videoId=99 reason=unexpected_video_id textureMode=broker-h264-mediacodec-hardware-buffer importPlan=broker-h264-stereo-mediacodec-hardware-buffer"
         );
         assert_eq!(
-            makepad_stream_header_metadata_error_marker_fields("left", 123, "bad json"),
-            "phase=stream-header-metadata status=error side=left metadataBytes=123 error=bad_json importPlan=broker-h264-stereo-mediacodec-yuv-texture"
+            makepad_stream_header_metadata_error_marker_fields(
+                "left",
+                123,
+                "bad json",
+                MakepadCameraTexturePath::BrokerH264HardwareBuffer,
+            ),
+            "phase=stream-header-metadata status=error side=left metadataBytes=123 error=bad_json textureMode=broker-h264-mediacodec-hardware-buffer importPlan=broker-h264-stereo-mediacodec-hardware-buffer"
         );
         assert_eq!(
             makepad_hardware_buffer_import_yuv_textures_ready_broker_marker_fields("left"),
@@ -2078,7 +2108,6 @@ mod tests {
                 "left",
                 1280,
                 720,
-                false,
                 MakepadCameraTexturePath::DirectCpuYuvPlane,
             ),
             "phase=prepared status=ok side=left width=1280 height=720 importPath=makepad-camera-cpu-yuv-plane textureMode=direct-camera-cpu-yuv-plane importPlan=paired-camera-cpu-yuv-fallback cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane visualColorStatus=accepted-cpu-yuv-reference"
@@ -2113,9 +2142,30 @@ mod tests {
                 "8879",
                 "8880",
                 0.25,
-                MakepadCameraTexturePath::DirectCpuYuvPlane,
+                MakepadCameraTexturePath::BrokerH264CpuYuv,
             ),
-            "phase=start status=started importPlan=broker-h264-stereo-mediacodec-yuv-texture leftSourceIndex=0 rightSourceIndex=1 leftSourceClass=broker-h264 rightSourceClass=broker-h264 leftWidth=1280 leftHeight=720 rightWidth=1280 rightHeight=720 leftFrameRate=30.00 rightFrameRate=30.00 pixelFormat=YUV420 leftStreamPort=8879 rightStreamPort=8880 importPath=broker-h264-mediacodec-cpu-yuv textureFormat=VideoYuvPlaneStereo depthClip=false environmentDepthClip=false delayedAfterAcquisitionSeconds=0"
+            "phase=start status=started importPlan=broker-h264-stereo-mediacodec-yuv-texture brokerH264Enabled=true leftSourceIndex=0 rightSourceIndex=1 leftSourceClass=broker-h264 rightSourceClass=broker-h264 leftWidth=1280 leftHeight=720 rightWidth=1280 rightHeight=720 leftFrameRate=30.00 rightFrameRate=30.00 pixelFormat=YUV420 leftStreamPort=8879 rightStreamPort=8880 importPath=broker-h264-mediacodec-cpu-yuv textureMode=broker-h264-mediacodec-cpu-yuv textureFormat=VideoYuvPlaneStereo depthClip=false environmentDepthClip=false delayedAfterAcquisitionSeconds=0"
+        );
+        assert_eq!(
+            hardware_buffer_import_start_marker_fields(
+                true,
+                0,
+                1,
+                "broker-h264",
+                "broker-h264",
+                1280,
+                720,
+                1280,
+                720,
+                "50.00",
+                "50.00",
+                "PRIVATE",
+                "8879",
+                "8880",
+                0.25,
+                MakepadCameraTexturePath::BrokerH264HardwareBuffer,
+            ),
+            "phase=start status=started importPlan=broker-h264-stereo-mediacodec-hardware-buffer brokerH264Enabled=true leftSourceIndex=0 rightSourceIndex=1 leftSourceClass=broker-h264 rightSourceClass=broker-h264 leftWidth=1280 leftHeight=720 rightWidth=1280 rightHeight=720 leftFrameRate=50.00 rightFrameRate=50.00 pixelFormat=PRIVATE leftStreamPort=8879 rightStreamPort=8880 importPath=broker-h264-mediacodec-hardware-buffer-vulkan-import textureMode=broker-h264-mediacodec-hardware-buffer textureFormat=VideoExternal depthClip=false environmentDepthClip=false delayedAfterAcquisitionSeconds=0"
         );
         assert_eq!(
             makepad_hardware_buffer_import_raw_video_event_marker_line(

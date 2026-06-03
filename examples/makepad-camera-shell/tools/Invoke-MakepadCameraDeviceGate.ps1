@@ -40,8 +40,10 @@ param(
     [string]$CameraRightTargetScreenUvRect = "0.078125;0.21875;0.75;0.671875",
     [ValidateSet("head-anchored-virtual-camera", "camera-matched", "full-frame-diagnostic")]
     [string]$BrokerH264SyntheticProjectionProfile = "head-anchored-virtual-camera",
-    [string]$BrokerH264LeftCameraId = "",
-    [string]$BrokerH264RightCameraId = "",
+    [ValidateSet("cpu-yuv", "hardware-buffer", "surface-texture")]
+    [string]$BrokerH264DecodeOutputMode = "cpu-yuv",
+    [string]$BrokerH264LeftCameraId = "50",
+    [string]$BrokerH264RightCameraId = "51",
     [int]$BrokerH264Width = 1280,
     [int]$BrokerH264Height = 1280,
     [int]$BrokerH264CaptureMs = 45000,
@@ -147,6 +149,14 @@ if ($FreshnessRequiredUniqueHashes -gt $FreshnessFrames) {
 }
 if ($BrokerH264MinimumPerEyeTextureUpdates -lt 1) {
     throw "BrokerH264MinimumPerEyeTextureUpdates must be at least 1."
+}
+if ($UseBrokerH264Camera) {
+    if ([string]::IsNullOrWhiteSpace($BrokerH264LeftCameraId) -or [string]::IsNullOrWhiteSpace($BrokerH264RightCameraId)) {
+        throw "Broker camera runs require explicit left/right camera IDs. Use -BrokerH264LeftCameraId 50 -BrokerH264RightCameraId 51 for the Quest stereo pair."
+    }
+    if ($BrokerH264LeftCameraId.Trim() -eq $BrokerH264RightCameraId.Trim()) {
+        throw "Broker camera left/right camera IDs must differ; both were '$($BrokerH264LeftCameraId.Trim())'."
+    }
 }
 if ([double]::IsNaN($ProjectionTargetScale) -or [double]::IsInfinity($ProjectionTargetScale) -or $ProjectionTargetScale -lt 0.05 -or $ProjectionTargetScale -gt 1.50) {
     throw "ProjectionTargetScale must be finite and within [0.05, 1.50]; got $ProjectionTargetScale"
@@ -689,6 +699,7 @@ function Set-MakepadBrokerH264Profile {
         "debug.rustyxr.makepad.broker.h264.stream.port" = $BrokerH264LeftStreamPort
         "debug.rustyxr.makepad.broker.h264.right.stream.port" = $BrokerH264RightStreamPort
         "debug.rustyxr.makepad.broker.h264.source.mode" = $sourceMode
+        "debug.rustyxr.makepad.broker.h264.decode.output.mode" = $BrokerH264DecodeOutputMode
         "debug.rustyxr.makepad.broker.h264.synthetic.pattern" = $BrokerH264SyntheticPattern
         "debug.rustyxr.makepad.broker.h264.projection.geometry.profile" = $projectionGeometryProfile
         "debug.rustyxr.makepad.broker.h264.synthetic.projection.profile" = $syntheticProjectionProfile
@@ -892,15 +903,32 @@ function Capture-LaunchState {
     $openxrEndFrame = @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_OPENXR_END_FRAME").Count
     $frameFlowEndFrame = @($log | Select-String -Pattern "RUSTY_XR_MAKEPAD_FRAME_FLOW.*phase=xr-end-frame.*status=submitted").Count
     $endFrame = $openxrEndFrame + $frameFlowEndFrame
+    $frameAdoptionLines = @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_FRAME_ADOPTION" | ForEach-Object { $_.Line })
+    $frameAdoptionCount = @($frameAdoptionLines).Count
+    $frameAdoptionPoseMatchedCount = @($frameAdoptionLines | Select-String -SimpleMatch "poseSource=makepad-xr-update-predicted-display-pose").Count
+    $frameAdoptionCloseTimestampMatchCount = @($frameAdoptionLines | Select-String -SimpleMatch "closeTimestampMatch=true").Count
+    $frameAdoptionTimingGapCount = @($frameAdoptionLines | Select-String -SimpleMatch "pairingStatus=latest-complete-with-timing-gap").Count
+    $latestFrameAdoptionLine = @($frameAdoptionLines | Select-Object -Last 1)
     $visiblePanel = @($log | Select-String -SimpleMatch "visibleCameraProjectionReady=true").Count
     $xrCadence = @($log | Select-String -Pattern "RUSTY_XR_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\\.00)").Count
     $loadingSignals = @($log | Select-String -Pattern "(?i)XrPermissionsFlow|preflight|loading").Count
     $brokerH264PrepareRequestCount = @($log | Select-String -SimpleMatch "phase=broker-h264-prepare-request status=sent").Count
     $brokerH264UnboundedHeaderCount = @($log | Select-String -SimpleMatch "packets=0 metadataBytes=").Count
     $brokerH264StreamHeaderMetadataCount = @($log | Select-String -SimpleMatch "phase=stream-header-metadata status=ok").Count
+    $leftCameraIdPattern = [regex]::Escape($BrokerH264LeftCameraId.Trim())
+    $rightCameraIdPattern = [regex]::Escape($BrokerH264RightCameraId.Trim())
+    $brokerH264LeftRequestedCameraHeaderCount = if ($leftCameraIdPattern.Length -gt 0) {
+        @($log | Select-String -Pattern "phase=stream-header-metadata status=ok side=left .*cameraId=$leftCameraIdPattern(?:\s|$)").Count
+    } else { 0 }
+    $brokerH264RightRequestedCameraHeaderCount = if ($rightCameraIdPattern.Length -gt 0) {
+        @($log | Select-String -Pattern "phase=stream-header-metadata status=ok side=right .*cameraId=$rightCameraIdPattern(?:\s|$)").Count
+    } else { 0 }
     $brokerH264PreparedCount = @($log | Select-String -SimpleMatch "phase=prepared status=ok").Count
     $brokerH264YuvTexturesReadyCount = @($log | Select-String -SimpleMatch "textureMode=cpu-yuv-decoded-broker-h264").Count
-    $brokerH264TextureUpdateCount = @($log | Select-String -Pattern "phase=texture-updated status=ok.*cpuUploadPath=broker-h264-mediacodec-cpu-yuv").Count
+    $brokerH264YuvTextureUpdateCount = @($log | Select-String -Pattern "phase=texture-updated status=ok.*cpuUploadPath=broker-h264-mediacodec-cpu-yuv").Count
+    $brokerH264HardwareBufferTextureUpdateCount = @($log | Select-String -Pattern "phase=texture-updated status=ok.*cameraTexturePath=broker-h264-mediacodec-hardware-buffer").Count
+    $brokerH264HardwareBufferFrameCount = @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_BROKER_H264_HARDWARE_BUFFER_FRAME").Count
+    $brokerH264TextureUpdateCount = $brokerH264YuvTextureUpdateCount + $brokerH264HardwareBufferTextureUpdateCount
     $brokerH264DecodeErrorCount = @($log | Select-String -Pattern "event=decode-error|Broker H[.]264 playback failed").Count
     $brokerH264ProgressLines = @($log | Select-String -SimpleMatch "Broker H.264 playback progress" | ForEach-Object { $_.Line })
     $brokerH264ProgressCount = @($brokerH264ProgressLines).Count
@@ -909,10 +937,12 @@ function Capture-LaunchState {
     $brokerH264InputQueuedMax = 0
     $brokerH264DecodedFrameMax = 0
     $brokerH264YuvFrameEmitMax = 0
+    $brokerH264HardwareBufferFrameEmitMax = 0
     $brokerH264PacketReadRateHzMax = 0.0
     $brokerH264InputQueueRateHzMax = 0.0
     $brokerH264DecodedFrameRateHzMax = 0.0
     $brokerH264YuvFrameEmitRateHzMax = 0.0
+    $brokerH264HardwareBufferFrameEmitRateHzMax = 0.0
     $brokerH264YuvCopyTimeMsMax = 0
     $brokerH264YuvCopyAvgMsMax = 0.0
     foreach ($line in $brokerH264ProgressLines) {
@@ -927,6 +957,9 @@ function Capture-LaunchState {
         }
         if ($line -match "yuvFrameEmitCount=(\d+)") {
             $brokerH264YuvFrameEmitMax = [Math]::Max($brokerH264YuvFrameEmitMax, [int]$Matches[1])
+        }
+        if ($line -match "hardwareBufferFrameEmitCount=(\d+)") {
+            $brokerH264HardwareBufferFrameEmitMax = [Math]::Max($brokerH264HardwareBufferFrameEmitMax, [int]$Matches[1])
         }
         if ($line -match "yuvCopyTimeMs=(\d+)") {
             $brokerH264YuvCopyTimeMsMax = [Math]::Max($brokerH264YuvCopyTimeMsMax, [int]$Matches[1])
@@ -945,6 +978,9 @@ function Capture-LaunchState {
         }
         if ($line -match "yuvFrameEmitRateHz=([0-9.]+)") {
             $brokerH264YuvFrameEmitRateHzMax = [Math]::Max($brokerH264YuvFrameEmitRateHzMax, (Parse-DoubleInvariant $Matches[1]))
+        }
+        if ($line -match "hardwareBufferFrameEmitRateHz=([0-9.]+)") {
+            $brokerH264HardwareBufferFrameEmitRateHzMax = [Math]::Max($brokerH264HardwareBufferFrameEmitRateHzMax, (Parse-DoubleInvariant $Matches[1]))
         }
     }
     $pairedCameraFrameCadenceCount = @($log | Select-String -SimpleMatch "pairedLeftRightCameraFrames=true").Count
@@ -980,6 +1016,11 @@ function Capture-LaunchState {
         openxrEndFrameCount = $endFrame
         legacyOpenxrEndFrameMarkerCount = $openxrEndFrame
         frameFlowEndFrameMarkerCount = $frameFlowEndFrame
+        frameAdoptionMarkerCount = $frameAdoptionCount
+        frameAdoptionPoseMatchedMarkerCount = $frameAdoptionPoseMatchedCount
+        frameAdoptionCloseTimestampMatchMarkerCount = $frameAdoptionCloseTimestampMatchCount
+        frameAdoptionTimingGapMarkerCount = $frameAdoptionTimingGapCount
+        latestFrameAdoptionMarker = if ($latestFrameAdoptionLine) { [string]$latestFrameAdoptionLine } else { "" }
         visiblePanelMarkerCount = $visiblePanel
         nonzeroXrCadenceMarkerCount = $xrCadence
         loadingSignalCount = $loadingSignals
@@ -1067,9 +1108,14 @@ function Capture-LaunchState {
         brokerH264PrepareRequestMarkerCount = $brokerH264PrepareRequestCount
         brokerH264UnboundedStreamHeaderMarkerCount = $brokerH264UnboundedHeaderCount
         brokerH264StreamHeaderMetadataMarkerCount = $brokerH264StreamHeaderMetadataCount
+        brokerH264LeftRequestedCameraHeaderMarkerCount = $brokerH264LeftRequestedCameraHeaderCount
+        brokerH264RightRequestedCameraHeaderMarkerCount = $brokerH264RightRequestedCameraHeaderCount
         brokerH264PreparedMarkerCount = $brokerH264PreparedCount
         brokerH264YuvTexturesReadyMarkerCount = $brokerH264YuvTexturesReadyCount
         brokerH264TextureUpdateMarkerCount = $brokerH264TextureUpdateCount
+        brokerH264YuvTextureUpdateMarkerCount = $brokerH264YuvTextureUpdateCount
+        brokerH264HardwareBufferTextureUpdateMarkerCount = $brokerH264HardwareBufferTextureUpdateCount
+        brokerH264HardwareBufferFrameMarkerCount = $brokerH264HardwareBufferFrameCount
         brokerH264DecodeErrorMarkerCount = $brokerH264DecodeErrorCount
         brokerH264ProgressMarkerCount = $brokerH264ProgressCount
         brokerH264CompleteProgressMarkerCount = $brokerH264CompleteProgressCount
@@ -1077,19 +1123,21 @@ function Capture-LaunchState {
         brokerH264InputQueuedMax = $brokerH264InputQueuedMax
         brokerH264DecodedFrameMax = $brokerH264DecodedFrameMax
         brokerH264YuvFrameEmitMax = $brokerH264YuvFrameEmitMax
+        brokerH264HardwareBufferFrameEmitMax = $brokerH264HardwareBufferFrameEmitMax
         brokerH264YuvCopyTimeMsMax = $brokerH264YuvCopyTimeMsMax
         brokerH264YuvCopyAvgMsMax = $brokerH264YuvCopyAvgMsMax
         brokerH264PacketReadRateHzMax = $brokerH264PacketReadRateHzMax
         brokerH264InputQueueRateHzMax = $brokerH264InputQueueRateHzMax
         brokerH264DecodedFrameRateHzMax = $brokerH264DecodedFrameRateHzMax
         brokerH264YuvFrameEmitRateHzMax = $brokerH264YuvFrameEmitRateHzMax
+        brokerH264HardwareBufferFrameEmitRateHzMax = $brokerH264HardwareBufferFrameEmitRateHzMax
         brokerH264DecodedTextureReady = [bool]($brokerH264PreparedCount -gt 0 -and $brokerH264TextureUpdateCount -gt 0 -and $brokerH264DecodeErrorCount -eq 0)
         brokerH264LeftTextureUpdateMax = $leftTextureUpdateMax
         brokerH264RightTextureUpdateMax = $rightTextureUpdateMax
         pairedCameraFrameCadenceMarkerCount = $pairedCameraFrameCadenceCount
         alignedProjectionCadenceMarkerCount = $alignedProjectionCadenceCount
         projectionMappingReadyCadenceMarkerCount = $projectionMappingReadyCadenceCount
-        brokerH264StereoProofMarkerCount = @($log | Select-String -SimpleMatch "cpuUploadPath=broker-h264-mediacodec-cpu-yuv").Count
+        brokerH264StereoProofMarkerCount = @($log | Select-String -Pattern "cpuUploadPath=broker-h264-mediacodec-cpu-yuv|cameraTexturePath=broker-h264-mediacodec-hardware-buffer").Count
         brokerH264SyntheticSourceMarkerCount = @($log | Select-String -SimpleMatch "sourceBindingMode=broker-h264-synthetic-stereo-stream").Count
         projectionHomographyReadyMarkerCount = @($log | Select-String -SimpleMatch "projectionHomographyReady=true").Count
         s71EyeCenteredMarkerCount = @($log | Select-String -SimpleMatch "s71EyeCenteredPanel=true").Count
@@ -1547,28 +1595,169 @@ if ($readyAttempt -and $metaPerfStaleStatus -eq "stale") {
 elseif ($readyAttempt -and $metaPerfStaleStatus -eq "tool-failed") {
     $metaPerfStaleGateFailures += "Meta performance stale analysis tool failed"
 }
+
+function Get-AttemptPropertyValue {
+    param(
+        [object]$Attempt,
+        [string]$PropertyName
+    )
+    if ($null -eq $Attempt) {
+        return $null
+    }
+    if ($Attempt -is [System.Collections.IDictionary]) {
+        if ($Attempt.Contains($PropertyName)) {
+            return $Attempt[$PropertyName]
+        }
+        return $null
+    }
+    $property = $Attempt.PSObject.Properties[$PropertyName]
+    if ($null -ne $property) {
+        return $property.Value
+    }
+    return $null
+}
+
+function Get-AttemptIntPropertyTotal {
+    param(
+        [object[]]$Attempts,
+        [string]$PropertyName
+    )
+    $total = 0
+    foreach ($attempt in @($Attempts)) {
+        $value = Get-AttemptPropertyValue -Attempt $attempt -PropertyName $PropertyName
+        if ($null -ne $value -and -not [string]::IsNullOrWhiteSpace([string]$value)) {
+            $total += [int]$value
+        }
+    }
+    return $total
+}
+
+function Get-AttemptIntPropertyMax {
+    param(
+        [object[]]$Attempts,
+        [string]$PropertyName
+    )
+    $maxValue = 0
+    foreach ($attempt in @($Attempts)) {
+        $value = Get-AttemptPropertyValue -Attempt $attempt -PropertyName $PropertyName
+        if ($null -ne $value -and -not [string]::IsNullOrWhiteSpace([string]$value)) {
+            $maxValue = [Math]::Max($maxValue, [int]$value)
+        }
+    }
+    return $maxValue
+}
+
+function Test-AttemptBoolPropertyAny {
+    param(
+        [object[]]$Attempts,
+        [string]$PropertyName
+    )
+    foreach ($attempt in @($Attempts)) {
+        $value = Get-AttemptPropertyValue -Attempt $attempt -PropertyName $PropertyName
+        if ($null -eq $value) {
+            continue
+        }
+        if ($value -is [bool]) {
+            if ($value) {
+                return $true
+            }
+            continue
+        }
+        if ([string]$value -eq "true") {
+            return $true
+        }
+    }
+    return $false
+}
+
 $brokerH264StereoProjectionGateFailures = @()
 $brokerH264ModeEnabled = [bool]($UseBrokerH264Camera -or $UseBrokerH264Synthetic)
 $brokerH264StereoProjectionAttempt = if ($finalAttempt) { $finalAttempt } else { $readyAttempt }
+$frameAdoptionAttempt = if ($finalAttempt) { $finalAttempt } else { $readyAttempt }
+$brokerH264StereoProjectionAttempts = @($attempts | Where-Object { $null -ne $_ })
+$brokerH264DecodedTextureReadyAny = Test-AttemptBoolPropertyAny `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "brokerH264DecodedTextureReady"
+$brokerH264PreparedTotal = Get-AttemptIntPropertyTotal `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "brokerH264PreparedMarkerCount"
+$brokerH264TextureUpdateTotal = Get-AttemptIntPropertyTotal `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "brokerH264TextureUpdateMarkerCount"
+$brokerH264YuvTextureUpdateTotal = Get-AttemptIntPropertyTotal `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "brokerH264YuvTextureUpdateMarkerCount"
+$brokerH264HardwareBufferTextureUpdateTotal = Get-AttemptIntPropertyTotal `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "brokerH264HardwareBufferTextureUpdateMarkerCount"
+$brokerH264HardwareBufferFrameTotal = Get-AttemptIntPropertyTotal `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "brokerH264HardwareBufferFrameMarkerCount"
+$brokerH264DecodeErrorTotal = Get-AttemptIntPropertyTotal `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "brokerH264DecodeErrorMarkerCount"
+$brokerH264LeftTextureUpdateMax = Get-AttemptIntPropertyMax `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "brokerH264LeftTextureUpdateMax"
+$brokerH264RightTextureUpdateMax = Get-AttemptIntPropertyMax `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "brokerH264RightTextureUpdateMax"
+$brokerH264PairedMarkerTotal = Get-AttemptIntPropertyTotal `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "pairedCameraFrameCadenceMarkerCount"
+$brokerH264ProjectionMappingReadyTotal = Get-AttemptIntPropertyTotal `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "projectionMappingReadyCadenceMarkerCount"
+$brokerH264FrameAdoptionTotal = Get-AttemptIntPropertyTotal `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "frameAdoptionMarkerCount"
+$brokerH264FrameAdoptionPoseMatchedTotal = Get-AttemptIntPropertyTotal `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "frameAdoptionPoseMatchedMarkerCount"
+$brokerH264LeftRequestedCameraHeaderTotal = Get-AttemptIntPropertyTotal `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "brokerH264LeftRequestedCameraHeaderMarkerCount"
+$brokerH264RightRequestedCameraHeaderTotal = Get-AttemptIntPropertyTotal `
+    -Attempts $brokerH264StereoProjectionAttempts `
+    -PropertyName "brokerH264RightRequestedCameraHeaderMarkerCount"
+$brokerH264HardwareBufferOutputProof = [bool](
+    $BrokerH264DecodeOutputMode -eq "hardware-buffer" -and
+    $brokerH264PreparedTotal -gt 0 -and
+    $brokerH264HardwareBufferFrameTotal -ge ($BrokerH264MinimumPerEyeTextureUpdates * 2) -and
+    $brokerH264DecodeErrorTotal -eq 0)
+$brokerH264DecodedTextureReadyAggregate = [bool](
+    $brokerH264DecodedTextureReadyAny -or
+    ($brokerH264PreparedTotal -gt 0 -and $brokerH264TextureUpdateTotal -gt 0 -and $brokerH264DecodeErrorTotal -eq 0) -or
+    $brokerH264HardwareBufferOutputProof)
 if ($brokerH264StereoProjectionAttempt -and $RequireBrokerH264StereoProjection -and $brokerH264ModeEnabled) {
-    $leftTextureUpdateMax = [int]$brokerH264StereoProjectionAttempt.brokerH264LeftTextureUpdateMax
-    $rightTextureUpdateMax = [int]$brokerH264StereoProjectionAttempt.brokerH264RightTextureUpdateMax
-    $pairedMarkerCount = [int]$brokerH264StereoProjectionAttempt.pairedCameraFrameCadenceMarkerCount
-    $projectionMappingReadyCount = [int]$brokerH264StereoProjectionAttempt.projectionMappingReadyCadenceMarkerCount
-    if (-not [bool]$brokerH264StereoProjectionAttempt.brokerH264DecodedTextureReady) {
+    if ($UseBrokerH264Camera) {
+        if ($brokerH264LeftRequestedCameraHeaderTotal -lt 1) {
+            $brokerH264StereoProjectionGateFailures += "left broker stream header did not confirm requested cameraId=$BrokerH264LeftCameraId"
+        }
+        if ($brokerH264RightRequestedCameraHeaderTotal -lt 1) {
+            $brokerH264StereoProjectionGateFailures += "right broker stream header did not confirm requested cameraId=$BrokerH264RightCameraId"
+        }
+    }
+    if (-not $brokerH264DecodedTextureReadyAggregate) {
         $brokerH264StereoProjectionGateFailures += "broker H.264 decoded texture was not marked ready"
     }
-    if ($leftTextureUpdateMax -lt $BrokerH264MinimumPerEyeTextureUpdates) {
-        $brokerH264StereoProjectionGateFailures += "left texture update max $leftTextureUpdateMax below required $BrokerH264MinimumPerEyeTextureUpdates"
+    if ($brokerH264LeftTextureUpdateMax -lt $BrokerH264MinimumPerEyeTextureUpdates) {
+        $brokerH264StereoProjectionGateFailures += "left texture update max $brokerH264LeftTextureUpdateMax below required $BrokerH264MinimumPerEyeTextureUpdates"
     }
-    if ($rightTextureUpdateMax -lt $BrokerH264MinimumPerEyeTextureUpdates) {
-        $brokerH264StereoProjectionGateFailures += "right texture update max $rightTextureUpdateMax below required $BrokerH264MinimumPerEyeTextureUpdates"
+    if ($brokerH264RightTextureUpdateMax -lt $BrokerH264MinimumPerEyeTextureUpdates) {
+        $brokerH264StereoProjectionGateFailures += "right texture update max $brokerH264RightTextureUpdateMax below required $BrokerH264MinimumPerEyeTextureUpdates"
     }
-    if ($pairedMarkerCount -lt 1) {
+    if ($brokerH264PairedMarkerTotal -lt 1) {
         $brokerH264StereoProjectionGateFailures += "no pairedLeftRightCameraFrames=true cadence marker"
     }
-    if ($projectionMappingReadyCount -lt 1) {
+    if ($brokerH264ProjectionMappingReadyTotal -lt 1) {
         $brokerH264StereoProjectionGateFailures += "no projectionMappingReady=true cadence marker"
+    }
+    if ($brokerH264FrameAdoptionTotal -lt 1) {
+        $brokerH264StereoProjectionGateFailures += "no adopted stereo camera frame marker"
+    }
+    if ($brokerH264FrameAdoptionPoseMatchedTotal -lt 1) {
+        $brokerH264StereoProjectionGateFailures += "no adopted stereo camera frame marker with XR pose match"
     }
 }
 $resolvedBrokerH264ProjectionGeometryProfile = if ($BrokerH264ProjectionGeometryProfile -and $BrokerH264ProjectionGeometryProfile.Trim().Length -gt 0) {
@@ -1610,6 +1799,7 @@ $summary = [ordered]@{
     cameraRightTargetScreenUvRect = $CameraRightTargetScreenUvRect
     brokerH264ProjectionGeometryProfile = $resolvedBrokerH264ProjectionGeometryProfile
     brokerH264SyntheticProjectionProfile = $resolvedBrokerH264SyntheticProjectionProfile
+    brokerH264DecodeOutputMode = $BrokerH264DecodeOutputMode
     projectionBorderPolicy = $ProjectionBorderPolicy
     xrRenderScale = [double]$XrRenderScale
     nativePassthroughRequested = [bool]($EnableNativePassthrough -or $ProjectionBorderPolicy -eq "passthrough-underlay" -or $ProjectionAreaOpacity -lt 1.0 -or $ProjectionBorderOpacity -lt 1.0 -or $ProjectionAlphaMode -ne "fixed")
@@ -1697,6 +1887,7 @@ $summary = [ordered]@{
         cameraTargetScreenUvRect = $CameraTargetScreenUvRect
         cameraLeftTargetScreenUvRect = $CameraLeftTargetScreenUvRect
         cameraRightTargetScreenUvRect = $CameraRightTargetScreenUvRect
+        brokerH264DecodeOutputMode = $BrokerH264DecodeOutputMode
         useResolvedProjectionRuntime = [bool]$UseResolvedProjectionRuntime
         sampleSeconds = $SampleSeconds
         useFixedSampleWindow = [bool]$UseFixedSampleWindow
@@ -1729,10 +1920,32 @@ $summary = [ordered]@{
     brokerH264StereoProjectionAttemptLabel = if ($brokerH264StereoProjectionAttempt) { $brokerH264StereoProjectionAttempt.label } else { "none" }
     brokerH264StereoProjectionGateFailureCount = $brokerH264StereoProjectionGateFailures.Count
     brokerH264StereoProjectionGateFailures = $brokerH264StereoProjectionGateFailures
+    frameAdoptionAttemptLabel = if ($frameAdoptionAttempt) { $frameAdoptionAttempt.label } else { "none" }
+    frameAdoptionMarkerCount = if ($frameAdoptionAttempt) { [int]$frameAdoptionAttempt.frameAdoptionMarkerCount } else { 0 }
+    frameAdoptionPoseMatchedMarkerCount = if ($frameAdoptionAttempt) { [int]$frameAdoptionAttempt.frameAdoptionPoseMatchedMarkerCount } else { 0 }
+    frameAdoptionCloseTimestampMatchMarkerCount = if ($frameAdoptionAttempt) { [int]$frameAdoptionAttempt.frameAdoptionCloseTimestampMatchMarkerCount } else { 0 }
+    frameAdoptionTimingGapMarkerCount = if ($frameAdoptionAttempt) { [int]$frameAdoptionAttempt.frameAdoptionTimingGapMarkerCount } else { 0 }
+    latestFrameAdoptionMarker = if ($frameAdoptionAttempt) { [string]$frameAdoptionAttempt.latestFrameAdoptionMarker } else { "" }
     metaPerfStaleAnalysis = $metaPerfStaleAnalysis
     makepadFrameFlow = $metaPerfStaleAnalysis.makepadFrameFlow
     cameraTextureLaneAnalysis = $cameraTextureLaneAnalysis
     cameraTextureLaneSummary = $cameraTextureLaneAnalysis.summary
+    brokerH264DecodedTextureReadyAggregate = [bool]$brokerH264DecodedTextureReadyAggregate
+    brokerH264DecodedTextureReadyAny = [bool]$brokerH264DecodedTextureReadyAny
+    brokerH264PreparedMarkerTotal = $brokerH264PreparedTotal
+    brokerH264TextureUpdateMarkerTotal = $brokerH264TextureUpdateTotal
+    brokerH264YuvTextureUpdateMarkerTotal = $brokerH264YuvTextureUpdateTotal
+    brokerH264HardwareBufferTextureUpdateMarkerTotal = $brokerH264HardwareBufferTextureUpdateTotal
+    brokerH264HardwareBufferFrameMarkerTotal = $brokerH264HardwareBufferFrameTotal
+    brokerH264DecodeErrorMarkerTotal = $brokerH264DecodeErrorTotal
+    brokerH264LeftTextureUpdateMaxAggregate = $brokerH264LeftTextureUpdateMax
+    brokerH264RightTextureUpdateMaxAggregate = $brokerH264RightTextureUpdateMax
+    brokerH264PairedCameraFrameCadenceMarkerTotal = $brokerH264PairedMarkerTotal
+    brokerH264ProjectionMappingReadyCadenceMarkerTotal = $brokerH264ProjectionMappingReadyTotal
+    brokerH264FrameAdoptionMarkerTotal = $brokerH264FrameAdoptionTotal
+    brokerH264FrameAdoptionPoseMatchedMarkerTotal = $brokerH264FrameAdoptionPoseMatchedTotal
+    brokerH264LeftRequestedCameraHeaderMarkerTotal = $brokerH264LeftRequestedCameraHeaderTotal
+    brokerH264RightRequestedCameraHeaderMarkerTotal = $brokerH264RightRequestedCameraHeaderTotal
     freshnessFrames = $frames
 }
 $summary | ConvertTo-Json -Depth 7 | Set-Content -Path (Join-Path $OutDir "summary.json") -Encoding UTF8

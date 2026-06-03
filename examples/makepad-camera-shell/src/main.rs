@@ -114,6 +114,11 @@ static CAMERA_PANEL_DRAW_MARKER_EMITTED: AtomicBool = AtomicBool::new(false);
 static VIDEO_EVENT_RAW_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
 static TEXTURE_UPDATE_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
 static TEXTURE_CONTENT_PROBE_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
+static FRAME_ADOPTION_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
+
+const CAMERA_PAIR_CLOSE_TIMESTAMP_NS: u64 = 25_000_000;
+const FRAME_ADOPTION_MARKER_LIMIT: usize = 24;
+const FRAME_ADOPTION_MARKER_PERIOD: usize = 120;
 
 script_mod! {
     use mod.pod.*
@@ -1308,6 +1313,18 @@ pub struct App {
     paired_import_left_update_metadata: Option<VideoTextureUpdateMetadata>,
     #[rust]
     paired_import_right_update_metadata: Option<VideoTextureUpdateMetadata>,
+    #[rust]
+    pending_left_camera_frame: Option<CameraTextureFrameSample>,
+    #[rust]
+    pending_right_camera_frame: Option<CameraTextureFrameSample>,
+    #[rust]
+    adopted_stereo_camera_frame: Option<AdoptedStereoCameraFrame>,
+    #[rust]
+    next_adopted_stereo_frame_id: u64,
+    #[rust]
+    camera_projection_bound_adopted_frame_id: u64,
+    #[rust]
+    last_xr_pose_snapshot: Option<XrPoseSnapshot>,
     #[rust]
     paired_import_left_prepared: bool,
     #[rust]
@@ -2844,6 +2861,30 @@ impl App {
         )
     }
 
+    fn broker_h264_decode_output_mode() -> String {
+        hotload_text(
+            KEY_MAKEPAD_BROKER_H264_DECODE_OUTPUT_MODE,
+            DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE,
+        )
+    }
+
+    fn broker_h264_requested_texture_path() -> MakepadCameraTexturePath {
+        match Self::broker_h264_decode_output_mode()
+            .trim()
+            .to_ascii_lowercase()
+            .replace('_', "-")
+            .as_str()
+        {
+            "hardware-buffer" | "hwb" | "image-reader" | "imagereader" => {
+                MakepadCameraTexturePath::BrokerH264HardwareBuffer
+            }
+            "surface-texture" | "surfacetexture" | "external-oes" | "oes" | "surface" => {
+                MakepadCameraTexturePath::BrokerH264SurfaceTexture
+            }
+            _ => MakepadCameraTexturePath::BrokerH264CpuYuv,
+        }
+    }
+
     fn direct_camera_projection_geometry_profile() -> String {
         normalize_direct_camera_projection_geometry_profile(&hotload_text_any(
             &[
@@ -2880,6 +2921,7 @@ impl App {
             KEY_MAKEPAD_BROKER_H264_PROJECTION_GEOMETRY_PROFILE,
             &synthetic_projection_profile,
         );
+        let decode_output_mode = Self::broker_h264_decode_output_mode();
         BrokerH264VideoSource {
             broker_host: hotload_text(KEY_MAKEPAD_BROKER_H264_HOST, DEFAULT_BROKER_H264_HOST),
             broker_port: hotload_u16(
@@ -2893,6 +2935,7 @@ impl App {
                 KEY_MAKEPAD_BROKER_H264_SOURCE_MODE,
                 DEFAULT_BROKER_H264_SOURCE_MODE,
             ),
+            decode_output_mode,
             synthetic_pattern: hotload_text(
                 KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PATTERN,
                 DEFAULT_BROKER_H264_SYNTHETIC_PATTERN,
@@ -3957,11 +4000,20 @@ impl App {
         match event {
             Event::XrUpdate(_update) => {
                 self.cadence_xr_update_count = self.cadence_xr_update_count.saturating_add(1);
+                self.record_xr_pose_snapshot(_update);
                 self.handle_manifold_breath_feedback_subscription();
                 self.handle_manifold_pose_publish(_update);
                 self.handle_projection_target_joystick(cx, _update);
                 #[cfg(target_os = "android")]
                 self.update_runtime_xr_projection(_update);
+                let adopted = self.try_adopt_pending_stereo_camera_frame("xr-update");
+                if (adopted || self.adopted_stereo_camera_frame.is_some())
+                    && !self.paired_import_finished
+                {
+                    self.complete_paired_import_if_ready(cx);
+                } else if adopted {
+                    self.bind_camera_projection_panel(cx);
+                }
             }
             Event::Draw(_) => {
                 self.cadence_draw_event_count = self.cadence_draw_event_count.saturating_add(1);
@@ -3991,17 +4043,19 @@ impl App {
         self.cadence_next_frame = Some(cx.new_next_frame());
     }
 
-    fn record_camera_texture_update(&mut self, side: StereoEye, position_ms: u128) {
+    fn record_camera_texture_update(&mut self, side: StereoEye, position_ms: u128) -> u64 {
         match side {
             StereoEye::Left => {
                 self.cadence_left_texture_update_count =
                     self.cadence_left_texture_update_count.saturating_add(1);
                 self.cadence_left_last_position_ms = position_ms;
+                self.cadence_left_texture_update_count
             }
             StereoEye::Right => {
                 self.cadence_right_texture_update_count =
                     self.cadence_right_texture_update_count.saturating_add(1);
                 self.cadence_right_last_position_ms = position_ms;
+                self.cadence_right_texture_update_count
             }
         }
     }
@@ -4024,6 +4078,148 @@ impl App {
         }
     }
 
+    fn record_pending_camera_frame(
+        &mut self,
+        side: StereoEye,
+        yuv: VideoYuvMetadata,
+        metadata: VideoTextureUpdateMetadata,
+        position_ms: u128,
+        texture_update_count: u64,
+    ) {
+        let texture_path = Self::makepad_camera_texture_path_from_update_metadata(
+            Self::broker_h264_enabled(),
+            Self::direct_camera_hardware_buffer_external_enabled(),
+            yuv.enabled,
+            &metadata,
+        );
+        let sample = CameraTextureFrameSample::new(
+            side,
+            yuv,
+            metadata,
+            position_ms,
+            texture_update_count,
+            texture_path,
+        );
+        match side {
+            StereoEye::Left => self.pending_left_camera_frame = Some(sample),
+            StereoEye::Right => self.pending_right_camera_frame = Some(sample),
+        }
+    }
+
+    fn record_xr_pose_snapshot(&mut self, update: &XrUpdateEvent) {
+        self.last_xr_pose_snapshot = Some(XrPoseSnapshot::from_update(
+            update,
+            self.cadence_xr_update_count,
+        ));
+    }
+
+    fn try_adopt_pending_stereo_camera_frame(&mut self, reason: &str) -> bool {
+        let (Some(left), Some(right)) = (
+            self.pending_left_camera_frame.clone(),
+            self.pending_right_camera_frame.clone(),
+        ) else {
+            return false;
+        };
+        let Some(pose) = self.last_xr_pose_snapshot else {
+            return false;
+        };
+
+        if let Some(adopted) = self.adopted_stereo_camera_frame.as_ref() {
+            let left_advanced = left.texture_update_count > adopted.left.texture_update_count;
+            let right_advanced = right.texture_update_count > adopted.right.texture_update_count;
+            if !left_advanced || !right_advanced {
+                return false;
+            }
+        }
+
+        self.next_adopted_stereo_frame_id = self.next_adopted_stereo_frame_id.saturating_add(1);
+        let adopted = AdoptedStereoCameraFrame::new(
+            self.next_adopted_stereo_frame_id,
+            left,
+            right,
+            Some(pose),
+        );
+        self.paired_import_left_updated = true;
+        self.paired_import_right_updated = true;
+        self.paired_import_left_rotation_steps = adopted.left.rotation_steps;
+        self.paired_import_right_rotation_steps = adopted.right.rotation_steps;
+        self.camera_projection_paired_textures_bound = false;
+        self.emit_stereo_frame_adoption_marker(reason, &adopted);
+        self.adopted_stereo_camera_frame = Some(adopted);
+        true
+    }
+
+    fn emit_stereo_frame_adoption_marker(&self, reason: &str, adopted: &AdoptedStereoCameraFrame) {
+        let marker_index = FRAME_ADOPTION_MARKERS_EMITTED.fetch_add(1, Ordering::AcqRel);
+        if marker_index >= FRAME_ADOPTION_MARKER_LIMIT
+            && marker_index % FRAME_ADOPTION_MARKER_PERIOD != 0
+        {
+            return;
+        }
+        let pose_update_count = adopted
+            .pose
+            .map(|pose| pose.update_count.to_string())
+            .unwrap_or_else(|| "missing".to_string());
+        let predicted_display_time_ns = adopted
+            .pose
+            .map(|pose| pose.predicted_display_time_ns.to_string())
+            .unwrap_or_else(|| "missing".to_string());
+        let left_pose_valid = adopted
+            .pose
+            .map(|pose| pose.left_valid.to_string())
+            .unwrap_or_else(|| "false".to_string());
+        let right_pose_valid = adopted
+            .pose
+            .map(|pose| pose.right_valid.to_string())
+            .unwrap_or_else(|| "false".to_string());
+        let pose_source = if adopted.pose.is_some() {
+            "makepad-xr-update-predicted-display-pose"
+        } else {
+            "missing-xr-update-pose"
+        };
+        emit_marker_line(&format!(
+            "RUSTY_XR_MAKEPAD_FRAME_ADOPTION schema=rusty.xr.makepad-stereo-frame-adoption.v1 phase=adopt status=ok reason={} adoptionId={} leftSide={} rightSide={} leftTextureUpdateCount={} rightTextureUpdateCount={} leftPositionMs={} rightPositionMs={} leftCameraFrameSeq={} rightCameraFrameSeq={} frameSequenceDelta={} leftCameraTimestampNs={} rightCameraTimestampNs={} timestampDeltaNs={} closeTimestampMatch={} pairingStatus={} texturePath={} poseSource={} poseUpdateCount={} predictedDisplayTimeNs={} leftPoseValid={} rightPoseValid={} leftPosePosition={} rightPosePosition={} leftPoseOrientation={} rightPoseOrientation={} adoptionPolicy=latest-complete-stereo-pair panelUpdatePolicy=adopted-pair-xr-update-only",
+            marker_value(reason),
+            adopted.adoption_id,
+            adopted.left.side.label(),
+            adopted.right.side.label(),
+            adopted.left.texture_update_count,
+            adopted.right.texture_update_count,
+            adopted.left.position_ms,
+            adopted.right.position_ms,
+            optional_u64_token(adopted.left.metadata.camera_frame_sequence),
+            optional_u64_token(adopted.right.metadata.camera_frame_sequence),
+            optional_i64_token(adopted.pairing.sequence_delta),
+            optional_u64_token(adopted.left.metadata.camera_timestamp_ns),
+            optional_u64_token(adopted.right.metadata.camera_timestamp_ns),
+            optional_u64_token(adopted.pairing.timestamp_delta_ns),
+            adopted.pairing.close_timestamp_match,
+            adopted.pairing.status,
+            adopted.left.texture_path.stable_id(),
+            pose_source,
+            pose_update_count,
+            predicted_display_time_ns,
+            left_pose_valid,
+            right_pose_valid,
+            adopted
+                .pose
+                .map(|pose| vec3_marker_token(pose.left_position))
+                .unwrap_or_else(|| "missing".to_string()),
+            adopted
+                .pose
+                .map(|pose| vec3_marker_token(pose.right_position))
+                .unwrap_or_else(|| "missing".to_string()),
+            adopted
+                .pose
+                .map(|pose| vec4_marker_token(pose.left_orientation))
+                .unwrap_or_else(|| "missing".to_string()),
+            adopted
+                .pose
+                .map(|pose| vec4_marker_token(pose.right_orientation))
+                .unwrap_or_else(|| "missing".to_string()),
+        ));
+    }
+
     fn makepad_camera_texture_path_from_update_metadata(
         broker_h264_enabled: bool,
         direct_hardware_buffer_requested: bool,
@@ -4040,10 +4236,18 @@ impl App {
                 }
             }
             VideoTextureResourcePath::HardwareBufferExternal => {
-                MakepadCameraTexturePath::DirectHardwareBufferExternal
+                if broker_h264_enabled {
+                    MakepadCameraTexturePath::BrokerH264HardwareBuffer
+                } else {
+                    MakepadCameraTexturePath::DirectHardwareBufferExternal
+                }
             }
             VideoTextureResourcePath::HardwareBufferYuvPlanes => {
-                MakepadCameraTexturePath::DirectHardwareBufferYuvPlane
+                if broker_h264_enabled {
+                    MakepadCameraTexturePath::BrokerH264HardwareBuffer
+                } else {
+                    MakepadCameraTexturePath::DirectHardwareBufferYuvPlane
+                }
             }
             VideoTextureResourcePath::SurfaceTextureExternal => {
                 if broker_h264_enabled {
@@ -4110,23 +4314,32 @@ impl App {
 
     fn cadence_camera_texture_path(&self) -> MakepadCameraTexturePath {
         if Self::broker_h264_enabled() {
+            if let Some(metadata) = self
+                .paired_import_left_update_metadata
+                .as_ref()
+                .or(self.paired_import_right_update_metadata.as_ref())
+            {
+                return Self::makepad_camera_texture_path_from_update_metadata(
+                    true,
+                    false,
+                    self.paired_import_left_yuv_metadata
+                        .as_ref()
+                        .is_some_and(|metadata| metadata.enabled)
+                        || self
+                            .paired_import_right_yuv_metadata
+                            .as_ref()
+                            .is_some_and(|metadata| metadata.enabled),
+                    metadata,
+                );
+            }
             if self.paired_import_left_yuv_metadata.is_some()
                 || self.paired_import_right_yuv_metadata.is_some()
                 || self.paired_import_left_yuv_textures.is_some()
                 || self.paired_import_right_yuv_textures.is_some()
             {
-                if let Some(metadata) = self
-                    .paired_import_left_update_metadata
-                    .as_ref()
-                    .or(self.paired_import_right_update_metadata.as_ref())
-                {
-                    return Self::makepad_camera_texture_path_from_update_metadata(
-                        true, false, true, metadata,
-                    );
-                }
                 MakepadCameraTexturePath::BrokerH264CpuYuv
             } else {
-                MakepadCameraTexturePath::BrokerH264SurfaceTexture
+                Self::broker_h264_requested_texture_path()
             }
         } else {
             self.direct_camera_texture_path()
@@ -4157,8 +4370,7 @@ impl App {
         let left_texture_rate_hz = rate_hz(left_delta, interval_seconds);
         let right_texture_rate_hz = rate_hz(right_delta, interval_seconds);
         let paired_texture_rate_hz = rate_hz(paired_delta, interval_seconds);
-        let paired_buffers_ready =
-            self.paired_import_left_updated && self.paired_import_right_updated;
+        let paired_buffers_ready = self.adopted_stereo_camera_frame.is_some();
         let projection_ready = self
             .paired_import_choice
             .as_ref()
@@ -4285,9 +4497,10 @@ impl App {
         if !Self::broker_h264_enabled() {
             return;
         }
+        let texture_path = Self::broker_h264_requested_texture_path();
         let Some(side) = StereoEye::from_video_id(video_id) else {
             Self::emit_hardware_buffer_import_marker(
-                &makepad_stream_header_metadata_ignored_marker_fields(video_id.0),
+                &makepad_stream_header_metadata_ignored_marker_fields(video_id.0, texture_path),
             );
             return;
         };
@@ -4349,6 +4562,7 @@ impl App {
                 Self::emit_hardware_buffer_import_marker(&stream_header_metadata_marker_fields(
                     side.label(),
                     &metadata,
+                    texture_path,
                 ));
             }
             Err(error) => {
@@ -4357,6 +4571,7 @@ impl App {
                         side.label(),
                         metadata_json.len(),
                         &error,
+                        texture_path,
                     ),
                 );
             }
@@ -4377,10 +4592,12 @@ impl App {
                             source.stream_port,
                             Self::broker_h264_stream_port(StereoEye::Right),
                             &source.source_mode,
+                            &source.decode_output_mode,
                             &source.synthetic_pattern,
                             source.preferred_width,
                             source.preferred_height,
                             source.live_stream,
+                            Self::broker_h264_requested_texture_path(),
                         ),
                     );
                 } else {
@@ -4412,6 +4629,11 @@ impl App {
                 emit_raw_video_event_marker("yuv-textures-ready", ready.video_id);
                 if let Some(side) = StereoEye::from_video_id(ready.video_id) {
                     if Self::broker_h264_enabled() {
+                        if Self::broker_h264_requested_texture_path()
+                            != MakepadCameraTexturePath::BrokerH264CpuYuv
+                        {
+                            return;
+                        }
                         let textures = MakepadCameraYuvTextures::new(
                             ready.tex_y.clone(),
                             ready.tex_u.clone(),
@@ -4432,7 +4654,6 @@ impl App {
                                 side.label(),
                             ),
                         );
-                        self.bind_camera_projection_panel(cx);
                         return;
                     }
                     let textures = MakepadCameraYuvTextures::new(
@@ -4471,8 +4692,11 @@ impl App {
                             side.label(),
                             prepared.video_width,
                             prepared.video_height,
-                            Self::broker_h264_enabled(),
-                            Self::direct_camera_requested_texture_path(),
+                            if Self::broker_h264_enabled() {
+                                Self::broker_h264_requested_texture_path()
+                            } else {
+                                Self::direct_camera_requested_texture_path()
+                            },
                         ),
                     );
                     self.emit_paired_projection_progress("prepared");
@@ -4481,11 +4705,19 @@ impl App {
             Event::VideoTextureUpdated(updated) => {
                 emit_raw_video_event_marker("texture-updated", updated.video_id);
                 if let Some(side) = StereoEye::from_video_id(updated.video_id) {
-                    self.record_camera_texture_update(side, updated.current_position_ms);
+                    let texture_update_count =
+                        self.record_camera_texture_update(side, updated.current_position_ms);
                     self.record_camera_texture_metadata(
                         side,
                         updated.yuv,
                         updated.metadata.clone(),
+                    );
+                    self.record_pending_camera_frame(
+                        side,
+                        updated.yuv,
+                        updated.metadata.clone(),
+                        updated.current_position_ms,
+                        texture_update_count,
                     );
                     if !Self::broker_h264_enabled() {
                         self.emit_yuv_texture_content_probe(cx, side, updated.yuv);
@@ -4493,18 +4725,12 @@ impl App {
                     let marker_index =
                         TEXTURE_UPDATE_MARKERS_EMITTED.fetch_add(1, Ordering::AcqRel);
                     if should_emit_texture_update_marker(marker_index) {
-                        let texture_path = MakepadCameraTexturePath::from_video_update(
+                        let texture_path = Self::makepad_camera_texture_path_from_update_metadata(
                             Self::broker_h264_enabled(),
+                            Self::direct_camera_hardware_buffer_external_enabled(),
                             updated.yuv.enabled,
+                            &updated.metadata,
                         );
-                        let texture_path = if Self::broker_h264_enabled() {
-                            texture_path
-                        } else {
-                            MakepadCameraTexturePath::from_direct_video_update(
-                                Self::direct_camera_hardware_buffer_external_enabled(),
-                                updated.yuv.enabled,
-                            )
-                        };
                         Self::emit_hardware_buffer_import_marker(
                             &makepad_hardware_buffer_import_texture_updated_marker_fields(
                                 side.label(),
@@ -4519,7 +4745,6 @@ impl App {
                         );
                     }
                     if self.paired_import_finished {
-                        self.bind_camera_projection_panel(cx);
                         return;
                     }
                     match side {
@@ -4657,12 +4882,7 @@ impl App {
         );
     }
 
-    fn request_broker_h264_cpu_yuv_import(
-        &mut self,
-        cx: &mut Cx,
-        side: StereoEye,
-        texture_id: TextureId,
-    ) {
+    fn request_broker_h264_import(&mut self, cx: &mut Cx, side: StereoEye, texture_id: TextureId) {
         if !Self::broker_h264_enabled() {
             return;
         }
@@ -4686,8 +4906,10 @@ impl App {
                 source.broker_port,
                 source.stream_port,
                 &source.source_mode,
+                &source.decode_output_mode,
                 &source.synthetic_pattern,
                 source.live_stream,
+                Self::broker_h264_requested_texture_path(),
             ),
         );
         cx.prepare_video_playback(
@@ -4761,7 +4983,11 @@ impl App {
                 &left_stream_port,
                 &right_stream_port,
                 PAIRED_IMPORT_DELAY_SECONDS,
-                Self::direct_camera_requested_texture_path(),
+                if broker_h264_enabled {
+                    Self::broker_h264_requested_texture_path()
+                } else {
+                    Self::direct_camera_requested_texture_path()
+                },
             ),
         );
         Self::emit_stereo_projection_marker(&makepad_projection_start_marker_fields(
@@ -4779,12 +5005,11 @@ impl App {
         }
 
         if broker_h264_enabled {
-            self.bind_camera_projection_panel(cx);
             if let Some(texture) = self.paired_import_left_texture.as_ref() {
-                self.request_broker_h264_cpu_yuv_import(cx, StereoEye::Left, texture.texture_id());
+                self.request_broker_h264_import(cx, StereoEye::Left, texture.texture_id());
             }
             if let Some(texture) = self.paired_import_right_texture.as_ref() {
-                self.request_broker_h264_cpu_yuv_import(cx, StereoEye::Right, texture.texture_id());
+                self.request_broker_h264_import(cx, StereoEye::Right, texture.texture_id());
             }
             return;
         }
@@ -4997,13 +5222,20 @@ impl App {
         let projection_sample_mode = MakepadProjectionSampleMode::current();
         let camera_texture_binding_enabled = projection_sample_mode.binds_camera_textures();
         let projection_panel_draw_enabled = projection_sample_mode.draws_projection_panel();
-        let paired_streams_available =
-            self.paired_import_left_updated && self.paired_import_right_updated;
+        let adopted_frame = self.adopted_stereo_camera_frame.clone();
+        let adopted_frame_id = adopted_frame
+            .as_ref()
+            .map(|frame| frame.adoption_id)
+            .unwrap_or(0);
+        let paired_streams_available = adopted_frame.is_some();
         if self.camera_projection_textures_bound
             && (!paired_streams_available || self.camera_projection_paired_textures_bound)
+            && self.camera_projection_bound_adopted_frame_id == adopted_frame_id
         {
             return true;
         }
+        let emit_binding_markers = !self.camera_projection_textures_bound
+            || self.camera_projection_bound_adopted_frame_id != adopted_frame_id;
 
         let (Some(left_texture), Some(right_texture), Some(pair)) = (
             self.paired_import_left_texture.clone(),
@@ -5012,12 +5244,20 @@ impl App {
         ) else {
             return false;
         };
-        let left_updated_yuv = if self.paired_import_left_updated {
+        let left_updated_yuv = if adopted_frame
+            .as_ref()
+            .is_some_and(|frame| frame.left.yuv.enabled)
+            || (adopted_frame.is_none() && self.paired_import_left_updated)
+        {
             self.paired_import_left_yuv_textures.clone()
         } else {
             None
         };
-        let right_updated_yuv = if self.paired_import_right_updated {
+        let right_updated_yuv = if adopted_frame
+            .as_ref()
+            .is_some_and(|frame| frame.right.yuv.enabled)
+            || (adopted_frame.is_none() && self.paired_import_right_updated)
+        {
             self.paired_import_right_yuv_textures.clone()
         } else {
             None
@@ -5045,22 +5285,27 @@ impl App {
                     (left_ready, right_ready)
                 }
             };
-        let single_stream_visual_proof =
-            !(self.paired_import_left_updated && self.paired_import_right_updated);
+        let single_stream_visual_proof = adopted_frame.is_none()
+            && !(self.paired_import_left_updated && self.paired_import_right_updated);
         let broker_h264_cpu_yuv_decode = broker_h264_enabled
             && (left_yuv_source.is_some()
                 || right_yuv_source.is_some()
                 || self.paired_import_left_yuv_textures.is_some()
                 || self.paired_import_right_yuv_textures.is_some());
-        let texture_path = if broker_h264_enabled {
-            if broker_h264_cpu_yuv_decode {
-                MakepadCameraTexturePath::BrokerH264CpuYuv
-            } else {
-                MakepadCameraTexturePath::BrokerH264SurfaceTexture
-            }
-        } else {
-            self.direct_camera_texture_path()
-        };
+        let texture_path = adopted_frame
+            .as_ref()
+            .map(|frame| frame.left.texture_path)
+            .unwrap_or_else(|| {
+                if broker_h264_enabled {
+                    if broker_h264_cpu_yuv_decode {
+                        MakepadCameraTexturePath::BrokerH264CpuYuv
+                    } else {
+                        Self::broker_h264_requested_texture_path()
+                    }
+                } else {
+                    self.direct_camera_texture_path()
+                }
+            });
         let explicit_top_left_broker_stimulus = broker_h264_enabled
             && self
                 .broker_h264_left_projection_metadata
@@ -5188,8 +5433,14 @@ impl App {
             left_yuv,
             right_yuv,
             texture_path,
-            self.paired_import_left_rotation_steps,
-            self.paired_import_right_rotation_steps,
+            adopted_frame
+                .as_ref()
+                .map(|frame| frame.left.rotation_steps)
+                .unwrap_or(self.paired_import_left_rotation_steps),
+            adopted_frame
+                .as_ref()
+                .map(|frame| frame.right.rotation_steps)
+                .unwrap_or(self.paired_import_right_rotation_steps),
             pair.left_surface_to_camera_h,
             pair.right_surface_to_camera_h,
             pair.left_screen_to_camera_h,
@@ -5203,6 +5454,10 @@ impl App {
         panel.set_horizontal_alignment_tuning(cx, self.current_horizontal_alignment_tuning());
         self.camera_projection_textures_bound = true;
         self.camera_projection_paired_textures_bound = !single_stream_visual_proof;
+        self.camera_projection_bound_adopted_frame_id = adopted_frame_id;
+        if !emit_binding_markers {
+            return true;
+        }
         let content_geometry_fields = if broker_h264_enabled {
             makepad_content_geometry_marker_fields(MakepadContentGeometrySource::BrokerH264 {
                 left: self.broker_h264_left_projection_metadata.as_ref(),
@@ -5265,8 +5520,7 @@ impl App {
         }
 
         let broker_h264_enabled = Self::broker_h264_enabled();
-        let paired_streams_ready =
-            self.paired_import_left_updated && self.paired_import_right_updated;
+        let paired_streams_ready = self.adopted_stereo_camera_frame.is_some();
         let updated_stream_visual_proof_side = match (
             self.paired_import_left_updated,
             self.paired_import_right_updated,
@@ -5667,6 +5921,46 @@ fn should_emit_texture_update_marker(marker_index: usize) -> bool {
     marker_index < TEXTURE_UPDATE_MARKER_LIMIT || marker_index % TEXTURE_UPDATE_MARKER_PERIOD == 0
 }
 
+fn marker_value(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "empty".to_string();
+    }
+    trimmed
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':' | '/') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn optional_u64_token(value: Option<u64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "missing".to_string())
+}
+
+fn optional_i64_token(value: Option<i64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "missing".to_string())
+}
+
+fn vec3_marker_token(value: [f32; 3]) -> String {
+    format!("{:.6},{:.6},{:.6}", value[0], value[1], value[2])
+}
+
+fn vec4_marker_token(value: [f32; 4]) -> String {
+    format!(
+        "{:.6},{:.6},{:.6},{:.6}",
+        value[0], value[1], value[2], value[3]
+    )
+}
+
 #[derive(Clone)]
 struct MakepadCameraYuvTextures {
     y: Texture,
@@ -5677,6 +5971,154 @@ struct MakepadCameraYuvTextures {
 impl MakepadCameraYuvTextures {
     fn new(y: Texture, u: Texture, v: Texture) -> Self {
         Self { y, u, v }
+    }
+}
+
+#[derive(Clone)]
+struct CameraTextureFrameSample {
+    side: StereoEye,
+    yuv: VideoYuvMetadata,
+    metadata: VideoTextureUpdateMetadata,
+    texture_path: MakepadCameraTexturePath,
+    rotation_steps: f32,
+    position_ms: u128,
+    texture_update_count: u64,
+}
+
+impl CameraTextureFrameSample {
+    fn new(
+        side: StereoEye,
+        yuv: VideoYuvMetadata,
+        metadata: VideoTextureUpdateMetadata,
+        position_ms: u128,
+        texture_update_count: u64,
+        texture_path: MakepadCameraTexturePath,
+    ) -> Self {
+        Self {
+            side,
+            yuv,
+            metadata,
+            texture_path,
+            rotation_steps: yuv.rotation_steps,
+            position_ms,
+            texture_update_count,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct AdoptedStereoCameraFrame {
+    adoption_id: u64,
+    left: CameraTextureFrameSample,
+    right: CameraTextureFrameSample,
+    pairing: StereoFramePairing,
+    pose: Option<XrPoseSnapshot>,
+}
+
+impl AdoptedStereoCameraFrame {
+    fn new(
+        adoption_id: u64,
+        left: CameraTextureFrameSample,
+        right: CameraTextureFrameSample,
+        pose: Option<XrPoseSnapshot>,
+    ) -> Self {
+        let pairing = StereoFramePairing::from_samples(&left, &right);
+        Self {
+            adoption_id,
+            left,
+            right,
+            pairing,
+            pose,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct StereoFramePairing {
+    status: &'static str,
+    sequence_delta: Option<i64>,
+    timestamp_delta_ns: Option<u64>,
+    close_timestamp_match: bool,
+}
+
+impl StereoFramePairing {
+    fn from_samples(left: &CameraTextureFrameSample, right: &CameraTextureFrameSample) -> Self {
+        let sequence_delta = left
+            .metadata
+            .camera_frame_sequence
+            .zip(right.metadata.camera_frame_sequence)
+            .map(|(left, right)| left as i64 - right as i64);
+        let timestamp_delta_ns = left
+            .metadata
+            .camera_timestamp_ns
+            .zip(right.metadata.camera_timestamp_ns)
+            .map(|(left, right)| left.abs_diff(right));
+        let close_timestamp_match = timestamp_delta_ns
+            .map(|delta| delta <= CAMERA_PAIR_CLOSE_TIMESTAMP_NS)
+            .unwrap_or(false);
+        let status = if sequence_delta == Some(0) {
+            "sequence-match"
+        } else if close_timestamp_match {
+            "timestamp-close"
+        } else if sequence_delta.is_some() || timestamp_delta_ns.is_some() {
+            "latest-complete-with-timing-gap"
+        } else {
+            "latest-complete-no-frame-timing"
+        };
+        Self {
+            status,
+            sequence_delta,
+            timestamp_delta_ns,
+            close_timestamp_match,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct XrPoseSnapshot {
+    update_count: u64,
+    predicted_display_time_ns: i64,
+    left_valid: bool,
+    right_valid: bool,
+    left_position: [f32; 3],
+    right_position: [f32; 3],
+    left_orientation: [f32; 4],
+    right_orientation: [f32; 4],
+}
+
+impl XrPoseSnapshot {
+    fn from_update(update: &XrUpdateEvent, update_count: u64) -> Self {
+        let state = update.state.as_ref();
+        let left = state.left_eye_view;
+        let right = state.right_eye_view;
+        Self {
+            update_count,
+            predicted_display_time_ns: (state.time * 1_000_000_000.0).round() as i64,
+            left_valid: left.valid,
+            right_valid: right.valid,
+            left_position: [
+                left.pose.position.x,
+                left.pose.position.y,
+                left.pose.position.z,
+            ],
+            right_position: [
+                right.pose.position.x,
+                right.pose.position.y,
+                right.pose.position.z,
+            ],
+            left_orientation: [
+                left.pose.orientation.x,
+                left.pose.orientation.y,
+                left.pose.orientation.z,
+                left.pose.orientation.w,
+            ],
+            right_orientation: [
+                right.pose.orientation.x,
+                right.pose.orientation.y,
+                right.pose.orientation.z,
+                right.pose.orientation.w,
+            ],
+        }
     }
 }
 
@@ -6263,6 +6705,62 @@ mod tests {
             runtime_xr_view_state_ready: true,
             openxr_contract: MakepadOpenXrProjectionContract::missing(),
         }
+    }
+
+    fn frame_sample(
+        side: StereoEye,
+        camera_frame_sequence: Option<u64>,
+        camera_timestamp_ns: Option<u64>,
+        texture_update_count: u64,
+    ) -> CameraTextureFrameSample {
+        let mut metadata = VideoTextureUpdateMetadata::default();
+        metadata.camera_frame_sequence = camera_frame_sequence;
+        metadata.camera_timestamp_ns = camera_timestamp_ns;
+        CameraTextureFrameSample::new(
+            side,
+            VideoYuvMetadata::disabled(),
+            metadata,
+            texture_update_count as u128,
+            texture_update_count,
+            MakepadCameraTexturePath::DirectHardwareBufferExternal,
+        )
+    }
+
+    #[test]
+    fn stereo_frame_pairing_prefers_matching_camera_sequence() {
+        let left = frame_sample(StereoEye::Left, Some(42), Some(1_000_000), 7);
+        let right = frame_sample(StereoEye::Right, Some(42), Some(8_000_000), 8);
+
+        let pairing = StereoFramePairing::from_samples(&left, &right);
+
+        assert_eq!(pairing.status, "sequence-match");
+        assert_eq!(pairing.sequence_delta, Some(0));
+        assert_eq!(pairing.timestamp_delta_ns, Some(7_000_000));
+    }
+
+    #[test]
+    fn stereo_frame_pairing_accepts_close_timestamps_when_sequences_differ() {
+        let left = frame_sample(StereoEye::Left, Some(101), Some(20_000_000), 3);
+        let right = frame_sample(StereoEye::Right, Some(102), Some(30_000_000), 4);
+
+        let pairing = StereoFramePairing::from_samples(&left, &right);
+
+        assert_eq!(pairing.status, "timestamp-close");
+        assert_eq!(pairing.sequence_delta, Some(-1));
+        assert!(pairing.close_timestamp_match);
+    }
+
+    #[test]
+    fn stereo_frame_pairing_reports_timing_gap_for_distant_frames() {
+        let left = frame_sample(StereoEye::Left, Some(101), Some(20_000_000), 3);
+        let right = frame_sample(StereoEye::Right, Some(105), Some(80_000_000), 4);
+
+        let pairing = StereoFramePairing::from_samples(&left, &right);
+
+        assert_eq!(pairing.status, "latest-complete-with-timing-gap");
+        assert_eq!(pairing.sequence_delta, Some(-4));
+        assert_eq!(pairing.timestamp_delta_ns, Some(60_000_000));
+        assert!(!pairing.close_timestamp_match);
     }
 
     #[test]

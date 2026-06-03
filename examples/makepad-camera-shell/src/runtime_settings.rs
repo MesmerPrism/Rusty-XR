@@ -19,6 +19,7 @@ pub(crate) const DEFAULT_BROKER_H264_BROKER_PORT: u16 = 8765;
 pub(crate) const DEFAULT_BROKER_H264_STREAM_PORT: u16 = 8879;
 pub(crate) const DEFAULT_BROKER_H264_RIGHT_STREAM_PORT: u16 = 8880;
 pub(crate) const DEFAULT_BROKER_H264_SOURCE_MODE: &str = "broker-synthetic";
+pub(crate) const DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE: &str = "cpu-yuv";
 pub(crate) const DEFAULT_BROKER_H264_SYNTHETIC_PATTERN: &str = "diagnostic-grid";
 pub(crate) const DEFAULT_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE: &str =
     "head-anchored-virtual-camera";
@@ -184,6 +185,8 @@ pub(crate) const KEY_MAKEPAD_BROKER_H264_STREAM_PORT: &str = "makepad_broker_h26
 pub(crate) const KEY_MAKEPAD_BROKER_H264_RIGHT_STREAM_PORT: &str =
     "makepad_broker_h264_right_stream_port";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_SOURCE_MODE: &str = "makepad_broker_h264_source_mode";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_DECODE_OUTPUT_MODE: &str =
+    "makepad_broker_h264_decode_output_mode";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PATTERN: &str =
     "makepad_broker_h264_synthetic_pattern";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_PROJECTION_GEOMETRY_PROFILE: &str =
