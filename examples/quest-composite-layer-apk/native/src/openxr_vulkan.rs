@@ -472,19 +472,6 @@ impl CameraAlignmentTuningState {
         let Some(path) = self.output_path.as_ref() else {
             return;
         };
-        let (left_y_control, right_y_control, reset_control) = if self.mode.horizontal_only() {
-            (
-                "ignored in horizontal-offset mode",
-                "ignored in horizontal-offset mode",
-                "reset horizontal offset",
-            )
-        } else {
-            (
-                "projectionTargetOffsetYUv, inverted so up moves target up",
-                "projectionTargetScale; up grows, down shrinks",
-                "reset offset and scale",
-            )
-        };
         let json = format!(
             concat!(
                 "{{\n",
@@ -682,6 +669,19 @@ impl ProjectionTargetJoystickState {
     fn write_readout(&mut self, frame_count: u64) {
         let Some(path) = self.output_path.as_ref() else {
             return;
+        };
+        let (left_y_control, right_y_control, reset_control) = if self.mode.horizontal_only() {
+            (
+                "ignored in horizontal-offset mode",
+                "ignored in horizontal-offset mode",
+                "reset horizontal offset",
+            )
+        } else {
+            (
+                "projectionTargetOffsetYUv, inverted so up moves target up",
+                "projectionTargetScale; up grows, down shrinks",
+                "reset offset and scale",
+            )
         };
         let json = format!(
             concat!(

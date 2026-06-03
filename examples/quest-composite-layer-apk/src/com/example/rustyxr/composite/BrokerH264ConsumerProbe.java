@@ -65,6 +65,7 @@ final class BrokerH264ConsumerProbe implements Runnable {
     private static final long STEREO_REPLAY_DELIVERY_INTERVAL_NS = 33_333_333L;
     private static final long STEREO_REPLAY_DELIVERY_MAX_SLEEP_MS = 50L;
     private static final long STEREO_PAIR_MAX_DELTA_NS = 25_000_000L;
+    private static final long MAX_STEREO_PAIR_MAX_DELTA_NS = 250_000_000L;
     private static final long STEREO_FRAME_SET_MAX_HOLD_NS = 75_000_000L;
     private static final long STEREO_FRAME_SET_STALE_NS = 250_000_000L;
     private static final int DEFAULT_LIVE_STEREO_PENDING_QUEUE_LIMIT = 8;
@@ -116,6 +117,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
         final boolean byteIdentityProbe;
         final String stereoPairingMode;
         final int liveStereoPendingQueueLimit;
+        final String stereoPairId;
+        final long stereoPairMaxDeltaNs;
         final String projectionMetadataJson;
         final String leftProjectionMetadataJson;
         final String rightProjectionMetadataJson;
@@ -155,6 +158,8 @@ final class BrokerH264ConsumerProbe implements Runnable {
             boolean byteIdentityProbe,
             String stereoPairingMode,
             int liveStereoPendingQueueLimit,
+            String stereoPairId,
+            long stereoPairMaxDeltaNs,
             String projectionMetadataJson,
             String leftProjectionMetadataJson,
             String rightProjectionMetadataJson,
@@ -210,6 +215,10 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 liveStereoPendingQueueLimit,
                 2,
                 MAX_LIVE_STEREO_PENDING_QUEUE_LIMIT);
+            this.stereoPairId = stereoPairId != null ? stereoPairId.trim() : "";
+            this.stereoPairMaxDeltaNs = Math.max(
+                0L,
+                Math.min(stereoPairMaxDeltaNs, MAX_STEREO_PAIR_MAX_DELTA_NS));
             this.projectionMetadataJson = projectionMetadataJson != null ? projectionMetadataJson : "";
             this.leftProjectionMetadataJson = leftProjectionMetadataJson != null ? leftProjectionMetadataJson : "";
             this.rightProjectionMetadataJson = rightProjectionMetadataJson != null ? rightProjectionMetadataJson : "";
@@ -218,6 +227,10 @@ final class BrokerH264ConsumerProbe implements Runnable {
                 leftProjectionMetadataBase64 != null ? leftProjectionMetadataBase64 : "";
             this.rightProjectionMetadataBase64 =
                 rightProjectionMetadataBase64 != null ? rightProjectionMetadataBase64 : "";
+        }
+
+        boolean brokerStereoPairReleaseEnabled() {
+            return stereo && liveStream && stereoPairId.length() > 0 && stereoPairMaxDeltaNs >= 0L;
         }
     }
 
@@ -352,6 +365,9 @@ final class BrokerH264ConsumerProbe implements Runnable {
             report.put("byte_identity_probe_requested", config.byteIdentityProbe);
             report.put("stereo_pairing_mode_requested", config.stereoPairingMode);
             report.put("stereo_live_pending_queue_limit", config.liveStereoPendingQueueLimit);
+            report.put("broker_stereo_pair_release_requested", config.brokerStereoPairReleaseEnabled());
+            report.put("broker_stereo_pair_id", config.stereoPairId);
+            report.put("broker_stereo_pair_max_delta_ns", config.stereoPairMaxDeltaNs);
             report.put(
                 "decode_surface_target_requested",
                 DECODE_OUTPUT_SURFACE_TEXTURE.equals(config.decodeOutputMode));
@@ -1090,6 +1106,16 @@ final class BrokerH264ConsumerProbe implements Runnable {
         if (cameraId != null && cameraId.length() > 0) {
             params.put("camera_id", cameraId);
         }
+        String stereoPairRole = stereoPairRoleForLabel(label);
+        if (config.brokerStereoPairReleaseEnabled() && stereoPairRole.length() > 0) {
+            params.put("stereo_pair_id", config.stereoPairId);
+            params.put("stereoPairId", config.stereoPairId);
+            params.put("stereo_pair_role", stereoPairRole);
+            params.put("stereoPairRole", stereoPairRole);
+            params.put("stereo_pair_max_delta_ns", config.stereoPairMaxDeltaNs);
+            params.put("stereoPairMaxDeltaNs", config.stereoPairMaxDeltaNs);
+            params.put("stereo_pair_release", true);
+        }
         if (config.startBrokerSyntheticStream) {
             params.put("source_mode", "synthetic_surface");
             params.put("synthetic_pattern", config.syntheticPattern);
@@ -1121,6 +1147,17 @@ final class BrokerH264ConsumerProbe implements Runnable {
             return config.rightTargetScreenUvRect;
         }
         return config.targetScreenUvRect;
+    }
+
+    private String stereoPairRoleForLabel(String label) {
+        String normalized = label != null ? label.trim().toLowerCase(Locale.US) : "";
+        if ("left".equals(normalized)) {
+            return "left";
+        }
+        if ("right".equals(normalized)) {
+            return "right";
+        }
+        return "";
     }
 
     private static JSONObject extractStreamProjectionMetadata(JSONObject ack) {

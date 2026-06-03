@@ -184,6 +184,9 @@ public final class CompositeLayerActivity extends NativeActivity {
     private static final boolean DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE = false;
     private static final String DEFAULT_BROKER_H264_STEREO_PAIRING_MODE = "timestamp-nearest";
     private static final int DEFAULT_BROKER_H264_LIVE_PAIR_QUEUE_LIMIT = 8;
+    private static final String DEFAULT_BROKER_H264_STEREO_PAIR_ID =
+        "composite-broker-h264-stereo-camera";
+    private static final long DEFAULT_BROKER_H264_STEREO_PAIR_MAX_DELTA_NS = 25_000_000L;
 
     private MediaProjectionManager mediaProjectionManager;
     private BrokerH264ConsumerProbe brokerH264ConsumerProbe;
@@ -909,6 +912,10 @@ public final class CompositeLayerActivity extends NativeActivity {
             Math.max(2, intExtra(
                 "rustyxr.brokerH264LivePairQueueLimit",
                 DEFAULT_BROKER_H264_LIVE_PAIR_QUEUE_LIMIT)),
+            stringExtra("rustyxr.brokerH264StereoPairId", DEFAULT_BROKER_H264_STEREO_PAIR_ID),
+            Math.max(0L, longExtra(
+                "rustyxr.brokerH264StereoPairMaxDeltaNs",
+                DEFAULT_BROKER_H264_STEREO_PAIR_MAX_DELTA_NS)),
             stringExtra("rustyxr.brokerH264ProjectionMetadataJson", ""),
             stringExtra("rustyxr.brokerH264LeftProjectionMetadataJson", ""),
             stringExtra("rustyxr.brokerH264RightProjectionMetadataJson", ""),

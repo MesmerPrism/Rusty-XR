@@ -559,10 +559,12 @@
         "rustyxr.brokerH264StreamTimeoutMs": "30000",
         "rustyxr.brokerH264DecodeTimeoutMs": "20000",
         "rustyxr.brokerH264DecodeOutputMode": "hardware-buffer",
-        "rustyxr.brokerH264StereoPairingMode": "frame-order",
-        "rustyxr.brokerH264LivePairQueueLimit": "8"
+        "rustyxr.brokerH264StereoPairingMode": "timestamp-nearest",
+        "rustyxr.brokerH264LivePairQueueLimit": "8",
+        "rustyxr.brokerH264StereoPairId": "composite-broker-h264-stereo-camera",
+        "rustyxr.brokerH264StereoPairMaxDeltaNs": "25000000"
       },
-      "description": "Runs the live-bounded broker app-camera H.264 stereo OpenXR projection path with square camera framing, frame-order live stereo pairing, render scale 0.65, and the direct raw-projection shader variant so renderer overhead can be compared before explicitly selecting the border-composite visual-effect path."
+      "description": "Runs the live-bounded broker app-camera H.264 stereo OpenXR projection path with square camera framing, broker source-time pair release plus timestamp-nearest live stereo intake, render scale 0.65, and the direct raw-projection shader variant so renderer overhead can be compared before explicitly selecting the border-composite visual-effect path."
     },
     {
       "id": "broker-h264-stereo-live-openxr-projection-scale075-probe",
@@ -632,10 +634,12 @@
         "rustyxr.brokerH264StreamTimeoutMs": "30000",
         "rustyxr.brokerH264DecodeTimeoutMs": "20000",
         "rustyxr.brokerH264DecodeOutputMode": "hardware-buffer",
-        "rustyxr.brokerH264StereoPairingMode": "frame-order",
-        "rustyxr.brokerH264LivePairQueueLimit": "8"
+        "rustyxr.brokerH264StereoPairingMode": "timestamp-nearest",
+        "rustyxr.brokerH264LivePairQueueLimit": "8",
+        "rustyxr.brokerH264StereoPairId": "composite-broker-h264-stereo-camera",
+        "rustyxr.brokerH264StereoPairMaxDeltaNs": "25000000"
       },
-      "description": "Runs the live-bounded broker app-camera H.264 stereo OpenXR projection path with square camera framing, frame-order live stereo pairing, render scale 0.75, and the direct raw-projection shader variant. Use this as the renderer-parity profile before explicitly selecting the border-composite visual-effect path."
+      "description": "Runs the live-bounded broker app-camera H.264 stereo OpenXR projection path with square camera framing, broker source-time pair release plus timestamp-nearest live stereo intake, render scale 0.75, and the direct raw-projection shader variant. Use this as the renderer-parity profile before explicitly selecting the border-composite visual-effect path."
     },
     {
       "id": "broker-h264-stereo-live-openxr-projection-full-feed-control",
@@ -706,8 +710,10 @@
         "rustyxr.brokerH264StreamTimeoutMs": "30000",
         "rustyxr.brokerH264DecodeTimeoutMs": "20000",
         "rustyxr.brokerH264DecodeOutputMode": "hardware-buffer",
-        "rustyxr.brokerH264StereoPairingMode": "frame-order",
-        "rustyxr.brokerH264LivePairQueueLimit": "8"
+        "rustyxr.brokerH264StereoPairingMode": "timestamp-nearest",
+        "rustyxr.brokerH264LivePairQueueLimit": "8",
+        "rustyxr.brokerH264StereoPairId": "composite-broker-h264-stereo-camera",
+        "rustyxr.brokerH264StereoPairMaxDeltaNs": "25000000"
       },
       "description": "Alignment profile for direct comparison against GL/OES and Makepad lanes. It intentionally uses full camera projection scale and a non-fast profile name so coordinate evidence is not confused with the older 0.75 performance profiles."
     },
@@ -787,8 +793,10 @@
         "rustyxr.brokerH264StreamTimeoutMs": "60000",
         "rustyxr.brokerH264DecodeTimeoutMs": "0",
         "rustyxr.brokerH264DecodeOutputMode": "hardware-buffer",
-        "rustyxr.brokerH264StereoPairingMode": "frame-order",
-        "rustyxr.brokerH264LivePairQueueLimit": "8"
+        "rustyxr.brokerH264StereoPairingMode": "timestamp-nearest",
+        "rustyxr.brokerH264LivePairQueueLimit": "8",
+        "rustyxr.brokerH264StereoPairId": "composite-broker-h264-stereo-camera",
+        "rustyxr.brokerH264StereoPairMaxDeltaNs": "25000000"
       },
       "description": "Runs live broker Camera2 H.264 through the HWB projection path using target-local-raster stream metadata and the target-footprint peripheral-stretch effect boundary."
     },
@@ -866,8 +874,10 @@
         "rustyxr.brokerH264StreamTimeoutMs": "30000",
         "rustyxr.brokerH264DecodeTimeoutMs": "20000",
         "rustyxr.brokerH264DecodeOutputMode": "hardware-buffer",
-        "rustyxr.brokerH264StereoPairingMode": "frame-order",
-        "rustyxr.brokerH264LivePairQueueLimit": "8"
+        "rustyxr.brokerH264StereoPairingMode": "timestamp-nearest",
+        "rustyxr.brokerH264LivePairQueueLimit": "8",
+        "rustyxr.brokerH264StereoPairId": "composite-broker-h264-stereo-camera",
+        "rustyxr.brokerH264StereoPairMaxDeltaNs": "25000000"
       },
       "description": "Diagnostic profile for solving projection-surface depth and aspect before further per-eye tuning. It draws the live broker Camera2 streams on an actual head-anchored world canvas at the named projection depth, keeps the projection area full and unshifted, and enables MediaProjection so the final rendered canvas can be captured as one machine-readable display stream."
     },
@@ -939,8 +949,10 @@
         "rustyxr.brokerH264StreamTimeoutMs": "30000",
         "rustyxr.brokerH264DecodeTimeoutMs": "20000",
         "rustyxr.brokerH264DecodeOutputMode": "hardware-buffer",
-        "rustyxr.brokerH264StereoPairingMode": "frame-order",
+        "rustyxr.brokerH264StereoPairingMode": "timestamp-nearest",
         "rustyxr.brokerH264LivePairQueueLimit": "8",
+        "rustyxr.brokerH264StereoPairId": "composite-broker-h264-stereo-camera",
+        "rustyxr.brokerH264StereoPairMaxDeltaNs": "25000000",
         "rustyxr.cameraTemporalProjectionEnabled": "true",
         "rustyxr.cameraTemporalMode": "screen-motion-clamp",
         "rustyxr.cameraTemporalMaxPixelsPerFrame": "18",
