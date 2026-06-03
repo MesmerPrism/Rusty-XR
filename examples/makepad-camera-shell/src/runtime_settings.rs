@@ -97,7 +97,7 @@ pub(crate) const FRAME_RASTER_BOTTOM_LEFT_Y_UP: &str = "bottom-left-origin-y-up"
 pub(crate) const IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY: [[f32; 3]; 3] =
     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 pub(crate) const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
-pub(crate) const MAKEPAD_REV: &str = "22aba400f";
+pub(crate) const MAKEPAD_REV: &str = "032533b2f";
 pub(crate) const DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-left-source";
 pub(crate) const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 pub(crate) const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
