@@ -37,6 +37,9 @@ pub(crate) const DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS: u32 = 10_000;
 pub(crate) const DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS: u32 = 30_000;
 pub(crate) const DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS: u32 = 20_000;
 pub(crate) const DEFAULT_BROKER_H264_LIVE_STREAM: bool = true;
+pub(crate) const DEFAULT_BROKER_H264_STEREO_PAIR_ID: &str =
+    "makepad-broker-h264-stereo-camera";
+pub(crate) const DEFAULT_BROKER_H264_STEREO_PAIR_MAX_DELTA_NS: u32 = 25_000_000;
 pub(crate) const DEFAULT_MAKEPAD_DIRECT_CAMERA_HARDWARE_BUFFER_EXTERNAL: bool = true;
 pub(crate) const DEFAULT_MANIFOLD_POSE_PUBLISH_ENABLED: bool = false;
 pub(crate) const DEFAULT_MANIFOLD_POSE_STREAM: &str = "stream.motion.object_pose";
@@ -94,7 +97,7 @@ pub(crate) const FRAME_RASTER_BOTTOM_LEFT_Y_UP: &str = "bottom-left-origin-y-up"
 pub(crate) const IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY: [[f32; 3]; 3] =
     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 pub(crate) const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
-pub(crate) const MAKEPAD_REV: &str = "449a1c224";
+pub(crate) const MAKEPAD_REV: &str = "22aba400f";
 pub(crate) const DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-left-source";
 pub(crate) const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 pub(crate) const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
@@ -191,8 +194,16 @@ pub(crate) const KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PATTERN: &str =
     "makepad_broker_h264_synthetic_pattern";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_PROJECTION_GEOMETRY_PROFILE: &str =
     "makepad_broker_h264_projection_geometry_profile";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_SOURCE_SAMPLING_MODE: &str =
+    "makepad_broker_h264_source_sampling_mode";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE: &str =
     "makepad_broker_h264_synthetic_projection_profile";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_TARGET_SCREEN_UV_RECT: &str =
+    "makepad_broker_h264_target_screen_uv_rect";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_LEFT_TARGET_SCREEN_UV_RECT: &str =
+    "makepad_broker_h264_left_target_screen_uv_rect";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_RIGHT_TARGET_SCREEN_UV_RECT: &str =
+    "makepad_broker_h264_right_target_screen_uv_rect";
 pub(crate) const KEY_CAMERA_PROJECTION_GEOMETRY_PROFILE: &str =
     "camera_projection_geometry_profile";
 pub(crate) const KEY_MAKEPAD_CAMERA_PROJECTION_GEOMETRY_PROFILE: &str =
@@ -227,6 +238,10 @@ pub(crate) const KEY_MAKEPAD_BROKER_H264_STREAM_TIMEOUT_MS: &str =
 pub(crate) const KEY_MAKEPAD_BROKER_H264_DECODE_TIMEOUT_MS: &str =
     "makepad_broker_h264_decode_timeout_ms";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_LIVE_STREAM: &str = "makepad_broker_h264_live_stream";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_STEREO_PAIR_ID: &str =
+    "makepad_broker_h264_stereo_pair_id";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_STEREO_PAIR_MAX_DELTA_NS: &str =
+    "makepad_broker_h264_stereo_pair_max_delta_ns";
 pub(crate) const KEY_MANIFOLD_POSE_PUBLISH_ENABLED: &str = "manifold_pose_publish_enabled";
 pub(crate) const KEY_MANIFOLD_POSE_STREAM: &str = "manifold_pose_stream";
 pub(crate) const KEY_MANIFOLD_POSE_SOURCE: &str = "manifold_pose_source";

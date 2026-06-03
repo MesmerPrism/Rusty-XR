@@ -43,7 +43,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -123,9 +125,15 @@ final class BrokerAppCameraH264StreamSession {
     private static final int MAX_SYNTHETIC_FRAME_COUNT = 6 * 60 * 60 * 120;
     private static final int WRITER_QUEUE_POLL_MS = 100;
     private static final int WRITER_JOIN_TIMEOUT_MS = 5000;
+    private static final int DEFAULT_STEREO_PAIR_MAX_DELTA_NS = 25_000_000;
+    private static final int MAX_STEREO_PAIR_MAX_DELTA_NS = 250_000_000;
+    private static final int STEREO_PAIR_PENDING_CAPACITY = 6;
     private static final String MIME_H264 = "video/avc";
     private static final Object ACTIVE_ENCODER_LOCK = new Object();
     private static ActiveEncoderControl activeEncoderControl = null;
+    private static final Object STEREO_PACKET_RELEASE_LOCK = new Object();
+    private static final Map<String, StereoPacketReleaseState> STEREO_PACKET_RELEASE_STATES =
+        new HashMap<String, StereoPacketReleaseState>();
 
     interface Sink {
         void registerManifest(JSONObject manifest) throws Exception;
@@ -239,6 +247,36 @@ final class BrokerAppCameraH264StreamSession {
             MIN_FRAME_RATE_HZ,
             MAX_FRAME_RATE_HZ);
         final String requestedCameraId = params != null ? params.optString("camera_id", "").trim() : "";
+        final String stereoPairId = optStringAny(
+            params,
+            "",
+            "stereo_pair_id",
+            "stereoPairId",
+            "pair_id",
+            "pairId").trim();
+        final String stereoPairRole = normalizeStereoPairRole(optStringAny(
+            params,
+            "",
+            "stereo_pair_role",
+            "stereoPairRole",
+            "pair_role",
+            "pairRole"));
+        final int stereoPairMaxDeltaNs = clamp(
+            (int) optLongAny(
+                params,
+                DEFAULT_STEREO_PAIR_MAX_DELTA_NS,
+                "stereo_pair_max_delta_ns",
+                "stereoPairMaxDeltaNs",
+                "pair_max_delta_ns",
+                "pairMaxDeltaNs"),
+            0,
+            MAX_STEREO_PAIR_MAX_DELTA_NS);
+        final boolean stereoPairReleaseEnabled =
+            !syntheticSource &&
+            liveStream &&
+            stereoPairId.length() > 0 &&
+            stereoPairRole.length() > 0 &&
+            (params == null || params.optBoolean("stereo_pair_release", true));
         final boolean lanStreamEnabled = params != null && params.optBoolean("lan_stream_enabled", false);
         final String bindHost = normalizeBindHost(
             params != null ? params.optString("bind_host", "") : "",
@@ -269,6 +307,13 @@ final class BrokerAppCameraH264StreamSession {
         endpoint.put("projection_geometry_profile", syntheticProjectionProfile);
         endpoint.put("source_sampling_mode", sourceSamplingMode);
         endpoint.put("target_screen_uv_rect", targetScreenUvRect.toCsv());
+        endpoint.put("packet_source_timestamp_policy", "pts_us_surface_input_timestamp");
+        endpoint.put("stereo_pair_release_enabled", stereoPairReleaseEnabled);
+        if (stereoPairReleaseEnabled) {
+            endpoint.put("stereo_pair_id", stereoPairId);
+            endpoint.put("stereo_pair_role", stereoPairRole);
+            endpoint.put("stereo_pair_max_delta_ns", stereoPairMaxDeltaNs);
+        }
         if (syntheticSource) {
             endpoint.put("synthetic_projection_profile", syntheticProjectionProfile);
             if (syntheticImagePath.length() > 0) {
@@ -312,6 +357,13 @@ final class BrokerAppCameraH264StreamSession {
         start.put("frame_rate_hz", frameRateHz);
         start.put("live_stream", liveStream);
         start.put("stream_mode", streamMode(liveStream, captureMs, maxPackets));
+        start.put("packet_source_timestamp_policy", "pts_us_surface_input_timestamp");
+        start.put("stereo_pair_release_enabled", stereoPairReleaseEnabled);
+        if (stereoPairReleaseEnabled) {
+            start.put("stereo_pair_id", stereoPairId);
+            start.put("stereo_pair_role", stereoPairRole);
+            start.put("stereo_pair_max_delta_ns", stereoPairMaxDeltaNs);
+        }
         start.put("binary_endpoint", endpoint);
         if (syntheticSource) {
             CameraSelection syntheticReferenceSelection = null;
@@ -476,7 +528,10 @@ final class BrokerAppCameraH264StreamSession {
                     requestedContentWidth,
                     requestedContentHeight,
                     requestedDisplayAspectRatio,
-                    targetScreenUvRect);
+                    targetScreenUvRect,
+                    stereoPairReleaseEnabled
+                        ? new StereoPacketReleaseBinding(stereoPairId, stereoPairRole, stereoPairMaxDeltaNs)
+                        : null);
             }
         }, "RustyXrAppCameraH264Stream");
         thread.start();
@@ -724,7 +779,8 @@ final class BrokerAppCameraH264StreamSession {
         int requestedContentWidth,
         int requestedContentHeight,
         double requestedDisplayAspectRatio,
-        TargetScreenUvRect targetScreenUvRect) {
+        TargetScreenUvRect targetScreenUvRect,
+        StereoPacketReleaseBinding stereoReleaseBinding) {
         long encodeStartElapsedNs = SystemClock.elapsedRealtimeNanos();
         long encodeEndElapsedNs = encodeStartElapsedNs;
         StreamWriteStats writeStats = new StreamWriteStats(0L, 0L, 0L, 0L);
@@ -867,7 +923,8 @@ final class BrokerAppCameraH264StreamSession {
                         endpoint,
                         selection,
                         streamProjectionMetadata,
-                        encoderMetadata);
+                        encoderMetadata,
+                        stereoReleaseBinding);
                 packets = liveResult.packets;
                 writeStats = liveResult.writeStats;
                 encodeEndElapsedNs = liveResult.encodeEndElapsedNs;
@@ -1078,7 +1135,8 @@ final class BrokerAppCameraH264StreamSession {
         final JSONObject endpoint,
         final CameraSelection selection,
         final JSONObject streamProjectionMetadata,
-        final EncoderMetadata encoderMetadata) throws Exception {
+        final EncoderMetadata encoderMetadata,
+        final StereoPacketReleaseBinding stereoReleaseBinding) throws Exception {
         final List<EncodedPacket> packets = new ArrayList<EncodedPacket>();
         HandlerThread thread = new HandlerThread("RustyXrAppCameraH264LiveCapture");
         thread.start();
@@ -1169,7 +1227,8 @@ final class BrokerAppCameraH264StreamSession {
                     false,
                     "",
                     "",
-                    "");
+                    "",
+                    stereoReleaseBinding);
                 Thread.sleep(5);
             }
             try {
@@ -1195,7 +1254,8 @@ final class BrokerAppCameraH264StreamSession {
                 false,
                 "",
                 "",
-                "");
+                "",
+                stereoReleaseBinding);
             encoderMetadata.copyCaptureTiming(captureTiming);
             packetQueue.close();
             joinWriterThread(writerThread, client);
@@ -1222,6 +1282,7 @@ final class BrokerAppCameraH264StreamSession {
             if (activeControl != null) {
                 unregisterActiveEncoder(activeControl);
             }
+            releaseStereoPairBinding(stereoReleaseBinding, packetQueue);
             packetQueue.close();
             if (writerThread != null && writerThread.isAlive()) {
                 closeQuietly(client);
@@ -1350,7 +1411,8 @@ final class BrokerAppCameraH264StreamSession {
                     true,
                     syntheticPattern,
                     syntheticSideMarker,
-                    syntheticProjectionProfile);
+                    syntheticProjectionProfile,
+                    null);
                 sleepUntilSyntheticFrameCadence(frameStartElapsedNs, frameRateHz);
                 frameIndex++;
             }
@@ -1373,7 +1435,8 @@ final class BrokerAppCameraH264StreamSession {
                 true,
                 syntheticPattern,
                 syntheticSideMarker,
-                syntheticProjectionProfile);
+                syntheticProjectionProfile,
+                null);
             packetQueue.close();
             joinWriterThread(writerThread, client);
             if (writer.hasError() && packets.size() == 0) {
@@ -1815,6 +1878,8 @@ final class BrokerAppCameraH264StreamSession {
                         info.presentationTimeUs,
                         info.flags,
                         payload,
+                        sourceElapsedNsFromPts(info.presentationTimeUs),
+                        sourceUnixNsFromElapsedNs(sourceElapsedNsFromPts(info.presentationTimeUs)),
                         SystemClock.elapsedRealtimeNanos(),
                         System.currentTimeMillis() * 1_000_000L);
                 if (!packet.isCodecConfig() || codecConfigPacketCount(packets) < MAX_CODEC_CONFIG_PACKETS) {
@@ -1847,7 +1912,8 @@ final class BrokerAppCameraH264StreamSession {
         boolean syntheticSource,
         String syntheticPattern,
         String syntheticSideMarker,
-        String syntheticProjectionProfile) throws Exception {
+        String syntheticProjectionProfile,
+        StereoPacketReleaseBinding stereoReleaseBinding) throws Exception {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         int emptyPolls = 0;
         while (maxPackets <= 0 || packetQueue.acceptedPacketCount() < maxPackets) {
@@ -1896,10 +1962,12 @@ final class BrokerAppCameraH264StreamSession {
                     info.presentationTimeUs,
                     info.flags,
                     payload,
+                    sourceElapsedNsFromPts(info.presentationTimeUs),
+                    sourceUnixNsFromElapsedNs(sourceElapsedNsFromPts(info.presentationTimeUs)),
                     SystemClock.elapsedRealtimeNanos(),
                     System.currentTimeMillis() * 1_000_000L);
                 if (!packet.isCodecConfig() || packetQueue.codecConfigAcceptedCount() < MAX_CODEC_CONFIG_PACKETS) {
-                    packetQueue.offer(packet);
+                    offerLivePacket(packetQueue, packet, stereoReleaseBinding);
                 }
             }
             boolean reachedEos = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
@@ -3249,8 +3317,8 @@ final class BrokerAppCameraH264StreamSession {
         writeU64(output, packet.ptsUs);
         writeU32(output, packet.flags);
         writeU32(output, packet.payload.length);
-        writeU64(output, packet.encoderOutputElapsedNs);
-        writeU64(output, packet.encoderOutputUnixNs);
+        writeU64(output, packet.sourceElapsedNs);
+        writeU64(output, packet.sourceUnixNs);
         output.write(packet.payload);
     }
 
@@ -3313,6 +3381,7 @@ final class BrokerAppCameraH264StreamSession {
         manifest.put("writer_backpressure_isolated", liveStream);
         manifest.put("writer_queue_depth", liveStream && endpoint != null ? endpoint.optInt("writer_queue_depth", 0) : 0);
         manifest.put("binary_schema_version", SCHEMA_VERSION);
+        manifest.put("packet_source_timestamp_policy", "pts_us_surface_input_timestamp");
         manifest.put("binary_endpoint", endpoint);
         putSourceSelectionFields(
             manifest,
@@ -3360,8 +3429,9 @@ final class BrokerAppCameraH264StreamSession {
         sample.put("video_frame", !packet.isCodecConfig());
         sample.put("pts_us", packet.ptsUs);
         sample.put("dts_us", packet.ptsUs);
-        sample.put("source_time_unix_ns", packet.encoderOutputUnixNs);
-        sample.put("source_time_elapsed_ns", packet.encoderOutputElapsedNs);
+        sample.put("source_time_unix_ns", packet.sourceUnixNs);
+        sample.put("source_time_elapsed_ns", packet.sourceElapsedNs);
+        sample.put("packet_source_timestamp_policy", "pts_us_surface_input_timestamp");
         sample.put("encoder_output_unix_ns", packet.encoderOutputUnixNs);
         sample.put("encoder_output_elapsed_ns", packet.encoderOutputElapsedNs);
         sample.put("stream_mode", liveStream ? "live_stream" : "bounded_capture_then_write");
@@ -3868,6 +3938,18 @@ final class BrokerAppCameraH264StreamSession {
         return Math.max(min, Math.min(max, value));
     }
 
+    private static long optLongAny(JSONObject params, long fallback, String... keys) {
+        if (params == null || keys == null) {
+            return fallback;
+        }
+        for (String key : keys) {
+            if (key != null && params.has(key)) {
+                return params.optLong(key, fallback);
+            }
+        }
+        return fallback;
+    }
+
     private static int optIntAny(JSONObject params, int fallback, String... keys) {
         if (params == null || keys == null) {
             return fallback;
@@ -3893,6 +3975,36 @@ final class BrokerAppCameraH264StreamSession {
             }
         }
         return fallback;
+    }
+
+    private static String normalizeStereoPairRole(String value) {
+        if (value == null) {
+            return "";
+        }
+        String normalized = value.trim().toLowerCase().replace('_', '-');
+        if ("left".equals(normalized) || "l".equals(normalized) || "0".equals(normalized)) {
+            return "left";
+        }
+        if ("right".equals(normalized) || "r".equals(normalized) || "1".equals(normalized)) {
+            return "right";
+        }
+        return "";
+    }
+
+    private static long sourceElapsedNsFromPts(long ptsUs) {
+        if (ptsUs <= 0L || ptsUs > Long.MAX_VALUE / 1000L) {
+            return SystemClock.elapsedRealtimeNanos();
+        }
+        return ptsUs * 1000L;
+    }
+
+    private static long sourceUnixNsFromElapsedNs(long sourceElapsedNs) {
+        long nowElapsedNs = SystemClock.elapsedRealtimeNanos();
+        long nowUnixNs = System.currentTimeMillis() * 1_000_000L;
+        if (sourceElapsedNs <= 0L || sourceElapsedNs > nowElapsedNs) {
+            return nowUnixNs;
+        }
+        return nowUnixNs - Math.max(0L, nowElapsedNs - sourceElapsedNs);
     }
 
     private static double optDoubleAny(JSONObject params, double fallback, String... keys) {
@@ -4197,6 +4309,8 @@ final class BrokerAppCameraH264StreamSession {
         final long ptsUs;
         final int flags;
         final byte[] payload;
+        final long sourceElapsedNs;
+        final long sourceUnixNs;
         final long encoderOutputElapsedNs;
         final long encoderOutputUnixNs;
 
@@ -4204,11 +4318,15 @@ final class BrokerAppCameraH264StreamSession {
             long ptsUs,
             int flags,
             byte[] payload,
+            long sourceElapsedNs,
+            long sourceUnixNs,
             long encoderOutputElapsedNs,
             long encoderOutputUnixNs) {
             this.ptsUs = ptsUs;
             this.flags = flags;
             this.payload = payload;
+            this.sourceElapsedNs = sourceElapsedNs;
+            this.sourceUnixNs = sourceUnixNs;
             this.encoderOutputElapsedNs = encoderOutputElapsedNs;
             this.encoderOutputUnixNs = encoderOutputUnixNs;
         }
@@ -4219,6 +4337,188 @@ final class BrokerAppCameraH264StreamSession {
 
         boolean isKeyFrame() {
             return (flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0;
+        }
+
+        long pairingTimestampNs() {
+            if (sourceElapsedNs > 0L) {
+                return sourceElapsedNs;
+            }
+            return ptsUs > 0L ? ptsUs * 1000L : 0L;
+        }
+    }
+
+    private static boolean offerLivePacket(
+        LivePacketQueue queue,
+        EncodedPacket packet,
+        StereoPacketReleaseBinding stereoReleaseBinding) {
+        if (packet == null) {
+            return false;
+        }
+        if (stereoReleaseBinding == null || packet.isCodecConfig()) {
+            return queue.offer(packet);
+        }
+        return offerStereoPairedLivePacket(stereoReleaseBinding, queue, packet);
+    }
+
+    private static boolean offerStereoPairedLivePacket(
+        StereoPacketReleaseBinding binding,
+        LivePacketQueue queue,
+        EncodedPacket packet) {
+        if (binding == null || !binding.enabled() || queue == null || packet == null) {
+            return queue != null && queue.offer(packet);
+        }
+        long timestampNs = packet.pairingTimestampNs();
+        if (timestampNs <= 0L) {
+            return queue.offer(packet);
+        }
+        synchronized (STEREO_PACKET_RELEASE_LOCK) {
+            StereoPacketReleaseState state = STEREO_PACKET_RELEASE_STATES.get(binding.pairId);
+            if (state == null) {
+                state = new StereoPacketReleaseState(binding.pairId, binding.maxDeltaNs);
+                STEREO_PACKET_RELEASE_STATES.put(binding.pairId, state);
+            }
+            return state.offer(binding, queue, packet);
+        }
+    }
+
+    private static void releaseStereoPairBinding(
+        StereoPacketReleaseBinding binding,
+        LivePacketQueue queue) {
+        if (binding == null || !binding.enabled()) {
+            return;
+        }
+        synchronized (STEREO_PACKET_RELEASE_LOCK) {
+            StereoPacketReleaseState state = STEREO_PACKET_RELEASE_STATES.get(binding.pairId);
+            if (state == null) {
+                return;
+            }
+            state.releaseQueue(queue);
+            if (state.isEmpty()) {
+                STEREO_PACKET_RELEASE_STATES.remove(binding.pairId);
+            }
+        }
+    }
+
+    private static final class StereoPacketReleaseBinding {
+        final String pairId;
+        final String role;
+        final long maxDeltaNs;
+
+        StereoPacketReleaseBinding(String pairId, String role, long maxDeltaNs) {
+            this.pairId = pairId != null ? pairId.trim() : "";
+            this.role = normalizeStereoPairRole(role);
+            this.maxDeltaNs = Math.max(0L, Math.min(maxDeltaNs, MAX_STEREO_PAIR_MAX_DELTA_NS));
+        }
+
+        boolean enabled() {
+            return pairId.length() > 0 && role.length() > 0;
+        }
+    }
+
+    private static final class StereoPendingPacket {
+        final EncodedPacket packet;
+        final LivePacketQueue queue;
+
+        StereoPendingPacket(EncodedPacket packet, LivePacketQueue queue) {
+            this.packet = packet;
+            this.queue = queue;
+        }
+
+        long timestampNs() {
+            return packet != null ? packet.pairingTimestampNs() : 0L;
+        }
+    }
+
+    private static final class StereoPacketReleaseState {
+        final String pairId;
+        final long maxDeltaNs;
+        final ArrayDeque<StereoPendingPacket> left = new ArrayDeque<StereoPendingPacket>();
+        final ArrayDeque<StereoPendingPacket> right = new ArrayDeque<StereoPendingPacket>();
+        int pairedReleaseCount;
+        int droppedUnmatchedCount;
+
+        StereoPacketReleaseState(String pairId, long maxDeltaNs) {
+            this.pairId = pairId != null ? pairId : "";
+            this.maxDeltaNs = Math.max(0L, Math.min(maxDeltaNs, MAX_STEREO_PAIR_MAX_DELTA_NS));
+        }
+
+        boolean offer(StereoPacketReleaseBinding binding, LivePacketQueue queue, EncodedPacket packet) {
+            ArrayDeque<StereoPendingPacket> same = "right".equals(binding.role) ? right : left;
+            ArrayDeque<StereoPendingPacket> other = "right".equals(binding.role) ? left : right;
+            long timestampNs = packet.pairingTimestampNs();
+            dropFramesOlderThan(other, timestampNs - maxDeltaNs);
+            StereoPendingPacket match = removeBestMatch(other, timestampNs, maxDeltaNs);
+            if (match != null) {
+                boolean first = match.queue.offer(match.packet);
+                boolean second = queue.offer(packet);
+                pairedReleaseCount++;
+                return first && second;
+            }
+            same.addLast(new StereoPendingPacket(packet, queue));
+            trimPending(same);
+            return true;
+        }
+
+        void releaseQueue(LivePacketQueue queue) {
+            dropPacketsForQueue(left, queue);
+            dropPacketsForQueue(right, queue);
+        }
+
+        boolean isEmpty() {
+            return left.isEmpty() && right.isEmpty();
+        }
+
+        private void trimPending(ArrayDeque<StereoPendingPacket> pending) {
+            while (pending.size() > STEREO_PAIR_PENDING_CAPACITY) {
+                dropPending(pending.removeFirst());
+            }
+        }
+
+        private void dropFramesOlderThan(ArrayDeque<StereoPendingPacket> pending, long oldestAllowedNs) {
+            while (!pending.isEmpty() && pending.peekFirst().timestampNs() < oldestAllowedNs) {
+                dropPending(pending.removeFirst());
+            }
+        }
+
+        private StereoPendingPacket removeBestMatch(
+            ArrayDeque<StereoPendingPacket> pending,
+            long timestampNs,
+            long maxDeltaNs) {
+            StereoPendingPacket best = null;
+            long bestDelta = Long.MAX_VALUE;
+            for (StereoPendingPacket candidate : pending) {
+                long candidateTimestampNs = candidate.timestampNs();
+                long delta = Math.abs(candidateTimestampNs - timestampNs);
+                if (delta < bestDelta) {
+                    best = candidate;
+                    bestDelta = delta;
+                }
+            }
+            if (best == null || bestDelta > maxDeltaNs) {
+                return null;
+            }
+            pending.remove(best);
+            return best;
+        }
+
+        private void dropPacketsForQueue(ArrayDeque<StereoPendingPacket> pending, LivePacketQueue queue) {
+            ArrayDeque<StereoPendingPacket> keep = new ArrayDeque<StereoPendingPacket>();
+            while (!pending.isEmpty()) {
+                StereoPendingPacket packet = pending.removeFirst();
+                if (packet.queue == queue) {
+                    dropPending(packet);
+                } else {
+                    keep.addLast(packet);
+                }
+            }
+            pending.addAll(keep);
+        }
+
+        private void dropPending(StereoPendingPacket pending) {
+            droppedUnmatchedCount++;
+            if (pending != null && pending.queue != null && pending.packet != null) {
+                pending.queue.trackDroppedByPairCoordinator(pending.packet);
+            }
         }
     }
 
@@ -4283,6 +4583,11 @@ final class BrokerAppCameraH264StreamSession {
         synchronized void close() {
             closed = true;
             notifyAll();
+        }
+
+        synchronized void trackDroppedByPairCoordinator(EncodedPacket packet) {
+            droppedIncomingPacketCount++;
+            trackDropped(packet);
         }
 
         synchronized boolean isClosed() {

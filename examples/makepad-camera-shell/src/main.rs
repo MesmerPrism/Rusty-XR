@@ -66,7 +66,8 @@ use source_metadata::{
     makepad_stream_header_metadata_error_marker_fields,
     makepad_stream_header_metadata_ignored_marker_fields,
     normalize_direct_camera_projection_geometry_profile, stream_header_metadata_marker_fields,
-    BrokerH264ProjectionMetadata, MakepadContentGeometrySource, MakepadTargetScreenFootprintPair,
+    target_screen_uv_rect_token, BrokerH264ProjectionMetadata, MakepadContentGeometrySource,
+    MakepadTargetScreenFootprintPair,
 };
 
 use makepad_widgets::makepad_platform::{
@@ -2885,6 +2886,15 @@ impl App {
         }
     }
 
+    fn broker_h264_source_sampling_mode() -> SourceSamplingMode {
+        let default_mode = makepad_runtime_camera_source_sampling_mode();
+        SourceSamplingMode::parse(&hotload_text(
+            KEY_MAKEPAD_BROKER_H264_SOURCE_SAMPLING_MODE,
+            default_mode.stable_id(),
+        ))
+        .unwrap_or(default_mode)
+    }
+
     fn direct_camera_projection_geometry_profile() -> String {
         normalize_direct_camera_projection_geometry_profile(&hotload_text_any(
             &[
@@ -2912,6 +2922,28 @@ impl App {
         }
     }
 
+    fn broker_h264_target_screen_uv_rect_for_eye(eye: StereoEye) -> String {
+        let target = makepad_runtime_target_screen_footprint_pair();
+        let fallback = match eye {
+            StereoEye::Left => target_screen_uv_rect_token(target.left_rect),
+            StereoEye::Right => target_screen_uv_rect_token(target.right_rect),
+        };
+        let shared = hotload_text(KEY_MAKEPAD_BROKER_H264_TARGET_SCREEN_UV_RECT, "");
+        if !shared.trim().is_empty() {
+            return shared;
+        }
+        match eye {
+            StereoEye::Left => hotload_text(
+                KEY_MAKEPAD_BROKER_H264_LEFT_TARGET_SCREEN_UV_RECT,
+                &fallback,
+            ),
+            StereoEye::Right => hotload_text(
+                KEY_MAKEPAD_BROKER_H264_RIGHT_TARGET_SCREEN_UV_RECT,
+                &fallback,
+            ),
+        }
+    }
+
     fn broker_h264_source_for_eye(eye: StereoEye) -> BrokerH264VideoSource {
         let synthetic_projection_profile = hotload_text(
             KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE,
@@ -2921,6 +2953,7 @@ impl App {
             KEY_MAKEPAD_BROKER_H264_PROJECTION_GEOMETRY_PROFILE,
             &synthetic_projection_profile,
         );
+        let source_sampling_mode = Self::broker_h264_source_sampling_mode();
         let decode_output_mode = Self::broker_h264_decode_output_mode();
         BrokerH264VideoSource {
             broker_host: hotload_text(KEY_MAKEPAD_BROKER_H264_HOST, DEFAULT_BROKER_H264_HOST),
@@ -2941,6 +2974,8 @@ impl App {
                 DEFAULT_BROKER_H264_SYNTHETIC_PATTERN,
             ),
             synthetic_projection_profile: projection_geometry_profile,
+            source_sampling_mode: source_sampling_mode.stable_id().to_string(),
+            target_screen_uv_rect: Self::broker_h264_target_screen_uv_rect_for_eye(eye),
             camera_id: match eye {
                 StereoEye::Left => hotload_text(
                     KEY_MAKEPAD_BROKER_H264_LEFT_CAMERA_ID,
@@ -2951,6 +2986,20 @@ impl App {
                     DEFAULT_BROKER_H264_RIGHT_CAMERA_ID,
                 ),
             },
+            stereo_pair_id: hotload_text(
+                KEY_MAKEPAD_BROKER_H264_STEREO_PAIR_ID,
+                DEFAULT_BROKER_H264_STEREO_PAIR_ID,
+            ),
+            stereo_pair_role: match eye {
+                StereoEye::Left => "left".to_string(),
+                StereoEye::Right => "right".to_string(),
+            },
+            stereo_pair_max_delta_ns: hotload_u32(
+                KEY_MAKEPAD_BROKER_H264_STEREO_PAIR_MAX_DELTA_NS,
+                DEFAULT_BROKER_H264_STEREO_PAIR_MAX_DELTA_NS,
+                0,
+                250_000_000,
+            ),
             preferred_width: hotload_u32(
                 KEY_MAKEPAD_BROKER_H264_WIDTH,
                 DEFAULT_BROKER_H264_WIDTH,
@@ -5334,29 +5383,7 @@ impl App {
         };
         let source_sample_y_flip = orientation_decision.source_sample_y_flip;
         let source_sampling_mode = if broker_h264_enabled {
-            match (
-                self.broker_h264_left_projection_metadata.as_ref(),
-                self.broker_h264_right_projection_metadata.as_ref(),
-            ) {
-                (Some(left), Some(right))
-                    if left.source_sampling_mode.uses_screen_to_camera_homography()
-                        && right
-                            .source_sampling_mode
-                            .uses_screen_to_camera_homography() =>
-                {
-                    SourceSamplingMode::ScreenToCameraHomography
-                }
-                (Some(left), Some(right))
-                    if left.source_sampling_mode.uses_target_local_raster()
-                        && right.source_sampling_mode.uses_target_local_raster() =>
-                {
-                    SourceSamplingMode::TargetLocalRaster
-                }
-                _ if pair.projection_geometry_profile == "camera-projection" => {
-                    SourceSamplingMode::ScreenToCameraHomography
-                }
-                _ => SourceSamplingMode::TargetLocalRaster,
-            }
+            Self::broker_h264_source_sampling_mode()
         } else {
             makepad_runtime_camera_source_sampling_mode()
         };

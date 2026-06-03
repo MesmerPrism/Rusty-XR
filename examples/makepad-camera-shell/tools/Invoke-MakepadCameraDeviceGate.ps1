@@ -50,6 +50,8 @@ param(
     [int]$BrokerH264MaxPackets = 0,
     [int]$BrokerH264BitrateBps = 6000000,
     [int]$BrokerH264FrameRateHz = 50,
+    [string]$BrokerH264StereoPairId = "makepad-broker-h264-stereo-camera",
+    [int]$BrokerH264StereoPairMaxDeltaNs = 25000000,
     [int]$BrokerH264StreamTimeoutMs = 60000,
     [int]$BrokerH264DecodeTimeoutMs = 20000,
     [switch]$RequireBrokerH264StereoProjection,
@@ -702,7 +704,11 @@ function Set-MakepadBrokerH264Profile {
         "debug.rustyxr.makepad.broker.h264.decode.output.mode" = $BrokerH264DecodeOutputMode
         "debug.rustyxr.makepad.broker.h264.synthetic.pattern" = $BrokerH264SyntheticPattern
         "debug.rustyxr.makepad.broker.h264.projection.geometry.profile" = $projectionGeometryProfile
+        "debug.rustyxr.makepad.broker.h264.source.sampling.mode" = $CameraSourceSamplingMode
         "debug.rustyxr.makepad.broker.h264.synthetic.projection.profile" = $syntheticProjectionProfile
+        "debug.rustyxr.makepad.broker.h264.target.screen.uv.rect" = $CameraTargetScreenUvRect
+        "debug.rustyxr.makepad.broker.h264.left.target.screen.uv.rect" = $CameraLeftTargetScreenUvRect
+        "debug.rustyxr.makepad.broker.h264.right.target.screen.uv.rect" = $CameraRightTargetScreenUvRect
         "debug.rustyxr.makepad.broker.h264.left.camera.id" = $BrokerH264LeftCameraId
         "debug.rustyxr.makepad.broker.h264.right.camera.id" = $BrokerH264RightCameraId
         "debug.rustyxr.makepad.broker.h264.width" = $BrokerH264Width
@@ -711,6 +717,8 @@ function Set-MakepadBrokerH264Profile {
         "debug.rustyxr.makepad.broker.h264.max.packets" = $BrokerH264MaxPackets
         "debug.rustyxr.makepad.broker.h264.bitrate.bps" = $BrokerH264BitrateBps
         "debug.rustyxr.makepad.broker.h264.frame.rate.hz" = $BrokerH264FrameRateHz
+        "debug.rustyxr.makepad.broker.h264.stereo.pair.id" = $BrokerH264StereoPairId
+        "debug.rustyxr.makepad.broker.h264.stereo.pair.max.delta.ns" = $BrokerH264StereoPairMaxDeltaNs
         "debug.rustyxr.makepad.broker.h264.stream.timeout.ms" = $BrokerH264StreamTimeoutMs
         "debug.rustyxr.makepad.broker.h264.decode.timeout.ms" = $BrokerH264DecodeTimeoutMs
         "debug.rustyxr.makepad.broker.h264.live.stream" = if ($brokerRequested) { "true" } else { "false" }

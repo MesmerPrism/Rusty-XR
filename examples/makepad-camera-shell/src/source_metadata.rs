@@ -150,18 +150,10 @@ fn target_screen_rect_is_valid(rect: Rect2) -> bool {
 }
 
 fn source_sampling_mode_from_metadata(
-    projection_geometry_profile: &str,
-    synthetic_projection_profile: &str,
+    _projection_geometry_profile: &str,
+    _synthetic_projection_profile: &str,
     content_mapping_intent: &str,
 ) -> SourceSamplingMode {
-    let profile = projection_geometry_profile
-        .trim()
-        .to_ascii_lowercase()
-        .replace('_', "-");
-    let synthetic_profile = synthetic_projection_profile
-        .trim()
-        .to_ascii_lowercase()
-        .replace('_', "-");
     let intent = content_mapping_intent
         .trim()
         .to_ascii_lowercase()
@@ -180,17 +172,6 @@ fn source_sampling_mode_from_metadata(
         "map-camera-frame-through-screen-to-camera-homography"
             | "map-stimulus-raster-through-camera-projection"
     ) {
-        return SourceSamplingMode::ScreenToCameraHomography;
-    }
-    if profile == "camera-projection"
-        || profile == "camera-matched"
-        || profile == "physical-camera"
-        || synthetic_profile == "camera-projection"
-        || synthetic_profile == "camera-matched"
-        || synthetic_profile == "physical-camera"
-        || profile == "head-anchored-virtual-camera"
-        || synthetic_profile == "head-anchored-virtual-camera"
-    {
         return SourceSamplingMode::ScreenToCameraHomography;
     }
     SourceSamplingMode::TargetLocalRaster
@@ -977,15 +958,16 @@ impl BrokerH264ProjectionMetadata {
         let content_mapping_intent = json_string_any(object, &["contentMappingIntent"])
             .unwrap_or("unspecified")
             .to_string();
-        let source_sampling_mode = json_string_any(object, &["sourceSamplingMode"])
-            .and_then(SourceSamplingMode::parse)
-            .unwrap_or_else(|| {
-                source_sampling_mode_from_metadata(
-                    &projection_geometry_profile,
-                    &synthetic_projection_profile,
-                    &content_mapping_intent,
-                )
-            });
+        let source_sampling_mode =
+            json_string_any(object, &["sourceSamplingMode", "source_sampling_mode"])
+                .and_then(SourceSamplingMode::parse)
+                .unwrap_or_else(|| {
+                    source_sampling_mode_from_metadata(
+                        &projection_geometry_profile,
+                        &synthetic_projection_profile,
+                        &content_mapping_intent,
+                    )
+                });
         let content_geometry_metadata_source =
             json_string_any(object, &["contentGeometryMetadataSource"])
                 .unwrap_or("missing")
@@ -1130,10 +1112,8 @@ impl BrokerH264ProjectionMetadata {
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     pub(crate) fn requests_full_frame_projection_area_mapping(&self) -> bool {
-        self.source_sampling_mode.uses_target_local_raster()
-            || self.projection_profile_is("full-frame-diagnostic")
+        self.projection_profile_is("full-frame-diagnostic")
             || self.content_mapping_intent_is_any(&[
-                "target-local-raster",
                 "map-camera-frame-to-full-frame-projection-surface",
                 "map-camera-frame-to-full-frame-projection-area",
                 "map-full-frame-stimulus-to-projection-surface",
@@ -1144,14 +1124,12 @@ impl BrokerH264ProjectionMetadata {
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     pub(crate) fn requests_explicit_full_frame_content_mapping(&self) -> bool {
-        self.source_sampling_mode.uses_target_local_raster()
-            || self.content_mapping_intent_is_any(&[
-                "target-local-raster",
-                "map-full-frame-stimulus-to-projection-surface",
-                "map-full-frame-stimulus-to-projection-area",
-                "map-full-frame-content-to-projection-surface",
-                "map-full-frame-content-to-projection-area",
-            ])
+        self.content_mapping_intent_is_any(&[
+            "map-full-frame-stimulus-to-projection-surface",
+            "map-full-frame-stimulus-to-projection-area",
+            "map-full-frame-content-to-projection-surface",
+            "map-full-frame-content-to-projection-area",
+        ])
     }
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -1766,6 +1744,51 @@ mod tests {
         assert!(fields.contains("targetFootprintSchema=rusty.xr.target_screen_footprint.v1"));
         assert!(fields.contains("leftTargetScreenUvRect=0.171875,0.218750,0.750000,0.656250"));
         assert!(fields.contains("rightTargetScreenUvRect=0.078125,0.218750,0.750000,0.671875"));
+    }
+
+    #[test]
+    fn broker_camera_projection_keeps_target_local_sampling_orthogonal() {
+        let metadata = BrokerH264ProjectionMetadata::parse(
+            r#"{
+                "source": "broker_app.camera2_h264_stream",
+                "cameraId": "50",
+                "deliveredWidth": 1280,
+                "deliveredHeight": 1280,
+                "projectionGeometryProfile": "camera-projection",
+                "sourceSamplingMode": "target-local-raster",
+                "contentMappingIntent": "target-local-raster",
+                "projectionMetadataReady": true,
+                "intrinsics": {
+                    "fx": 1024.0,
+                    "fy": 1024.0,
+                    "cx": 640.0,
+                    "cy": 640.0
+                },
+                "extrinsics": {
+                    "px": 0.0,
+                    "py": 0.0,
+                    "pz": 0.0,
+                    "qx": 0.0,
+                    "qy": 0.0,
+                    "qz": 0.0,
+                    "qw": 1.0
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert!(metadata.source_sampling_mode.uses_target_local_raster());
+        assert!(metadata.requests_camera_projection_mapping());
+        assert!(!metadata.requests_explicit_full_frame_content_mapping());
+
+        let decision = broker_projection_plan_decision(&metadata, &metadata).unwrap();
+        assert_eq!(decision.kind, BrokerProjectionPlanKind::CameraProjection);
+        assert_eq!(decision.projection_geometry_profile, "camera-projection");
+
+        let fields = broker_pair_content_geometry_marker_fields(&metadata, &metadata);
+        assert!(fields.contains(
+            "leftSourceSamplingMode=target-local-raster rightSourceSamplingMode=target-local-raster"
+        ));
     }
 
     #[test]
