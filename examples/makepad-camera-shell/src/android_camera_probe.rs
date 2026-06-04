@@ -1,12 +1,11 @@
+use super::projection_geometry::StereoProjectionSources;
+pub use super::projection_geometry::{
+    broker_full_frame_projection_plan_from_xr_views, broker_physical_projection_plan_from_xr_views,
+    broker_synthetic_projection_plan_from_xr_views, BrokerProjectionSource, StereoProjectionPlan,
+    XrDisplayEyeView, XrDisplayViews, XrProjectionContract,
+};
 use crate::acamera_sys::*;
 use crate::emit_marker_line;
-pub use super::projection_geometry::{
-    broker_full_frame_projection_plan_from_xr_views,
-    broker_physical_projection_plan_from_xr_views, broker_synthetic_projection_plan_from_xr_views,
-    BrokerProjectionSource, StereoProjectionPlan, XrDisplayEyeView, XrDisplayViews,
-    XrProjectionContract,
-};
-use super::projection_geometry::StereoProjectionSources;
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::BTreeSet;
 use std::ffi::{CStr, CString};
