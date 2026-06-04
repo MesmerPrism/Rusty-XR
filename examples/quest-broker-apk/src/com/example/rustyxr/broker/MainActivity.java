@@ -362,7 +362,7 @@ public final class MainActivity extends Activity {
         root.addView(scroll, scrollParams);
 
         footerView = textView(13, false, MUTED);
-        footerView.setText("Endpoint: http://127.0.0.1:8765/status    Clock: /clock/now    WebSocket: ws://127.0.0.1:8765/rustyxr/v1/events");
+        footerView.setText("Endpoint: http://127.0.0.1:8765/status    Clock: /clock/now    WebSocket: ws://127.0.0.1:8765/manifold/v1/events");
         root.addView(footerView);
 
         return root;
@@ -2566,6 +2566,11 @@ public final class MainActivity extends Activity {
         if (commands != null) {
             builder.append("Schema        ").append(commands.optString("schema", "")).append('\n');
             builder.append("Ack schema    ").append(commands.optString("ackSchema", "")).append("\n\n");
+            String legacySchema = commands.optString("legacySchema", "");
+            if (!TextUtils.isEmpty(legacySchema)) {
+                builder.append("Legacy schema ").append(legacySchema).append('\n');
+                builder.append("Legacy ack    ").append(commands.optString("legacyAckSchema", "")).append("\n\n");
+            }
             JSONArray supported = commands.optJSONArray("supported");
             if (supported != null) {
                 builder.append("SUPPORTED\n");
@@ -2579,7 +2584,7 @@ public final class MainActivity extends Activity {
         builder.append("XR apps can open this console through the broker command envelope:\n\n");
         builder.append("{\n");
         builder.append("  \"type\": \"command\",\n");
-        builder.append("  \"schema\": \"rusty.xr.broker.command.v1\",\n");
+        builder.append("  \"schema\": \"rusty.manifold.command.envelope.v1\",\n");
         builder.append("  \"request_id\": \"ui-001\",\n");
         builder.append("  \"command\": \"open_ui\"\n");
         builder.append("}\n\n");
@@ -2663,7 +2668,8 @@ public final class MainActivity extends Activity {
         builder.append("Clock now     http://127.0.0.1:8765/clock/now\n");
         builder.append("Clock health  http://127.0.0.1:8765/clock/health\n");
         builder.append("Kiosk status  http://127.0.0.1:8765/kiosk/status\n");
-        builder.append("WebSocket     ws://127.0.0.1:8765/rustyxr/v1/events\n\n");
+        builder.append("WebSocket     ws://127.0.0.1:8765/manifold/v1/events\n");
+        builder.append("Legacy WS     ws://127.0.0.1:8765/rustyxr/v1/events\n\n");
 
         JSONObject client = status.optJSONObject("client");
         if (client != null) {

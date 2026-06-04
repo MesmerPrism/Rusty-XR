@@ -34,8 +34,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 final class BrokerAppCameraLumaStreamSession {
-    private static final String STREAM_SCHEMA = "rusty.xr.video_lab.binary_stream.v1";
-    private static final String MAGIC = "RXYRVID1";
+    private static final String STREAM_SCHEMA = "rusty.manifold.video.binary_stream.v1";
+    private static final String LEGACY_RUSTY_XR_STREAM_SCHEMA = "rusty.xr.video_lab.binary_stream.v1";
+    private static final String MAGIC = "RMANVID1";
+    private static final String LEGACY_RUSTY_XR_MAGIC = "RXYRVID1";
     private static final int SCHEMA_VERSION = 1;
     private static final int CODEC_RAW_LUMA8 = 2;
     private static final int DEFAULT_PORT = 8878;
@@ -73,12 +75,15 @@ final class BrokerAppCameraLumaStreamSession {
         endpoint.put("device_port", devicePort);
         endpoint.put("host_port", hostPort);
         endpoint.put("framing", STREAM_SCHEMA);
+        endpoint.put("legacy_framing", LEGACY_RUSTY_XR_STREAM_SCHEMA);
         endpoint.put("magic", MAGIC);
+        endpoint.put("legacy_magic", LEGACY_RUSTY_XR_MAGIC);
         endpoint.put("codec_id", CODEC_RAW_LUMA8);
         endpoint.put("codec", "raw_luma8");
 
         JSONObject start = new JSONObject();
-        start.put("schema", "rusty.xr.camera_provider.app_camera_luma_stream_start.v1");
+        start.put("schema", "rusty.manifold.camera_provider.app_camera_luma_stream_start.v1");
+        start.put("legacy_schema", "rusty.xr.camera_provider.app_camera_luma_stream_start.v1");
         start.put("session_id", sessionId);
         start.put("stream_id", "broker_app.camera_luma");
         start.put("source", "broker_app_camera2_luma");
@@ -103,7 +108,7 @@ final class BrokerAppCameraLumaStreamSession {
                     preferredWidth,
                     preferredHeight);
             }
-        }, "RustyXrAppCameraLumaStream");
+        }, "ManifoldAppCameraLumaStream");
         thread.start();
         return start;
     }
@@ -440,7 +445,8 @@ final class BrokerAppCameraLumaStreamSession {
         int frameCount,
         JSONObject endpoint) throws Exception {
         JSONObject manifest = new JSONObject();
-        manifest.put("schema", "rusty.xr.video_lab.encoded_stream_manifest.v1");
+        manifest.put("schema", "rusty.manifold.video.encoded_stream_manifest.v1");
+        manifest.put("legacy_schema", "rusty.xr.video_lab.encoded_stream_manifest.v1");
         manifest.put("stream_id", "broker_app.camera_luma");
         manifest.put("session_id", sessionId);
         manifest.put("source", "broker_app_camera2_luma");
@@ -467,7 +473,8 @@ final class BrokerAppCameraLumaStreamSession {
         int index,
         LumaPacket packet) throws Exception {
         JSONObject sample = new JSONObject();
-        sample.put("schema", "rusty.xr.video_lab.encoded_sample_metadata.v1");
+        sample.put("schema", "rusty.manifold.video.encoded_sample_metadata.v1");
+        sample.put("legacy_schema", "rusty.xr.video_lab.encoded_sample_metadata.v1");
         sample.put("stream_id", "broker_app.camera_luma");
         sample.put("session_id", sessionId);
         sample.put("sequence_id", System.currentTimeMillis() * 1000L + index);
@@ -502,7 +509,8 @@ final class BrokerAppCameraLumaStreamSession {
             payloadBytes += packets.get(i).payload.length;
         }
         JSONObject metric = new JSONObject();
-        metric.put("schema", "rusty.xr.video_lab.metric_sample.v1");
+        metric.put("schema", "rusty.manifold.video.metric_sample.v1");
+        metric.put("legacy_schema", "rusty.xr.video_lab.metric_sample.v1");
         metric.put("stream_id", "broker_app.camera_luma");
         metric.put("source", "broker_app_camera2_luma");
         metric.put("transport", "metadata_only");

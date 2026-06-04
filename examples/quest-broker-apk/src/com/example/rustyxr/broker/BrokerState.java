@@ -16,7 +16,16 @@ import java.util.concurrent.atomic.AtomicLong;
 final class BrokerState {
     static final String BROKER_VERSION = "0.1.0-public-proof";
     static final int PROTOCOL_VERSION = 1;
-    static final String CONTRACT_VERSION = "rusty.xr.broker.v1";
+    static final String CONTRACT_VERSION = "rusty.manifold.broker.v1";
+    static final String LEGACY_RUSTY_XR_CONTRACT_VERSION = "rusty.xr.broker.v1";
+    static final String MANIFOLD_COMMAND_SCHEMA = "rusty.manifold.command.envelope.v1";
+    static final String LEGACY_RUSTY_XR_BROKER_COMMAND_SCHEMA = "rusty.xr.broker.command.v1";
+    static final String MANIFOLD_COMMAND_ACK_SCHEMA = "rusty.manifold.command_ack.v1";
+    static final String LEGACY_RUSTY_XR_BROKER_COMMAND_ACK_SCHEMA = "rusty.xr.broker.command_ack.v1";
+    static final String MANIFOLD_STREAM_EVENT_SCHEMA = "rusty.manifold.stream_event.v1";
+    static final String LEGACY_RUSTY_XR_BROKER_STREAM_EVENT_SCHEMA = "rusty.xr.broker.stream_event.v1";
+    static final String MANIFOLD_EVENTS_PATH = "/manifold/v1/events";
+    static final String LEGACY_RUSTY_XR_EVENTS_PATH = "/rustyxr/v1/events";
     static final String KIOSK_CONTROL_PLANE_STATUS_SCHEMA = "rusty.xr.kiosk.control_plane.v1";
     static final String KIOSK_COMMAND_EVIDENCE_SCHEMA = "rusty.xr.kiosk.command_evidence.v1";
     static final String KIOSK_COMMAND_RUN_RECORD_SCHEMA = "rusty.xr.kiosk.command_run_record.v1";
@@ -71,6 +80,7 @@ final class BrokerState {
         status.put("brokerVersion", BROKER_VERSION);
         status.put("protocolVersion", PROTOCOL_VERSION);
         status.put("contractVersion", CONTRACT_VERSION);
+        status.put("legacyContractVersion", LEGACY_RUSTY_XR_CONTRACT_VERSION);
         status.put("uptimeMs", (SystemClock.elapsedRealtimeNanos() - startedElapsedNanos) / 1_000_000L);
         status.put("startedUnixMs", startedUnixMs);
         status.put("bindAddress", "127.0.0.1");
@@ -103,8 +113,13 @@ final class BrokerState {
                 "broker_http_status_snapshot"));
 
         JSONObject commands = new JSONObject();
-        commands.put("schema", "rusty.xr.broker.command.v1");
-        commands.put("ackSchema", "rusty.xr.broker.command_ack.v1");
+        commands.put("schema", MANIFOLD_COMMAND_SCHEMA);
+        commands.put("legacySchema", LEGACY_RUSTY_XR_BROKER_COMMAND_SCHEMA);
+        commands.put("acceptedSchemas", jsonArrayOf(
+            MANIFOLD_COMMAND_SCHEMA,
+            LEGACY_RUSTY_XR_BROKER_COMMAND_SCHEMA));
+        commands.put("ackSchema", MANIFOLD_COMMAND_ACK_SCHEMA);
+        commands.put("legacyAckSchema", LEGACY_RUSTY_XR_BROKER_COMMAND_ACK_SCHEMA);
         JSONArray supportedCommands = new JSONArray();
         supportedCommands.put("status_request");
         supportedCommands.put("list_capabilities");
@@ -223,10 +238,15 @@ final class BrokerState {
 
     JSONArray capabilitiesJson(LatencyPublisher publisher, OscIngressServer oscIngressServer) {
         JSONArray capabilities = new JSONArray();
+        capabilities.put("manifold.websocket.events");
+        capabilities.put("manifold.command.envelope.v1");
+        capabilities.put("manifold.command_ack.v1");
+        capabilities.put("manifold.stream_event.v1");
         capabilities.put("websocket.events");
         capabilities.put("websocket.control");
         capabilities.put("http.status");
         capabilities.put("broker.command.v1");
+        capabilities.put("broker.command.v1.legacy_rusty_xr_compat");
         capabilities.put("broker.command_rejection.v1");
         capabilities.put("broker.control_lease.v1");
         capabilities.put("broker.control_lease_request.v1");
@@ -518,16 +538,28 @@ final class BrokerState {
         JSONArray endpoints = new JSONArray();
         endpoints.put(hostEndpointJson(
             "events-ws",
-            "Broker WebSocket events",
+            "Manifold WebSocket events",
             "WebSocket",
             normalizedBindHost,
             port,
-            "/rustyxr/v1/events",
+            MANIFOLD_EVENTS_PATH,
             JSONObject.NULL,
             false,
             endpointVisibility,
             "broker.control",
             true));
+        endpoints.put(hostEndpointJson(
+            "events-ws-legacy-rustyxr",
+            "Legacy Rusty-XR WebSocket events compatibility",
+            "WebSocket",
+            normalizedBindHost,
+            port,
+            LEGACY_RUSTY_XR_EVENTS_PATH,
+            JSONObject.NULL,
+            false,
+            endpointVisibility,
+            "broker.control",
+            false));
         endpoints.put(hostEndpointJson(
             "status-http",
             "Broker HTTP status",
@@ -1422,9 +1454,9 @@ final class BrokerState {
             return "rusty.xr.device_watchdog.status.v1";
         }
         if (streamId.contains("h264")) {
-            return "rusty.xr.video_lab.binary_stream.v1";
+            return "rusty.manifold.video.binary_stream.v1";
         }
-        return "rusty.xr.broker.stream_payload.v1";
+        return "rusty.manifold.stream_payload.v1";
     }
 
     private static Object recommendedRateForStream(String streamId, String kind) {

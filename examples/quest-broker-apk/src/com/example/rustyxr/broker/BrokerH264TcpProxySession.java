@@ -20,8 +20,10 @@ import java.util.concurrent.TimeUnit;
 
 final class BrokerH264TcpProxySession {
     private static final String TAG = "RustyXrBroker";
-    private static final String STREAM_SCHEMA = "rusty.xr.video_lab.binary_stream.v1";
-    private static final String MAGIC = "RXYRVID1";
+    private static final String STREAM_SCHEMA = "rusty.manifold.video.binary_stream.v1";
+    private static final String LEGACY_RUSTY_XR_STREAM_SCHEMA = "rusty.xr.video_lab.binary_stream.v1";
+    private static final String MAGIC = "RMANVID1";
+    private static final String LEGACY_RUSTY_XR_MAGIC = "RXYRVID1";
     private static final int CODEC_H264 = 1;
     private static final int DEFAULT_REMOTE_PORT = 8879;
     private static final int DEFAULT_LOCAL_PORT = 8879;
@@ -74,7 +76,9 @@ final class BrokerH264TcpProxySession {
         remoteEndpoint.put("host", remoteHost);
         remoteEndpoint.put("port", remotePort);
         remoteEndpoint.put("framing", STREAM_SCHEMA);
+        remoteEndpoint.put("accepted_legacy_framing", LEGACY_RUSTY_XR_STREAM_SCHEMA);
         remoteEndpoint.put("magic", MAGIC);
+        remoteEndpoint.put("accepted_legacy_magic", LEGACY_RUSTY_XR_MAGIC);
         remoteEndpoint.put("codec_id", CODEC_H264);
         remoteEndpoint.put("codec", "h264");
         remoteEndpoint.put("header_metadata", "projection_metadata_json_utf8");
@@ -85,14 +89,17 @@ final class BrokerH264TcpProxySession {
         localEndpoint.put("device_port", localPort);
         localEndpoint.put("host_port", localHostPort);
         localEndpoint.put("framing", STREAM_SCHEMA);
+        localEndpoint.put("legacy_framing", LEGACY_RUSTY_XR_STREAM_SCHEMA);
         localEndpoint.put("magic", MAGIC);
+        localEndpoint.put("legacy_magic", LEGACY_RUSTY_XR_MAGIC);
         localEndpoint.put("codec_id", CODEC_H264);
         localEndpoint.put("codec", "h264");
         localEndpoint.put("packet_header", "pts_us,flags,size,source_time_elapsed_ns,source_time_unix_ns");
         localEndpoint.put("header_metadata", "projection_metadata_json_utf8");
 
         JSONObject start = new JSONObject();
-        start.put("schema", "rusty.xr.broker.h264_tcp_proxy_start.v1");
+        start.put("schema", "rusty.manifold.video.h264_tcp_proxy_start.v1");
+        start.put("legacy_schema", "rusty.xr.broker.h264_tcp_proxy_start.v1");
         start.put("session_id", sessionId);
         start.put("stream_id", "broker_peer.h264_tcp_proxy");
         start.put("source", "broker_peer_h264_tcp_proxy");
@@ -146,7 +153,9 @@ final class BrokerH264TcpProxySession {
         remoteEndpoint.put("host", host);
         remoteEndpoint.put("port", remotePort);
         remoteEndpoint.put("framing", STREAM_SCHEMA);
+        remoteEndpoint.put("accepted_legacy_framing", LEGACY_RUSTY_XR_STREAM_SCHEMA);
         remoteEndpoint.put("magic", MAGIC);
+        remoteEndpoint.put("accepted_legacy_magic", LEGACY_RUSTY_XR_MAGIC);
         remoteEndpoint.put("codec_id", CODEC_H264);
         remoteEndpoint.put("codec", "h264");
 
@@ -156,7 +165,9 @@ final class BrokerH264TcpProxySession {
         localEndpoint.put("device_port", localPort);
         localEndpoint.put("host_port", localPort);
         localEndpoint.put("framing", STREAM_SCHEMA);
+        localEndpoint.put("legacy_framing", LEGACY_RUSTY_XR_STREAM_SCHEMA);
         localEndpoint.put("magic", MAGIC);
+        localEndpoint.put("legacy_magic", LEGACY_RUSTY_XR_MAGIC);
         localEndpoint.put("codec_id", CODEC_H264);
         localEndpoint.put("codec", "h264");
         localEndpoint.put("packet_header", "pts_us,flags,size,source_time_elapsed_ns,source_time_unix_ns");
@@ -232,7 +243,8 @@ final class BrokerH264TcpProxySession {
         consumerThread.join(timeoutMs);
 
         JSONObject report = new JSONObject();
-        report.put("schema", "rusty.xr.broker.h264_tcp_proxy_probe.v1");
+        report.put("schema", "rusty.manifold.video.h264_tcp_proxy_probe.v1");
+        report.put("legacy_schema", "rusty.xr.broker.h264_tcp_proxy_probe.v1");
         report.put("session_id", sessionId);
         report.put("remote_endpoint", remoteEndpoint);
         report.put("local_endpoint", localEndpoint);
@@ -460,7 +472,7 @@ final class BrokerH264TcpProxySession {
     private static Header readHeader(InputStream input) throws Exception {
         byte[] headerRaw = readExact(input, 32);
         String magic = new String(headerRaw, 0, 8, StandardCharsets.US_ASCII);
-        if (!MAGIC.equals(magic)) {
+        if (!MAGIC.equals(magic) && !LEGACY_RUSTY_XR_MAGIC.equals(magic)) {
             throw new IllegalStateException("Remote H.264 stream returned unexpected magic: " + magic);
         }
 
@@ -472,8 +484,12 @@ final class BrokerH264TcpProxySession {
         int declaredPacketBytes = readI32(headerRaw, 28);
         int headerMetadataBytes = 0;
         byte[] raw = headerRaw;
+        if (LEGACY_RUSTY_XR_MAGIC.equals(magic)) {
+            byte[] normalizedMagic = MAGIC.getBytes(StandardCharsets.US_ASCII);
+            System.arraycopy(normalizedMagic, 0, raw, 0, normalizedMagic.length);
+        }
         if (schemaVersion < 1 || schemaVersion > 3) {
-            throw new IllegalStateException("Unsupported RXYRVID1 schema version: " + schemaVersion);
+            throw new IllegalStateException("Unsupported external video stream schema version: " + schemaVersion);
         }
         if (codecId != CODEC_H264) {
             throw new IllegalStateException("Unsupported proxy codec id: " + codecId);

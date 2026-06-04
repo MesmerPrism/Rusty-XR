@@ -462,7 +462,8 @@ public final class BrokerService extends Service {
 
         JSONObject ack = new JSONObject();
         ack.put("type", "command_ack");
-        ack.put("schema", "rusty.xr.broker.command_ack.v1");
+        ack.put("schema", BrokerState.MANIFOLD_COMMAND_ACK_SCHEMA);
+        ack.put("legacy_schema", BrokerState.LEGACY_RUSTY_XR_BROKER_COMMAND_ACK_SCHEMA);
         ack.put("request_id", "broker-console");
         ack.put("command", command != null ? command : "");
         ack.put("accepted", accepted);
@@ -480,7 +481,8 @@ public final class BrokerService extends Service {
 
         JSONObject ack = new JSONObject();
         ack.put("type", "command_ack");
-        ack.put("schema", "rusty.xr.broker.command_ack.v1");
+        ack.put("schema", BrokerState.MANIFOLD_COMMAND_ACK_SCHEMA);
+        ack.put("legacy_schema", BrokerState.LEGACY_RUSTY_XR_BROKER_COMMAND_ACK_SCHEMA);
         ack.put("request_id", "broker-console");
         ack.put("command", command != null ? command : "");
         ack.put("accepted", false);

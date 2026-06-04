@@ -164,7 +164,8 @@ final class LocalBrokerServer implements Closeable {
                 try {
                     JSONObject event = new JSONObject();
                     event.put("type", "stream_event");
-                    event.put("schema", "rusty.xr.broker.stream_event.v1");
+                    event.put("schema", BrokerState.MANIFOLD_STREAM_EVENT_SCHEMA);
+                    event.put("legacy_schema", BrokerState.LEGACY_RUSTY_XR_BROKER_STREAM_EVENT_SCHEMA);
                     event.put("stream", stream);
                     event.put("subscription_id", client.subscriptionIdFor(stream));
                     event.put("sequence_id", sequenceId);
@@ -197,7 +198,8 @@ final class LocalBrokerServer implements Closeable {
         try {
             JSONObject event = new JSONObject();
             event.put("type", "stream_event");
-            event.put("schema", "rusty.xr.broker.stream_event.v1");
+            event.put("schema", BrokerState.MANIFOLD_STREAM_EVENT_SCHEMA);
+            event.put("legacy_schema", BrokerState.LEGACY_RUSTY_XR_BROKER_STREAM_EVENT_SCHEMA);
             event.put("stream", stream);
             event.put("subscription_id", "lsl:broker");
             event.put("sequence_id", sequenceId);
@@ -315,7 +317,7 @@ final class LocalBrokerServer implements Closeable {
                 return;
             }
 
-            if ("GET".equals(method) && "/rustyxr/v1/events".equals(endpointPath) && wantsWebSocket(headers)) {
+            if ("GET".equals(method) && isEventsWebSocketPath(endpointPath) && wantsWebSocket(headers)) {
                 handleWebSocket(headers, input, output);
                 return;
             }
@@ -2526,7 +2528,8 @@ final class LocalBrokerServer implements Closeable {
         JSONObject result) throws Exception {
         JSONObject ack = new JSONObject();
         ack.put("type", "command_ack");
-        ack.put("schema", "rusty.xr.broker.command_ack.v1");
+        ack.put("schema", BrokerState.MANIFOLD_COMMAND_ACK_SCHEMA);
+        ack.put("legacy_schema", BrokerState.LEGACY_RUSTY_XR_BROKER_COMMAND_ACK_SCHEMA);
         ack.put("request_id", requestId != null ? requestId : "");
         ack.put("command", command != null ? command : "");
         ack.put("accepted", accepted);
@@ -2564,7 +2567,8 @@ final class LocalBrokerServer implements Closeable {
         JSONObject error) throws Exception {
         JSONObject ack = new JSONObject();
         ack.put("type", "command_ack");
-        ack.put("schema", "rusty.xr.broker.command_ack.v1");
+        ack.put("schema", BrokerState.MANIFOLD_COMMAND_ACK_SCHEMA);
+        ack.put("legacy_schema", BrokerState.LEGACY_RUSTY_XR_BROKER_COMMAND_ACK_SCHEMA);
         ack.put("request_id", requestId != null ? requestId : "");
         ack.put("command", command != null ? command : "");
         ack.put("accepted", false);
@@ -2707,6 +2711,11 @@ final class LocalBrokerServer implements Closeable {
             "websocket".equals(upgrade.toLowerCase(Locale.ROOT)) &&
             connection != null &&
             connection.toLowerCase(Locale.ROOT).contains("upgrade");
+    }
+
+    private static boolean isEventsWebSocketPath(String path) {
+        return BrokerState.MANIFOLD_EVENTS_PATH.equals(path) ||
+            BrokerState.LEGACY_RUSTY_XR_EVENTS_PATH.equals(path);
     }
 
     private static String websocketAccept(String key) throws Exception {

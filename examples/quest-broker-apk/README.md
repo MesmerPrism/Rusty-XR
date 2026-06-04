@@ -28,7 +28,8 @@ owning decode, Vulkan import, projection, and OpenXR layer submission itself.
   adapters.
 - Broker clock: `http://127.0.0.1:8765/clock/now`
 - Rusty Kiosk control-plane status: `http://127.0.0.1:8765/kiosk/status`
-- WebSocket samples/events: `ws://127.0.0.1:8765/rustyxr/v1/events`
+- WebSocket samples/events: `ws://127.0.0.1:8765/manifold/v1/events`
+  with legacy compatibility at `ws://127.0.0.1:8765/rustyxr/v1/events`
 - LSL stream when native LSL is packaged: `rusty_xr_broker_latency`
 - OSC latency egress when enabled: `/rusty-xr/broker/latency`
 - OSC control ingress when enabled: `/rusty-xr/drive/radius`
@@ -140,7 +141,7 @@ or an operator visual witness before accepting the run as camera-ready.
 ```json
 {
   "type": "command",
-  "schema": "rusty.xr.broker.command.v1",
+  "schema": "rusty.manifold.command.envelope.v1",
   "request_id": "req-001",
   "client_id": "quest-client",
   "command": "subscribe",
@@ -150,13 +151,13 @@ or an operator visual witness before accepting the run as camera-ready.
 }
 ```
 
-Command replies use `rusty.xr.broker.command_ack.v1`. Subscribed clients
+Command replies use `rusty.manifold.command_ack.v1`. Subscribed clients
 receive generic `stream_event` messages such as:
 
 ```json
 {
   "type": "stream_event",
-  "schema": "rusty.xr.broker.stream_event.v1",
+  "schema": "rusty.manifold.stream_event.v1",
   "stream": "osc:/rusty-xr/drive/radius",
   "sequence_id": 42,
   "clock_stamp": {
@@ -205,7 +206,7 @@ Adapters can also use
 ```json
 {
   "type": "command",
-  "schema": "rusty.xr.broker.command.v1",
+  "schema": "rusty.manifold.command.envelope.v1",
   "request_id": "breath-001",
   "command": "breath_assessment.submit_controller_pose",
   "params": {
@@ -243,7 +244,7 @@ Start the HR/RR-only direct source through the WebSocket command API:
 ```json
 {
   "type": "command",
-  "schema": "rusty.xr.broker.command.v1",
+  "schema": "rusty.manifold.command.envelope.v1",
   "request_id": "polar-hr-001",
   "command": "polar.start",
   "params": {
@@ -259,7 +260,7 @@ Start PMD explicitly when the headset is the intended PMD owner:
 ```json
 {
   "type": "command",
-  "schema": "rusty.xr.broker.command.v1",
+  "schema": "rusty.manifold.command.envelope.v1",
   "request_id": "polar-001",
   "command": "polar_pmd.start",
   "params": {
@@ -295,14 +296,16 @@ preview, and one `.json` sidecar to the requested device-local output
 directory. For a bounded payload-transport
 diagnostic, `camera_provider.start_app_camera_luma_stream` captures a small
 number of app-context `YUV_420_888` frames, copies only the luma plane, and
-writes `raw_luma8` packets through the public `RXYRVID1` binary framing over
-an ADB-forwarded TCP connection. The broker still sends only manifest, sample
+writes `raw_luma8` packets through the Manifold `RMANVID1` binary framing over
+an ADB-forwarded TCP connection. The old `RXYRVID1` marker is reported only as
+legacy compatibility metadata.
+The broker still sends only manifest, sample
 metadata, and metric events through WebSocket JSON, and labels this path as a
 probe rather than a production encoded-video or compositor provider. When the
 next encoded diagnostic is needed, `camera_provider.start_app_camera_h264_stream`
 routes app-context Camera2 frames directly into an Android platform
-MediaCodec H.264 input surface, then writes encoded packets through the same
-`RXYRVID1` framing with codec ID `1`. By default this remains a bounded
+MediaCodec H.264 input surface, then writes encoded packets through
+`RMANVID1` framing with codec ID `1`. By default this remains a bounded
 capture-then-write probe for regression stability. When clients pass
 `live_stream=true`, the broker accepts the binary stream socket before Camera2
 capture starts, drains encoder output directly to the stream, and writes
@@ -314,7 +317,7 @@ mode with packet-arrival decode so the receiver no longer has to wait for the
 whole declared packet count before submitting decoded frames.
 For receiver and shader diagnostics that should not depend on a live camera,
 `media.start_synthetic_h264_stream` uses the same Android platform MediaCodec
-surface encoder and the same `RXYRVID1` schema-3 binary stream writer, but draws
+surface encoder and the same `RMANVID1` schema-3 binary stream writer, but draws
 deterministic app-generated frames into the encoder surface. The command accepts
 the same `device_port`, `host_port`, `preferred_width`, `preferred_height`,
 `capture_ms`, `max_packets`, `bitrate_bps`, `live_stream`, `lan_stream_enabled`,
@@ -347,14 +350,15 @@ For LAN experiments, non-loopback H.264 payload binds are opt-in. Passing
 to use a non-loopback `bind_host` such as `0.0.0.0`; `advertised_host` can
 report the peer-reachable device address in the returned binary endpoint. A
 receiving broker can then run `media.start_h264_tcp_proxy` with `remote_host`,
-`remote_port`, and `local_port` to subscribe to that remote `RXYRVID1` H.264
+`remote_port`, and `local_port` to subscribe to that remote `RMANVID1` H.264
 TCP stream and republish it on local loopback for the existing XR-side
-MediaCodec consumer. The TCP proxy accepts schema-1/2 streams and forwards
-schema-3 stream-header projection metadata unchanged for projected receiver
-paths. This is a broker-to-broker payload proof, not yet discovery,
+MediaCodec consumer. The TCP proxy also accepts legacy `RXYRVID1` upstreams,
+normalizes the forwarded local header to `RMANVID1`, and forwards schema-3
+stream-header projection metadata unchanged for projected receiver paths.
+This is a broker-to-broker payload proof, not yet discovery,
 pairing/authentication, RTP jitter buffering, or an indefinite production
 stream. The `media.run_h264_tcp_proxy_probe` command validates the
-same TCP proxy plumbing with an in-process synthetic `RXYRVID1` source and
+same TCP proxy plumbing with an in-process synthetic `RMANVID1` source and
 consumer, so the broker-to-broker relay can be smoke-tested without camera
 permission, OpenXR, or a second headset. The follow-up
 `camera_provider.run_app_camera_h264_decode_probe` command reuses that same
@@ -364,9 +368,11 @@ isolates decoder compatibility before a client texture path is attempted, but
 texture import, eye views, and OpenXR layer submission still belong to the
 active XR client.
 For one-device remote-source tests, `tools/video/serve_rxyrvid1_h264.py` can
-wrap a saved H.264 Annex-B elementary stream in `RXYRVID1` framing from a
-laptop or bridge machine. Start the host source, run `media.start_h264_tcp_proxy`
-against that host and port, then launch the composite example with
+wrap a saved H.264 Annex-B elementary stream in legacy `RXYRVID1` framing from
+a laptop or bridge machine. The TCP proxy accepts that legacy marker and
+normalizes the local forwarded stream to `RMANVID1`. Start the host source,
+run `media.start_h264_tcp_proxy` against that host and port, then launch the
+composite example with
 `rustyxr.brokerH264SourceMode=existing-stream` so the XR client consumes the
 proxied incoming stream instead of asking the broker to open Camera2.
 This remains a live-stream transport and projection validation path. It still
@@ -491,7 +497,7 @@ The `open_ui` broker command also accepts an optional `params.page` value:
 ```json
 {
   "type": "command",
-  "schema": "rusty.xr.broker.command.v1",
+  "schema": "rusty.manifold.command.envelope.v1",
   "request_id": "system-page-001",
   "command": "open_ui",
   "params": {

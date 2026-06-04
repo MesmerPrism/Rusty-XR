@@ -50,7 +50,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 final class BrokerAppCameraH264StreamSession {
-    private static final String STREAM_SCHEMA = "rusty.xr.video_lab.binary_stream.v1";
+    private static final String STREAM_SCHEMA = "rusty.manifold.video.binary_stream.v1";
+    private static final String LEGACY_RUSTY_XR_STREAM_SCHEMA = "rusty.xr.video_lab.binary_stream.v1";
     private static final String STREAM_ID_CAMERA_H264 = "broker_app.camera_h264";
     private static final String STREAM_ID_SYNTHETIC_H264 = "broker_app.synthetic_h264";
     private static final String SOURCE_CAMERA_H264 = "broker_app_camera2_mediacodec_surface";
@@ -92,7 +93,8 @@ final class BrokerAppCameraH264StreamSession {
     private static final double DEFAULT_TARGET_SCREEN_Y = 0.14d;
     private static final double DEFAULT_TARGET_SCREEN_WIDTH = 0.94d;
     private static final double DEFAULT_TARGET_SCREEN_HEIGHT = 0.72d;
-    private static final String MAGIC = "RXYRVID1";
+    private static final String MAGIC = "RMANVID1";
+    private static final String LEGACY_RUSTY_XR_MAGIC = "RXYRVID1";
     private static final int SCHEMA_VERSION = 3;
     private static final int CODEC_H264 = 1;
     private static final int DEFAULT_PORT = 8879;
@@ -292,7 +294,9 @@ final class BrokerAppCameraH264StreamSession {
         endpoint.put("device_port", devicePort);
         endpoint.put("host_port", hostPort);
         endpoint.put("framing", STREAM_SCHEMA);
+        endpoint.put("legacy_framing", LEGACY_RUSTY_XR_STREAM_SCHEMA);
         endpoint.put("magic", MAGIC);
+        endpoint.put("legacy_magic", LEGACY_RUSTY_XR_MAGIC);
         endpoint.put("codec_id", CODEC_H264);
         endpoint.put("codec", "h264");
         endpoint.put("schema_version", SCHEMA_VERSION);
@@ -325,6 +329,11 @@ final class BrokerAppCameraH264StreamSession {
         JSONObject start = new JSONObject();
         start.put(
             "schema",
+            syntheticSource
+                ? "rusty.manifold.media.synthetic_h264_stream_start.v1"
+                : "rusty.manifold.camera_provider.app_camera_h264_stream_start.v1");
+        start.put(
+            "legacy_schema",
             syntheticSource
                 ? "rusty.xr.media.synthetic_h264_stream_start.v1"
                 : "rusty.xr.camera_provider.app_camera_h264_stream_start.v1");
