@@ -31,6 +31,18 @@ Rusty XR core crates must not depend on Makepad. Makepad-specific code belongs
 in the standalone Makepad example, optional adapters, or the maintained Makepad
 fork branch.
 
+Repo-family boundary:
+
+- Hostess Makepad shell crates may depend on Makepad.
+- Studio Makepad/UI shell crates may depend on Makepad.
+- Public Rusty XR Makepad examples may depend on Makepad.
+- Manifold, Manifold packages, Rusty core/CLI crates, descriptor repos, and
+  schema/fixture workspaces stay Makepad-free.
+
+Makepad can prove app-shell, rendering, Android, OpenXR, Vulkan, and
+generated-package behavior. It does not define Manifold command/session/stream
+authority.
+
 ## Upstream Alignment Status
 
 The maintained branch is now an upstream-alignment branch as well as a Rusty XR
