@@ -11,6 +11,9 @@ pub(crate) const DEFAULT_MANIFOLD_POSE_STREAM: &str = "stream.motion.object_pose
 pub(crate) const DEFAULT_MANIFOLD_POSE_SOURCE: &str = "provider.makepad.controller_pose";
 pub(crate) const LEGACY_MANIFOLD_POSE_SOURCE_MAKEPAD_XR: &str =
     "provider.makepad_xr.controller_pose";
+pub(crate) const MANIFOLD_POSE_SOURCE_KIND: &str = "controller_pose_provider";
+#[cfg(test)]
+const LEGACY_MANIFOLD_POSE_SOURCE_KIND_XR_CONTROLLER: &str = "xr_controller_pose_provider";
 pub(crate) const DEFAULT_MANIFOLD_POSE_CONTROLLER: &str = "right";
 pub(crate) const DEFAULT_MANIFOLD_POSE_KIND: &str = "grip";
 pub(crate) const DEFAULT_MANIFOLD_BROKER_HOST: &str = "127.0.0.1";
@@ -131,7 +134,7 @@ pub(crate) fn build_object_pose_payload(
         "schema": "rusty.manifold.motion.object_pose.sample.v1",
         "stream": config.stream_id,
         "source": config.source_id,
-        "source_kind": "xr_controller_pose_provider",
+        "source_kind": MANIFOLD_POSE_SOURCE_KIND,
         "object_id": object_id,
         "controller": sample.controller,
         "hand": sample.controller,
@@ -339,6 +342,11 @@ mod tests {
         );
         assert_eq!(payload["stream"], DEFAULT_MANIFOLD_POSE_STREAM);
         assert_eq!(payload["source"], DEFAULT_MANIFOLD_POSE_SOURCE);
+        assert_eq!(payload["source_kind"], MANIFOLD_POSE_SOURCE_KIND);
+        assert_ne!(
+            payload["source_kind"],
+            LEGACY_MANIFOLD_POSE_SOURCE_KIND_XR_CONTROLLER
+        );
         assert_eq!(payload["controller"], "right");
         assert_eq!(payload["provider_boundary"]["source_agnostic"], true);
         assert_eq!(
