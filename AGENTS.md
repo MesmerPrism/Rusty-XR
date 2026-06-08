@@ -3,6 +3,12 @@
 This is the public Rusty XR core repository. Keep committed files public,
 portable, and useful without access to downstream app repositories.
 
+Rusty Morphospace is the top-level project/platform umbrella for the clean
+refactor. Do not rename this public repository, crate/package ids, public APIs,
+or compatibility diagnostics as part of that umbrella decision. New generic
+contracts should still land in their concrete lanes such as Matter, Lattice,
+Manifold, Optics, GUI, Studio, or Quest.
+
 The clean refactor now uses `Rusty Lattice` for generic situated relation
 contracts: spaces, transforms, tracked poses, view sets, spatial input roles,
 frame-state binding, calibration, validity, confidence, and runtime capability
