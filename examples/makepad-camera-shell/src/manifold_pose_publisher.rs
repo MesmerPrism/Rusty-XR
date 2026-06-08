@@ -8,7 +8,9 @@ use std::{
 };
 
 pub(crate) const DEFAULT_MANIFOLD_POSE_STREAM: &str = "stream.motion.object_pose";
-pub(crate) const DEFAULT_MANIFOLD_POSE_SOURCE: &str = "provider.makepad_xr.controller_pose";
+pub(crate) const DEFAULT_MANIFOLD_POSE_SOURCE: &str = "provider.makepad.controller_pose";
+pub(crate) const LEGACY_MANIFOLD_POSE_SOURCE_MAKEPAD_XR: &str =
+    "provider.makepad_xr.controller_pose";
 pub(crate) const DEFAULT_MANIFOLD_POSE_CONTROLLER: &str = "right";
 pub(crate) const DEFAULT_MANIFOLD_POSE_KIND: &str = "grip";
 pub(crate) const DEFAULT_MANIFOLD_BROKER_HOST: &str = "127.0.0.1";
@@ -336,6 +338,7 @@ mod tests {
             "rusty.manifold.motion.object_pose.sample.v1"
         );
         assert_eq!(payload["stream"], DEFAULT_MANIFOLD_POSE_STREAM);
+        assert_eq!(payload["source"], DEFAULT_MANIFOLD_POSE_SOURCE);
         assert_eq!(payload["controller"], "right");
         assert_eq!(payload["provider_boundary"]["source_agnostic"], true);
         assert_eq!(
@@ -344,6 +347,20 @@ mod tests {
         );
         let z = payload["position_m"][2].as_f64().unwrap_or_default();
         assert!((z - -0.34).abs() < 0.0001);
+    }
+
+    #[test]
+    fn accepts_legacy_makepad_xr_pose_source_alias() {
+        let config = ManifoldPosePublisherConfig {
+            source_id: LEGACY_MANIFOLD_POSE_SOURCE_MAKEPAD_XR.to_string(),
+            ..ManifoldPosePublisherConfig::default()
+        };
+        let payload = build_object_pose_payload(&config, &sample());
+        assert_eq!(payload["source"], LEGACY_MANIFOLD_POSE_SOURCE_MAKEPAD_XR);
+        assert_eq!(
+            payload["provider_boundary"]["provider"],
+            LEGACY_MANIFOLD_POSE_SOURCE_MAKEPAD_XR
+        );
     }
 
     #[test]
