@@ -3,6 +3,13 @@
 This is the public Rusty XR core repository. Keep committed files public,
 portable, and useful without access to downstream app repositories.
 
+The clean refactor now uses `Rusty Lattice` for generic situated relation
+contracts: spaces, transforms, tracked poses, view sets, spatial input roles,
+frame-state binding, calibration, validity, confidence, and runtime capability
+snapshots. Do not rename this public repository or break existing public
+`Rusty-XR` APIs as part of that decision. New generic relation extractions
+should be planned as scoped migrations with compatibility notes.
+
 ## Public Boundary
 
 Do not commit:
