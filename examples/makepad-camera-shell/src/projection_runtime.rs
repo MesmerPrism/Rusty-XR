@@ -1,5 +1,5 @@
 use super::*;
-use rusty_xr_runtime_config as rxrc;
+use rusty_quest_makepad_runtime_config as rxrc;
 
 pub(super) fn makepad_projection_runtime_resolution_enabled() -> bool {
     hotload_bool(KEY_MAKEPAD_PROJECTION_RUNTIME_RESOLUTION_ENABLED, false)
@@ -890,5 +890,3 @@ fn set_projection_manifest_float(
         .set(key, rxrc::RuntimeValue::Float(value), source)
         .expect("projection manifest keys should be public-safe");
 }
-
-

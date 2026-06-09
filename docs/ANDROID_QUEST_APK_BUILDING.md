@@ -119,7 +119,7 @@ with aliased executables. Update or select a Makepad fork/tool whose Android
 packager resolves installed build-tools, platform, Java, NDK prebuilt, and host
 executable names from the selected `--sdk-path`.
 
-Use `-MakepadSourceRoot` or `RUSTY_XR_MAKEPAD_SOURCE_ROOT` for Makepad local
+Use `-MakepadSourceRoot` or `RUSTY_QUEST_MAKEPAD_SOURCE_ROOT` for Makepad local
 evidence builds. The wrapper requires that source root by default, selects the
 fork checkout's release `tools/cargo_makepad` tool, and patches the app's
 Makepad dependency to the same checkout for that build. The committed lockfile
@@ -155,13 +155,13 @@ portable Makepad workflows, but the caller is responsible for passing a
 host-matched SDK path. The tested command shape is:
 
 ```powershell
-cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Camera" build -p rusty-xr-makepad-camera-shell --release
+cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty Quest Makepad Camera" build -p rusty-quest-makepad-camera-shell --release
 ```
 
 For run/install:
 
 ```powershell
-cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Camera" run -p rusty-xr-makepad-camera-shell --release
+cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty Quest Makepad Camera" run -p rusty-quest-makepad-camera-shell --release
 ```
 
 Before using a Makepad APK as evidence, remove or timestamp the expected output
@@ -195,7 +195,7 @@ For Makepad Android, split validation into two gates:
    metadata, projection-math changes, and committed lockfile resolution.
 2. Android/package gate: `Build-MakepadStereoAlignmentApk.ps1` with
    `-MakepadSourceRoot <makepad-fork-checkout>` or
-   `RUSTY_XR_MAKEPAD_SOURCE_ROOT` is the target acceptance gate because it
+   `RUSTY_QUEST_MAKEPAD_SOURCE_ROOT` is the target acceptance gate because it
    exercises Makepad's generated Android activity model and packager while
    keeping the packager source and app Makepad dependencies aligned.
 

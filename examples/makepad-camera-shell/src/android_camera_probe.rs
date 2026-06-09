@@ -1201,4 +1201,3 @@ fn marker_token(value: &str) -> String {
         })
         .collect()
 }
-

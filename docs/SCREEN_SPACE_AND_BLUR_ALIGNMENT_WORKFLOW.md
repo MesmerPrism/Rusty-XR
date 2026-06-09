@@ -211,13 +211,13 @@ separate diagnostic modes and should not be present in solid-red parity runs.
 
 | Renderer family | Raw border control | Projection-area opacity | Border opacity | Color-derived alpha | Blur control |
 | --- | --- | --- | --- | --- | --- |
-| Vulkan/HWB | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` with `rustyxr.cameraPipelinePreset=raw-projection-unorm` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.projectionAlphaMode`, `rustyxr.projectionAlphaScale`, `rustyxr.projectionAlphaBias` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
-| GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.projectionAreaOpacity` | `rustyxr.projectionBorderOpacity` | `rustyxr.projectionAlphaMode`, `rustyxr.projectionAlphaScale`, `rustyxr.projectionAlphaBias` | `rustyxr.processingLayer=blur`, plus `rustyxr.cameraBlurRadiusPx` |
-| Makepad CPU-YUV | `debug.rustyxr.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.projection.area.opacity` | `debug.rustyxr.projection.border.opacity` | `debug.rustyxr.projection.alpha.mode`, `.scale`, `.bias` | `debug.rustyxr.processing.layer=blur`, plus `debug.rustyxr.camera.blur.radius.px`; legacy `debug.rustyxr.makepad.*` aliases are compatibility-only |
+| Vulkan/HWB | `rustyquest.makepad.projectionBorderPolicy=solid-red` or `passthrough-underlay` with `rustyquest.makepad.cameraPipelinePreset=raw-projection-unorm` | `rustyquest.makepad.projectionAreaOpacity` | `rustyquest.makepad.projectionBorderOpacity` | `rustyquest.makepad.projectionAlphaMode`, `rustyquest.makepad.projectionAlphaScale`, `rustyquest.makepad.projectionAlphaBias` | `rustyquest.makepad.processingLayer=blur`, plus `rustyquest.makepad.cameraBlurRadiusPx` |
+| GL/OES | `rustyquest.makepad.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyquest.makepad.projectionAreaOpacity` | `rustyquest.makepad.projectionBorderOpacity` | `rustyquest.makepad.projectionAlphaMode`, `rustyquest.makepad.projectionAlphaScale`, `rustyquest.makepad.projectionAlphaBias` | `rustyquest.makepad.processingLayer=blur`, plus `rustyquest.makepad.cameraBlurRadiusPx` |
+| Makepad CPU-YUV | `debug.rustyquest.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyquest.makepad.projection.area.opacity` | `debug.rustyquest.makepad.projection.border.opacity` | `debug.rustyquest.makepad.projection.alpha.mode`, `.scale`, `.bias` | `debug.rustyquest.makepad.processing.layer=blur`, plus `debug.rustyquest.makepad.camera.blur.radius.px` |
 
 The suite-level `-ProjectionAreaOffsetXUv` and `-ProjectionAreaOffsetYUv`
 parameters forward the same screen-space sweep intent to Vulkan/HWB and GL/OES
-through the shared `rustyxr.projectionArea*` keys. Positive X moves the
+through the shared `rustyquest.makepad.projectionArea*` keys. Positive X moves the
 projection area right and positive Y moves it down in screenshot/display-screen
 coordinates. Use them only after the raw hard-mask evidence is valid. If a lane
 needs a renderer-specific offset, document the owning layer and keep the
@@ -232,7 +232,7 @@ these masks to discover or hide screen-space coordinate errors.
 
 Projection surface depth is not a renderer-private constant. The suite-level
 `-ProjectionDepthMeters` default is `1.0` meter and is logged by all lanes as
-`projectionDepthMeters` or the Makepad `debug.rustyxr.projection.depth.meters`
+`projectionDepthMeters` or the Makepad `debug.rustyquest.makepad.projection.depth.meters`
 property. Use lane-specific depth overrides only as named architecture
 experiments; otherwise all three lanes should share the same projection plane
 before alignment offsets are measured.

@@ -1,4 +1,4 @@
-use rusty_xr_runtime_config as rxrc;
+use rusty_quest_makepad_runtime_config as rxrc;
 
 use super::*;
 

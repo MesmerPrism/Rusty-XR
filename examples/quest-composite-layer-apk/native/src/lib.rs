@@ -4352,12 +4352,12 @@ mod tests {
         OpenXrPassthroughStyleMode, ProjectionTargetJoystickControls, RuntimeConfig,
         StereoSourceEyeMapping,
     };
+    use rusty_quest_makepad_runtime_config as rxrc;
     use rusty_xr_contracts::{
         CameraCompositeTier, CameraImageRotation, CameraPixelDomainKind, ImageSize,
         TemporalProjectionEdgeMode, TemporalProjectionMode,
     };
     use rusty_xr_debug_canvas::DiagnosticHudCommand;
-    use rusty_xr_runtime_config as rxrc;
 
     #[test]
     fn contract_json_contains_public_identity_and_media_projection() {

@@ -6583,22 +6583,22 @@ impl OpenXrHandMeshParticleSource {
                 .unwrap_or_else(|error| {
                     if frame_count == 0 || frame_count.is_multiple_of(120) {
                         log_error(format!(
-                        "Rusty XR OpenXR left hand mesh particle update failed: {error}"
-                    ));
-                }
-                LiveHandMeshUpdateStatus::NoSnapshot
-            })
+                            "Rusty XR OpenXR left hand mesh particle update failed: {error}"
+                        ));
+                    }
+                    LiveHandMeshUpdateStatus::NoSnapshot
+                })
         });
         let right_status = self.right.as_mut().map(|hand| {
             hand.update(reference_space, predicted_display_time, frame_count)
                 .unwrap_or_else(|error| {
                     if frame_count == 0 || frame_count.is_multiple_of(120) {
                         log_error(format!(
-                        "Rusty XR OpenXR right hand mesh particle update failed: {error}"
-                    ));
-                }
-                LiveHandMeshUpdateStatus::NoSnapshot
-            })
+                            "Rusty XR OpenXR right hand mesh particle update failed: {error}"
+                        ));
+                    }
+                    LiveHandMeshUpdateStatus::NoSnapshot
+                })
         });
         let left_renderable = hand_update_status_renders(left_status);
         let right_renderable = hand_update_status_renders(right_status);

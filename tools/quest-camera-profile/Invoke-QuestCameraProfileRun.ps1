@@ -46,7 +46,7 @@ param(
     [string[]]$PreLaunchForceStopPackages = @(
         "com.example.rustyxr.composite",
         "com.example.rustyxr.opengles",
-        "io.github.mesmerprism.rustyxr.makepad.camera"
+        "io.github.mesmerprism.rustyquest.makepad.camera"
     ),
     [switch]$SkipPreLaunchForceStopPackages,
     [string]$ProjectionRuntimeReadbackValidator = "",
@@ -877,18 +877,18 @@ function New-RunConfigurationSummary {
         [string]$RuntimeProfileId,
         [string]$ProjectionBorderPolicyValue
     )
-    $processingLayerValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyxr.processingLayer"
-    $blurRadiusValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyxr.cameraBlurRadiusPx"
-    $xrRenderScaleValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyxr.xrRenderScale"
+    $processingLayerValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.makepad.processingLayer"
+    $blurRadiusValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.makepad.cameraBlurRadiusPx"
+    $xrRenderScaleValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.makepad.xrRenderScale"
     return [ordered]@{
         runtimeProfile = $RuntimeProfileId
         xrRenderScale = ConvertTo-OptionalDouble -Value $xrRenderScaleValue
         projectionBorderPolicy = $ProjectionBorderPolicyValue
         processingLayer = if ($processingLayerValue) { $processingLayerValue } else { $null }
         blurRadiusPx = ConvertTo-OptionalDouble -Value $blurRadiusValue
-        cameraPipelinePreset = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyxr.cameraPipelinePreset"
-        cameraProjectionEffectMode = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyxr.cameraProjectionEffectMode"
-        cameraProjectionMode = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyxr.cameraProjectionMode"
+        cameraPipelinePreset = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.makepad.cameraPipelinePreset"
+        cameraProjectionEffectMode = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.makepad.cameraProjectionEffectMode"
+        cameraProjectionMode = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.makepad.cameraProjectionMode"
     }
 }
 
@@ -1506,16 +1506,16 @@ foreach ($entry in (Convert-Overrides -Items $Override).GetEnumerator()) {
     $values[$entry.Key] = [string]$entry.Value
 }
 if ($CameraPipelinePreset) {
-    $values["rustyxr.cameraPipelinePreset"] = $CameraPipelinePreset
+    $values["rustyquest.makepad.cameraPipelinePreset"] = $CameraPipelinePreset
 }
 if ($CameraProjectionEffectMode) {
-    $values["rustyxr.cameraProjectionEffectMode"] = $CameraProjectionEffectMode
+    $values["rustyquest.makepad.cameraProjectionEffectMode"] = $CameraProjectionEffectMode
 }
 if ($ProjectionBorderPolicy) {
-    $values["rustyxr.projectionBorderPolicy"] = $ProjectionBorderPolicy
+    $values["rustyquest.makepad.projectionBorderPolicy"] = $ProjectionBorderPolicy
 }
 if ($CameraProjectionMode) {
-    $values["rustyxr.cameraProjectionMode"] = $CameraProjectionMode
+    $values["rustyquest.makepad.cameraProjectionMode"] = $CameraProjectionMode
 }
 $runConfiguration = New-RunConfigurationSummary `
     -LaunchValues $values `
@@ -1550,7 +1550,7 @@ if ($Install) {
 Invoke-ProfileTimedStep -Step "grant-runtime-permissions" -Action {
     Invoke-Adb -Arguments @("shell", "pm", "grant", $packageName, "android.permission.CAMERA") | Out-Null
     Invoke-Adb -Arguments @("shell", "pm", "grant", $packageName, "horizonos.permission.HEADSET_CAMERA") | Out-Null
-    if ($values.ContainsKey("rustyxr.mediaProjection") -and (Test-TruthyLaunchValue -Value $values["rustyxr.mediaProjection"])) {
+    if ($values.ContainsKey("rustyquest.makepad.mediaProjection") -and (Test-TruthyLaunchValue -Value $values["rustyquest.makepad.mediaProjection"])) {
         Grant-MediaProjectionAppOp -PackageName $packageName -Dir $dir
     }
 }

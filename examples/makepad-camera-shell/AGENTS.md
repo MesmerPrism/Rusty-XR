@@ -61,7 +61,7 @@ python tools\schema\check_android_build_manifest.py examples\makepad-camera-shel
 ```
 
 This example is intentionally standalone rather than a root-workspace member.
-Do not run `cargo check -p rusty-xr-makepad-camera-shell` from the workspace
+Do not run `cargo check -p rusty-quest-makepad-camera-shell` from the workspace
 root; it does not select this package.
 
 For Android build validation, use `cargo-makepad` from the maintained Makepad

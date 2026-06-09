@@ -46,7 +46,7 @@ The parser extracts:
 - direct Camera2 acquire, `HardwareBuffer`, pair-search, and native-bridge
   timings from `Stereo headset camera pair` log lines.
 - OpenXR frame cadence, render scale, import-cache counters, and frame timing.
-- Makepad direct-XR cadence samples from `RUSTY_XR_MAKEPAD_CADENCE` markers,
+- Makepad direct-XR cadence samples from `RUSTY_QUEST_MAKEPAD_CADENCE` markers,
   including Makepad `NextFrame` callback rate and paired left/right camera
   texture-update rate. Newer markers also include Makepad `XrUpdate` and
   draw-event rates for cadence-source isolation. Use `VrApi` rows, when

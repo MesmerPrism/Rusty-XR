@@ -29,14 +29,14 @@ HWB_CAMERA_PATH_CONFIG_MARKER = "Rusty XR camera path config"
 OES_CONTRACT_MARKER = "Rusty XR OpenXR GLES projection contract"
 OES_STARTUP_MARKER = "Rusty XR OpenXR GLES projection border policy="
 OES_TRANSFORM_MARKER = "Rusty XR SurfaceTexture OES transform matrix"
-MAKEPAD_IMPORT_MARKER = "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT"
+MAKEPAD_IMPORT_MARKER = "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT"
 MAKEPAD_FRAME_FLOW_MARKERS = (
-    "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW",
-    "RUSTY_XR_MAKEPAD_FRAME_FLOW",
+    "RUSTY_QUEST_MAKEPAD_CAMERA_FRAME_FLOW",
+    "RUSTY_QUEST_MAKEPAD_FRAME_FLOW",
 )
-MAKEPAD_CADENCE_MARKER = "RUSTY_XR_MAKEPAD_CADENCE"
-MAKEPAD_STEREO_PROJECTION_MARKER = "RUSTY_XR_MAKEPAD_STEREO_PROJECTION"
-MAKEPAD_DESCRIPTOR_MARKER = "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE"
+MAKEPAD_CADENCE_MARKER = "RUSTY_QUEST_MAKEPAD_CADENCE"
+MAKEPAD_STEREO_PROJECTION_MARKER = "RUSTY_QUEST_MAKEPAD_STEREO_PROJECTION"
+MAKEPAD_DESCRIPTOR_MARKER = "RUSTY_QUEST_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE"
 TIMING_KEYS = (
     "camera_frame_sequence",
     "camera_timestamp_ns",
@@ -134,40 +134,30 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
     props = read_json_file(root / "projection-target-props.json")
     if isinstance(props, list):
         property_map = {
-            "debug.rustyxr.projection.border.policy": "projectionBorderPolicy",
-            "debug.rustyxr.makepad.projection.border.policy": "projectionBorderPolicy",
-            "debug.rustyxr.processing.layer": "processingLayer",
-            "debug.rustyxr.makepad.processing.layer": "processingLayer",
-            "debug.rustyxr.makepad.projection.sample.mode": "projectionSampleMode",
-            "debug.rustyxr.xr.render.scale": "xrRenderScale",
-            "debug.rustyxr.makepad.xr.render.scale": "xrRenderScale",
-            "debug.rustyxr.camera.blur.radius.px": "blurRadiusPx",
-            "debug.rustyxr.makepad.blur.radius.px": "blurRadiusPx",
-            "debug.rustyxr.camera.projection.geometry.profile": "cameraProjectionGeometryProfile",
-            "debug.rustyxr.makepad.camera.projection.geometry.profile": "cameraProjectionGeometryProfile",
-            "debug.rustyxr.camera.source.sampling.mode": "cameraSourceSamplingMode",
-            "debug.rustyxr.makepad.camera.source.sampling.mode": "cameraSourceSamplingMode",
-            "debug.rustyxr.camera.target.screen.uv.rect": "cameraTargetScreenUvRect",
-            "debug.rustyxr.camera.left.target.screen.uv.rect": "cameraLeftTargetScreenUvRect",
-            "debug.rustyxr.camera.right.target.screen.uv.rect": "cameraRightTargetScreenUvRect",
-            "debug.rustyxr.makepad.camera.target.screen.uv.rect": "cameraTargetScreenUvRect",
-            "debug.rustyxr.makepad.camera.left.target.screen.uv.rect": "cameraLeftTargetScreenUvRect",
-            "debug.rustyxr.makepad.camera.right.target.screen.uv.rect": "cameraRightTargetScreenUvRect",
-            "debug.rustyxr.peripheral.stretch.mode": "peripheralStretchMode",
-            "debug.rustyxr.peripheral.stretch.core.scale": "peripheralStretchCoreScale",
-            "debug.rustyxr.peripheral.stretch.edge.inset.uv": "peripheralStretchEdgeInsetUv",
-            "debug.rustyxr.peripheral.stretch.max.inset.uv": "peripheralStretchMaxInsetUv",
-            "debug.rustyxr.peripheral.stretch.curve": "peripheralStretchCurve",
-            "debug.rustyxr.peripheral.stretch.inner.blend.uv": "peripheralStretchInnerBlendUv",
-            "debug.rustyxr.peripheral.stretch.blend.curve": "peripheralStretchBlendCurve",
-            "debug.rustyxr.peripheral.stretch.blend.mode": "peripheralStretchBlendMode",
-            "debug.rustyxr.peripheral.stretch.corner.mode": "peripheralStretchCornerMode",
-            "debug.rustyxr.peripheral.stretch.debug": "peripheralStretchDebug",
-            "debug.rustyxr.projection.target.offset.x.uv": "projectionTargetOffsetXUv",
-            "debug.rustyxr.projection.target.offset.y.uv": "projectionTargetOffsetYUv",
-            "debug.rustyxr.projection.target.scale": "projectionTargetScale",
-            "debug.rustyxr.projection.target.joystick.controls": "projectionTargetJoystickControls",
-            "debug.rustyxr.makepad.projection.target.joystick.controls": "projectionTargetJoystickControls",
+            "debug.rustyquest.makepad.projection.border.policy": "projectionBorderPolicy",
+            "debug.rustyquest.makepad.processing.layer": "processingLayer",
+            "debug.rustyquest.makepad.projection.sample.mode": "projectionSampleMode",
+            "debug.rustyquest.makepad.xr.render.scale": "xrRenderScale",
+            "debug.rustyquest.makepad.camera.blur.radius.px": "blurRadiusPx",
+            "debug.rustyquest.makepad.camera.projection.geometry.profile": "cameraProjectionGeometryProfile",
+            "debug.rustyquest.makepad.camera.source.sampling.mode": "cameraSourceSamplingMode",
+            "debug.rustyquest.makepad.camera.target.screen.uv.rect": "cameraTargetScreenUvRect",
+            "debug.rustyquest.makepad.camera.left.target.screen.uv.rect": "cameraLeftTargetScreenUvRect",
+            "debug.rustyquest.makepad.camera.right.target.screen.uv.rect": "cameraRightTargetScreenUvRect",
+            "debug.rustyquest.makepad.peripheral.stretch.mode": "peripheralStretchMode",
+            "debug.rustyquest.makepad.peripheral.stretch.core.scale": "peripheralStretchCoreScale",
+            "debug.rustyquest.makepad.peripheral.stretch.edge.inset.uv": "peripheralStretchEdgeInsetUv",
+            "debug.rustyquest.makepad.peripheral.stretch.max.inset.uv": "peripheralStretchMaxInsetUv",
+            "debug.rustyquest.makepad.peripheral.stretch.curve": "peripheralStretchCurve",
+            "debug.rustyquest.makepad.peripheral.stretch.inner.blend.uv": "peripheralStretchInnerBlendUv",
+            "debug.rustyquest.makepad.peripheral.stretch.blend.curve": "peripheralStretchBlendCurve",
+            "debug.rustyquest.makepad.peripheral.stretch.blend.mode": "peripheralStretchBlendMode",
+            "debug.rustyquest.makepad.peripheral.stretch.corner.mode": "peripheralStretchCornerMode",
+            "debug.rustyquest.makepad.peripheral.stretch.debug": "peripheralStretchDebug",
+            "debug.rustyquest.makepad.projection.target.offset.x.uv": "projectionTargetOffsetXUv",
+            "debug.rustyquest.makepad.projection.target.offset.y.uv": "projectionTargetOffsetYUv",
+            "debug.rustyquest.makepad.projection.target.scale": "projectionTargetScale",
+            "debug.rustyquest.makepad.projection.target.joystick.controls": "projectionTargetJoystickControls",
         }
         for item in props:
             if not isinstance(item, dict):
@@ -213,38 +203,37 @@ def load_run_context_fields(root: Path) -> dict[str, Any]:
         values = manifest.get("values")
         if isinstance(values, dict):
             for source_key, target_key in (
-                ("rustyxr.cameraPipelinePreset", "cameraPipelinePreset"),
-                ("rustyxr.cameraProjectionEffectMode", "cameraProjectionEffectMode"),
-                ("rustyxr.cameraProjectionMode", "cameraProjectionMode"),
-                ("rustyxr.projectionBorderPolicy", "projectionBorderPolicy"),
-                ("rustyxr.processingLayer", "processingLayer"),
-                ("rustyxr.makepad.processing.layer", "processingLayer"),
-                ("rustyxr.cameraSourceSamplingMode", "sourceSamplingMode"),
-                ("rustyxr.directCamera2OesSourceSamplingMode", "sourceSamplingMode"),
-                ("rustyxr.brokerH264SourceSamplingMode", "sourceSamplingMode"),
-                ("rustyxr.cameraLeftTargetScreenUvRect", "leftTargetScreenUvRect"),
-                ("rustyxr.cameraRightTargetScreenUvRect", "rightTargetScreenUvRect"),
-                ("rustyxr.directCamera2OesLeftTargetScreenUvRect", "leftTargetScreenUvRect"),
-                ("rustyxr.directCamera2OesRightTargetScreenUvRect", "rightTargetScreenUvRect"),
-                ("rustyxr.brokerH264LeftTargetScreenUvRect", "leftTargetScreenUvRect"),
-                ("rustyxr.brokerH264RightTargetScreenUvRect", "rightTargetScreenUvRect"),
-                ("rustyxr.projectionTargetOffsetXUv", "projectionTargetOffsetXUv"),
-                ("rustyxr.projectionTargetOffsetYUv", "projectionTargetOffsetYUv"),
-                ("rustyxr.projectionTargetScale", "projectionTargetScale"),
-                ("rustyxr.projectionTargetJoystickControls", "projectionTargetJoystickControls"),
-                ("rustyxr.peripheralStretchMode", "peripheralStretchMode"),
-                ("rustyxr.peripheralStretchCoreScale", "peripheralStretchCoreScale"),
-                ("rustyxr.peripheralStretchEdgeInsetUv", "peripheralStretchEdgeInsetUv"),
-                ("rustyxr.peripheralStretchMaxInsetUv", "peripheralStretchMaxInsetUv"),
-                ("rustyxr.peripheralStretchCurve", "peripheralStretchCurve"),
-                ("rustyxr.peripheralStretchInnerBlendUv", "peripheralStretchInnerBlendUv"),
-                ("rustyxr.peripheralStretchBlendCurve", "peripheralStretchBlendCurve"),
-                ("rustyxr.peripheralStretchBlendMode", "peripheralStretchBlendMode"),
-                ("rustyxr.peripheralStretchCornerMode", "peripheralStretchCornerMode"),
-                ("rustyxr.peripheralStretchDebug", "peripheralStretchDebug"),
-                ("rustyxr.makepad.projection.sample.mode", "projectionSampleMode"),
-                ("rustyxr.cameraBlurRadiusPx", "blurRadiusPx"),
-                ("rustyxr.xrRenderScale", "xrRenderScale"),
+                ("rustyquest.makepad.cameraPipelinePreset", "cameraPipelinePreset"),
+                ("rustyquest.makepad.cameraProjectionEffectMode", "cameraProjectionEffectMode"),
+                ("rustyquest.makepad.cameraProjectionMode", "cameraProjectionMode"),
+                ("rustyquest.makepad.projectionBorderPolicy", "projectionBorderPolicy"),
+                ("rustyquest.makepad.processingLayer", "processingLayer"),
+                ("rustyquest.makepad.cameraSourceSamplingMode", "sourceSamplingMode"),
+                ("rustyquest.makepad.directCamera2OesSourceSamplingMode", "sourceSamplingMode"),
+                ("rustyquest.makepad.brokerH264SourceSamplingMode", "sourceSamplingMode"),
+                ("rustyquest.makepad.cameraLeftTargetScreenUvRect", "leftTargetScreenUvRect"),
+                ("rustyquest.makepad.cameraRightTargetScreenUvRect", "rightTargetScreenUvRect"),
+                ("rustyquest.makepad.directCamera2OesLeftTargetScreenUvRect", "leftTargetScreenUvRect"),
+                ("rustyquest.makepad.directCamera2OesRightTargetScreenUvRect", "rightTargetScreenUvRect"),
+                ("rustyquest.makepad.brokerH264LeftTargetScreenUvRect", "leftTargetScreenUvRect"),
+                ("rustyquest.makepad.brokerH264RightTargetScreenUvRect", "rightTargetScreenUvRect"),
+                ("rustyquest.makepad.projectionTargetOffsetXUv", "projectionTargetOffsetXUv"),
+                ("rustyquest.makepad.projectionTargetOffsetYUv", "projectionTargetOffsetYUv"),
+                ("rustyquest.makepad.projectionTargetScale", "projectionTargetScale"),
+                ("rustyquest.makepad.projectionTargetJoystickControls", "projectionTargetJoystickControls"),
+                ("rustyquest.makepad.peripheralStretchMode", "peripheralStretchMode"),
+                ("rustyquest.makepad.peripheralStretchCoreScale", "peripheralStretchCoreScale"),
+                ("rustyquest.makepad.peripheralStretchEdgeInsetUv", "peripheralStretchEdgeInsetUv"),
+                ("rustyquest.makepad.peripheralStretchMaxInsetUv", "peripheralStretchMaxInsetUv"),
+                ("rustyquest.makepad.peripheralStretchCurve", "peripheralStretchCurve"),
+                ("rustyquest.makepad.peripheralStretchInnerBlendUv", "peripheralStretchInnerBlendUv"),
+                ("rustyquest.makepad.peripheralStretchBlendCurve", "peripheralStretchBlendCurve"),
+                ("rustyquest.makepad.peripheralStretchBlendMode", "peripheralStretchBlendMode"),
+                ("rustyquest.makepad.peripheralStretchCornerMode", "peripheralStretchCornerMode"),
+                ("rustyquest.makepad.peripheralStretchDebug", "peripheralStretchDebug"),
+                ("rustyquest.makepad.projectionSampleMode", "projectionSampleMode"),
+                ("rustyquest.makepad.cameraBlurRadiusPx", "blurRadiusPx"),
+                ("rustyquest.makepad.xrRenderScale", "xrRenderScale"),
             ):
                 value = nonempty_text(values.get(source_key))
                 if value is not None:
@@ -1627,15 +1616,15 @@ def self_test() -> None:
             "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=source-sampling status=ready source=headset-camera2 sourceMode=direct-camera2 contentWidth=1280 contentHeight=1280 source_sequence=5 frame=11",
             "Rusty XR OpenXR GLES projection contract schema=rusty.xr.projection-coordinate-contract.v1 phase=source-color status=ready sourceColorTransform=srgb-to-linear swapchainColorFormat=GL_SRGB8_ALPHA8",
             'Rusty XR SurfaceTexture OES transform matrix {"schema":"rusty.xr.quest.surface_texture_oes_transform_matrix.v1","view_index":0,"source_eye":"left","update_tex_image_count":4,"surface_texture_timestamp_ns":12345,"transform_matrix_hash":"m44:test","transform_matrix":[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]}',
-            "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=cpu-yuv-upload status=ok path=cpu-yuv videoId=1 inputId=10 formatId=20 uploadSeq=3 cameraFrameSeq=2 cameraTimestampNs=123 uploadTimeNs=456 width=1280 height=1280",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane eventResourcePath=cpu-yuv-planes descriptorShape=cpu-yuv-plane-textures cameraInputId=10 cameraFormatId=20 cameraFrameSeq=2 cameraTimestampNs=123 acquireTimeNs=111 uploadSeq=3 uploadTimeNs=456 textureUpdateSeq=3 textureWidth=1280 textureHeight=1280",
-            "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=draw-vars-bound status=ok cameraReady=true yuvMode=false cameraTextureBinding=false projectionPanelDrawEnabled=false leftYuvTextureBound=false rightYuvTextureBound=false cameraTexturePath=direct-camera-cpu-yuv-plane",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=combined-immutable-sampler-ycbcr-conversion cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false suggestedYcbcrModel=YCBCR_IDENTITY suggestedYcbcrRange=ITU_FULL effectiveYcbcrModel=YCBCR_601 effectiveYcbcrRange=ITU_NARROW ycbcrComponents=r,g,b,a suggestedXChromaOffset=COSITED_EVEN suggestedYChromaOffset=MIDPOINT conversionMode=forced-bt601-limited-cpuyuv-reference samplerBindingMode=combined-immutable-sampler samplerBindingCompliance=pure-hwb-reference-combined-immutable combinedImageSampler=true immutableSampler=true shaderSampleLowering=textureSampleLevel_combined_image_sampler_same_binding colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap",
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=broker-h264-mediacodec-hardware-buffer makepadVulkanImport=true textureImportPath=broker-h264-mediacodec-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=combined-immutable-sampler-ycbcr-conversion sourceMode=broker-camera source=broker_app.camera2_h264_stream cameraFrameSeq=8 cameraTimestampNs=456 importSeq=9 importTimeNs=1000 textureUpdateSeq=9 textureWidth=1280 textureHeight=1280",
-            "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE schema=rusty.xr.makepad-vulkan-video-descriptor-shape.v1 textureDescriptorType=COMBINED_IMAGE_SAMPLER samplerDescriptorType=COMBINED_IMAGE_SAMPLER combinedImageSampler=true immutableSampler=true samplerBindingMode=combined-immutable-sampler samplerBindingCompliance=pure-hwb-reference-combined-immutable effectiveYcbcrModel=YCBCR_601 effectiveYcbcrRange=ITU_NARROW conversionMode=forced-bt601-limited-cpuyuv-reference shaderSampleLowering=textureSampleLevel_combined_image_sampler_same_binding colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap",
-            "RUSTY_XR_MAKEPAD_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=xr-end-frame status=submitted renderPath=makepad-xr xrFrameSeq=9 shouldRender=true submitTimeNs=900 predictedDisplayTimeNs=1000 predictedDisplayPeriodNs=13888888 resultCode=0 layerCount=1",
+            "RUSTY_QUEST_MAKEPAD_CAMERA_FRAME_FLOW schema=rusty.quest.makepad-camera-frame-flow.v1 phase=cpu-yuv-upload status=ok path=cpu-yuv videoId=1 inputId=10 formatId=20 uploadSeq=3 cameraFrameSeq=2 cameraTimestampNs=123 uploadTimeNs=456 width=1280 height=1280",
+            "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane",
+            "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=true yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-cpu-yuv-plane makepadVulkanImport=false textureImportPath=makepad-camera-cpu-yuv-plane cpuUploadPath=makepad-camera-cpu-yuv-plane eventResourcePath=cpu-yuv-planes descriptorShape=cpu-yuv-plane-textures cameraInputId=10 cameraFormatId=20 cameraFrameSeq=2 cameraTimestampNs=123 acquireTimeNs=111 uploadSeq=3 uploadTimeNs=456 textureUpdateSeq=3 textureWidth=1280 textureHeight=1280",
+            "RUSTY_QUEST_MAKEPAD_STEREO_PROJECTION schema=rusty.quest.makepad-stereo-projection.v1 phase=draw-vars-bound status=ok cameraReady=true yuvMode=false cameraTextureBinding=false projectionPanelDrawEnabled=false leftYuvTextureBound=false rightYuvTextureBound=false cameraTexturePath=direct-camera-cpu-yuv-plane",
+            "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none",
+            "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=combined-immutable-sampler-ycbcr-conversion cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false suggestedYcbcrModel=YCBCR_IDENTITY suggestedYcbcrRange=ITU_FULL effectiveYcbcrModel=YCBCR_601 effectiveYcbcrRange=ITU_NARROW ycbcrComponents=r,g,b,a suggestedXChromaOffset=COSITED_EVEN suggestedYChromaOffset=MIDPOINT conversionMode=forced-bt601-limited-cpuyuv-reference samplerBindingMode=combined-immutable-sampler samplerBindingCompliance=pure-hwb-reference-combined-immutable combinedImageSampler=true immutableSampler=true shaderSampleLowering=textureSampleLevel_combined_image_sampler_same_binding colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap",
+            "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=broker-h264-mediacodec-hardware-buffer makepadVulkanImport=true textureImportPath=broker-h264-mediacodec-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=combined-immutable-sampler-ycbcr-conversion sourceMode=broker-camera source=broker_app.camera2_h264_stream cameraFrameSeq=8 cameraTimestampNs=456 importSeq=9 importTimeNs=1000 textureUpdateSeq=9 textureWidth=1280 textureHeight=1280",
+            "RUSTY_QUEST_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE schema=rusty.quest.makepad-vulkan-video-descriptor-shape.v1 textureDescriptorType=COMBINED_IMAGE_SAMPLER samplerDescriptorType=COMBINED_IMAGE_SAMPLER combinedImageSampler=true immutableSampler=true samplerBindingMode=combined-immutable-sampler samplerBindingCompliance=pure-hwb-reference-combined-immutable effectiveYcbcrModel=YCBCR_601 effectiveYcbcrRange=ITU_NARROW conversionMode=forced-bt601-limited-cpuyuv-reference shaderSampleLowering=textureSampleLevel_combined_image_sampler_same_binding colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap",
+            "RUSTY_QUEST_MAKEPAD_FRAME_FLOW schema=rusty.quest.makepad-camera-frame-flow.v1 phase=xr-end-frame status=submitted renderPath=makepad-xr xrFrameSeq=9 shouldRender=true submitTimeNs=900 predictedDisplayTimeNs=1000 predictedDisplayPeriodNs=13888888 resultCode=0 layerCount=1",
         ]
     )
     with tempfile.TemporaryDirectory() as tmp:
@@ -1646,67 +1635,67 @@ def self_test() -> None:
             root / "projection-target-props.json",
             [
                 {
-                    "property": "debug.rustyxr.projection.border.policy",
+                    "property": "debug.rustyquest.makepad.projection.border.policy",
                     "expected": "solid-red",
                     "actual": "solid-red",
                 },
                 {
-                    "property": "debug.rustyxr.makepad.processing.layer",
+                    "property": "debug.rustyquest.makepad.processing.layer",
                     "expected": "raw",
                     "actual": "raw",
                 },
                 {
-                    "property": "debug.rustyxr.makepad.projection.sample.mode",
+                    "property": "debug.rustyquest.makepad.projection.sample.mode",
                     "expected": "solid-color",
                     "actual": "solid-color",
                 },
                 {
-                    "property": "debug.rustyxr.makepad.xr.render.scale",
+                    "property": "debug.rustyquest.makepad.xr.render.scale",
                     "expected": "0.75",
                     "actual": "0.75",
                 },
                 {
-                    "property": "debug.rustyxr.peripheral.stretch.mode",
+                    "property": "debug.rustyquest.makepad.peripheral.stretch.mode",
                     "expected": "edge-stretch",
                     "actual": "edge-stretch",
                 },
                 {
-                    "property": "debug.rustyxr.peripheral.stretch.inner.blend.uv",
+                    "property": "debug.rustyquest.makepad.peripheral.stretch.inner.blend.uv",
                     "expected": "0.04",
                     "actual": "0.04",
                 },
                 {
-                    "property": "debug.rustyxr.peripheral.stretch.blend.mode",
+                    "property": "debug.rustyquest.makepad.peripheral.stretch.blend.mode",
                     "expected": "target-inner-band",
                     "actual": "target-inner-band",
                 },
                 {
-                    "property": "debug.rustyxr.peripheral.stretch.blend.curve",
+                    "property": "debug.rustyquest.makepad.peripheral.stretch.blend.curve",
                     "expected": "1.6",
                     "actual": "1.6",
                 },
                 {
-                    "property": "debug.rustyxr.peripheral.stretch.corner.mode",
+                    "property": "debug.rustyquest.makepad.peripheral.stretch.corner.mode",
                     "expected": "target-footprint",
                     "actual": "target-footprint",
                 },
                 {
-                    "property": "debug.rustyxr.projection.target.offset.x.uv",
+                    "property": "debug.rustyquest.makepad.projection.target.offset.x.uv",
                     "expected": "0.05",
                     "actual": "0.05",
                 },
                 {
-                    "property": "debug.rustyxr.projection.target.offset.y.uv",
+                    "property": "debug.rustyquest.makepad.projection.target.offset.y.uv",
                     "expected": "-0.03",
                     "actual": "-0.03",
                 },
                 {
-                    "property": "debug.rustyxr.projection.target.scale",
+                    "property": "debug.rustyquest.makepad.projection.target.scale",
                     "expected": "0.85",
                     "actual": "0.85",
                 },
                 {
-                    "property": "debug.rustyxr.projection.target.joystick.controls",
+                    "property": "debug.rustyquest.makepad.projection.target.joystick.controls",
                     "expected": "offset-scale",
                     "actual": "offset-scale",
                 },
@@ -1862,8 +1851,8 @@ def self_test() -> None:
 
     stretch_log = "\n".join(
         [
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left cameraTexturePath=direct-camera-hardware-buffer-external textureImportPath=makepad-camera-hardware-buffer-vulkan-import descriptorShape=combined-immutable-sampler-ycbcr-conversion cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280",
-            "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 phase=horizontal-alignment-hotload status=applied projectionBorderPolicy=solid-red processingLayer=peripheral-stretch projectionSampleMode=camera peripheralStretchMode=edge-stretch peripheralStretchCoreScale=1.000 peripheralStretchEdgeInsetUv=0.015 peripheralStretchMaxInsetUv=0.140 peripheralStretchCurve=1.600 peripheralStretchInnerBlendUv=0.040 peripheralStretchBlendCurve=1.600 peripheralStretchBlendMode=target-inner-band peripheralStretchCornerMode=target-footprint peripheralStretchDebug=off peripheralStretchActive=true peripheralStretchTransitionActive=true peripheralStretchConsumesProjectionExterior=true peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band peripheralStretchTransitionRegion=target-footprint-inner-edge-band peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace=target-local-raster-uv peripheralStretchTransitionSemantics=canonical-sample-to-stretch-sample-remap peripheralStretchProjectionExteriorMode=target-edge-stretch-with-inner-band-blend peripheralStretchMapping=mirrored-curved-target-footprint peripheralStretchDistanceCurve=mirrored-border-smoothstep-swirl peripheralStretchBorderSource=mirrored-projection-edge-trail peripheralStretchExteriorSource=curved-target-edge-sample peripheralStretchBlendSemantics=curved-sample-blends-through-inner-band peripheralStretchTargetLocalRasterRegionModel=projection-area-plus-single-border-region peripheralStretchSourceInvalidRegion=screen-to-camera-homography-only peripheralStretchSourceInvalidFallback=screen-to-camera-homography-clamped-source-edge-sample peripheralStretchSourceInvalidConsumesSolidRed=false peripheralStretchReference=pure-hwb-target-local-raster-curved-inner-band",
+            "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left cameraTexturePath=direct-camera-hardware-buffer-external textureImportPath=makepad-camera-hardware-buffer-vulkan-import descriptorShape=combined-immutable-sampler-ycbcr-conversion cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280",
+            "RUSTY_QUEST_MAKEPAD_STEREO_PROJECTION schema=rusty.quest.makepad-stereo-projection.v1 phase=horizontal-alignment-hotload status=applied projectionBorderPolicy=solid-red processingLayer=peripheral-stretch projectionSampleMode=camera peripheralStretchMode=edge-stretch peripheralStretchCoreScale=1.000 peripheralStretchEdgeInsetUv=0.015 peripheralStretchMaxInsetUv=0.140 peripheralStretchCurve=1.600 peripheralStretchInnerBlendUv=0.040 peripheralStretchBlendCurve=1.600 peripheralStretchBlendMode=target-inner-band peripheralStretchCornerMode=target-footprint peripheralStretchDebug=off peripheralStretchActive=true peripheralStretchTransitionActive=true peripheralStretchConsumesProjectionExterior=true peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band peripheralStretchTransitionRegion=target-footprint-inner-edge-band peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace=target-local-raster-uv peripheralStretchTransitionSemantics=canonical-sample-to-stretch-sample-remap peripheralStretchProjectionExteriorMode=target-edge-stretch-with-inner-band-blend peripheralStretchMapping=mirrored-curved-target-footprint peripheralStretchDistanceCurve=mirrored-border-smoothstep-swirl peripheralStretchBorderSource=mirrored-projection-edge-trail peripheralStretchExteriorSource=curved-target-edge-sample peripheralStretchBlendSemantics=curved-sample-blends-through-inner-band peripheralStretchTargetLocalRasterRegionModel=projection-area-plus-single-border-region peripheralStretchSourceInvalidRegion=screen-to-camera-homography-only peripheralStretchSourceInvalidFallback=screen-to-camera-homography-clamped-source-edge-sample peripheralStretchSourceInvalidConsumesSolidRed=false peripheralStretchReference=pure-hwb-target-local-raster-curved-inner-band",
         ]
     )
     with tempfile.TemporaryDirectory() as tmp:

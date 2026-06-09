@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Apk,
 
-    [string]$PackageName = "io.github.mesmerprism.rustyxr.makepad.camera",
+    [string]$PackageName = "io.github.mesmerprism.rustyquest.makepad.camera",
     [string]$LauncherActivity = ("." + "Makepad" + "App"),
     [string]$XrActivity = ("." + "Makepad" + "App" + "Xr"),
     [string]$OutDir = "",
@@ -243,7 +243,7 @@ foreach ($laneName in $Lane) {
 }
 
 $summaryOut = [ordered]@{
-    schema = "rusty.xr.makepad-opacity-ladder-gate.v1"
+    schema = "rusty.quest.makepad-opacity-ladder-gate.v1"
     capturedAt = (Get-Date).ToString("o")
     serial = $Serial
     apk = $Apk

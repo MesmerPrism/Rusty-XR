@@ -2,7 +2,7 @@ param(
     [string]$SdkPath,
     [string]$PackageName = "io.github.mesmerprism.rustyquest.makepad.camera",
     [string]$AppLabel = "Rusty Quest Makepad Camera",
-    [string]$CargoPackage = "rusty-xr-makepad-camera-shell",
+    [string]$CargoPackage = "rusty-quest-makepad-camera-shell",
     [ValidateSet("display-left-from-left-source", "display-left-from-right-source")]
     [string]$DisplaySourceEyeMapping = "display-left-from-left-source",
     [string]$JavaHome,

@@ -4,7 +4,7 @@ function Get-RustyXrPublicExampleXrPackages {
     $names = [System.Collections.Generic.List[string]]::new()
     $names.Add("com.example.rustyxr.composite")
     $names.Add("com.example.rustyxr.opengles")
-    $names.Add("io.github.mesmerprism.rustyxr.makepad.camera")
+    $names.Add("io.github.mesmerprism.rustyquest.makepad.camera")
     foreach ($packageNameEntry in @($AdditionalPackageNames)) {
         if (-not [string]::IsNullOrWhiteSpace($packageNameEntry)) {
             $names.Add($packageNameEntry)

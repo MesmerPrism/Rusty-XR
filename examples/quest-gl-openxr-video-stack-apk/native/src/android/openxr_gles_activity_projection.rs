@@ -8,13 +8,14 @@ use super::{
     },
 };
 
-const OES_TUNING_PROP_PROJECTION_DEPTH_METERS: &str = "debug.rustyxr.projection.depth.meters";
+const OES_TUNING_PROP_PROJECTION_DEPTH_METERS: &str =
+    "debug.rustyquest.makepad.projection.depth.meters";
 const OES_TUNING_PROP_CAMERA_PREVIEW_FOV_Y_DEGREES: &str =
-    "debug.rustyxr.camera.preview.fov.y.degrees";
+    "debug.rustyquest.makepad.camera.preview.fov.y.degrees";
 const OES_TUNING_PROP_CAMERA_PREVIEW_OFFSET_Y_METERS: &str =
-    "debug.rustyxr.camera.preview.offset.y.meters";
+    "debug.rustyquest.makepad.camera.preview.offset.y.meters";
 const OES_TUNING_PROP_CAMERA_RAW_OVERLAY_OVERSCAN: &str =
-    "debug.rustyxr.camera.raw.overlay.overscan";
+    "debug.rustyquest.makepad.camera.raw.overlay.overscan";
 
 pub(super) fn projection_tuning_with_legacy_system_properties(
     tuning: OesProjectionTuning,
@@ -65,7 +66,8 @@ pub(super) fn projection_border_policy_from_activity(
         app,
         OesProjectionBorderPolicy::default(),
         |env, activity| {
-            let requested = activity_string_extra(env, activity, "rustyxr.projectionBorderPolicy");
+            let requested =
+                activity_string_extra(env, activity, "rustyquest.makepad.projectionBorderPolicy");
             requested
                 .as_deref()
                 .and_then(OesProjectionBorderPolicy::parse)
@@ -78,7 +80,8 @@ pub(super) fn camera_projection_mode_from_activity(
     app: &android_activity::AndroidApp,
 ) -> OesCameraProjectionMode {
     with_activity_env(app, OesCameraProjectionMode::default(), |env, activity| {
-        let requested = activity_string_extra(env, activity, "rustyxr.cameraProjectionMode");
+        let requested =
+            activity_string_extra(env, activity, "rustyquest.makepad.cameraProjectionMode");
         requested
             .as_deref()
             .and_then(OesCameraProjectionMode::parse)
@@ -91,7 +94,7 @@ fn projection_depth_meters_from_activity(app: &android_activity::AndroidApp) -> 
         app,
         DEFAULT_PROJECTION_TARGET_DEPTH_METERS,
         |env, activity| {
-            activity_string_extra(env, activity, "rustyxr.projectionDepthMeters")
+            activity_string_extra(env, activity, "rustyquest.makepad.projectionDepthMeters")
                 .and_then(|value| value.parse::<f32>().ok())
                 .filter(|value| value.is_finite())
                 .unwrap_or(DEFAULT_PROJECTION_TARGET_DEPTH_METERS)
@@ -102,7 +105,7 @@ fn projection_depth_meters_from_activity(app: &android_activity::AndroidApp) -> 
 
 fn projection_preview_fov_y_degrees_from_activity(app: &android_activity::AndroidApp) -> f32 {
     with_activity_env(app, PROJECTION_PREVIEW_FOV_Y_DEGREES, |env, activity| {
-        activity_string_extra(env, activity, "rustyxr.cameraPreviewFovYDegrees")
+        activity_string_extra(env, activity, "rustyquest.makepad.cameraPreviewFovYDegrees")
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(PROJECTION_PREVIEW_FOV_Y_DEGREES)
@@ -112,17 +115,21 @@ fn projection_preview_fov_y_degrees_from_activity(app: &android_activity::Androi
 
 fn projection_preview_offset_y_meters_from_activity(app: &android_activity::AndroidApp) -> f32 {
     with_activity_env(app, 0.0, |env, activity| {
-        activity_string_extra(env, activity, "rustyxr.cameraPreviewOffsetYMeters")
-            .and_then(|value| value.parse::<f32>().ok())
-            .filter(|value| value.is_finite())
-            .unwrap_or(0.0)
-            .clamp(-2.0, 2.0)
+        activity_string_extra(
+            env,
+            activity,
+            "rustyquest.makepad.cameraPreviewOffsetYMeters",
+        )
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|value| value.is_finite())
+        .unwrap_or(0.0)
+        .clamp(-2.0, 2.0)
     })
 }
 
 fn projection_raw_overscan_from_activity(app: &android_activity::AndroidApp) -> f32 {
     with_activity_env(app, PROJECTION_RAW_OVERSCAN, |env, activity| {
-        activity_string_extra(env, activity, "rustyxr.cameraRawOverlayOverscan")
+        activity_string_extra(env, activity, "rustyquest.makepad.cameraRawOverlayOverscan")
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(PROJECTION_RAW_OVERSCAN)
@@ -141,7 +148,7 @@ pub(super) fn projection_area_offset_uv_from_activity(
 
 fn projection_area_offset_x_uv_from_activity(app: &android_activity::AndroidApp) -> f32 {
     with_activity_env(app, 0.0, |env, activity| {
-        activity_string_extra(env, activity, "rustyxr.projectionAreaOffsetXUv")
+        activity_string_extra(env, activity, "rustyquest.makepad.projectionAreaOffsetXUv")
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(0.0)
@@ -151,7 +158,7 @@ fn projection_area_offset_x_uv_from_activity(app: &android_activity::AndroidApp)
 
 fn projection_area_offset_y_uv_from_activity(app: &android_activity::AndroidApp) -> f32 {
     with_activity_env(app, 0.0, |env, activity| {
-        activity_string_extra(env, activity, "rustyxr.projectionAreaOffsetYUv")
+        activity_string_extra(env, activity, "rustyquest.makepad.projectionAreaOffsetYUv")
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(0.0)
@@ -164,57 +171,76 @@ pub(super) fn projection_area_eye_offset_uv_from_activity(
     base_offset_uv: [f32; 2],
 ) -> [[f32; 2]; 2] {
     with_activity_env(app, [base_offset_uv, base_offset_uv], |env, activity| {
-        let left_x = activity_float_extra(env, activity, &["rustyxr.projectionAreaLeftOffsetXUv"])
-            .unwrap_or(base_offset_uv[0])
-            .clamp(-0.5, 0.5);
-        let left_y = activity_float_extra(env, activity, &["rustyxr.projectionAreaLeftOffsetYUv"])
-            .unwrap_or(base_offset_uv[1])
-            .clamp(-0.5, 0.5);
-        let right_x =
-            activity_float_extra(env, activity, &["rustyxr.projectionAreaRightOffsetXUv"])
-                .unwrap_or(base_offset_uv[0])
-                .clamp(-0.5, 0.5);
-        let right_y =
-            activity_float_extra(env, activity, &["rustyxr.projectionAreaRightOffsetYUv"])
-                .unwrap_or(base_offset_uv[1])
-                .clamp(-0.5, 0.5);
+        let left_x = activity_float_extra(
+            env,
+            activity,
+            &["rustyquest.makepad.projectionAreaLeftOffsetXUv"],
+        )
+        .unwrap_or(base_offset_uv[0])
+        .clamp(-0.5, 0.5);
+        let left_y = activity_float_extra(
+            env,
+            activity,
+            &["rustyquest.makepad.projectionAreaLeftOffsetYUv"],
+        )
+        .unwrap_or(base_offset_uv[1])
+        .clamp(-0.5, 0.5);
+        let right_x = activity_float_extra(
+            env,
+            activity,
+            &["rustyquest.makepad.projectionAreaRightOffsetXUv"],
+        )
+        .unwrap_or(base_offset_uv[0])
+        .clamp(-0.5, 0.5);
+        let right_y = activity_float_extra(
+            env,
+            activity,
+            &["rustyquest.makepad.projectionAreaRightOffsetYUv"],
+        )
+        .unwrap_or(base_offset_uv[1])
+        .clamp(-0.5, 0.5);
         [[left_x, left_y], [right_x, right_y]]
     })
 }
 
 pub(super) fn projection_area_scale_from_activity(app: &android_activity::AndroidApp) -> [f32; 2] {
     with_activity_env(app, [1.0, 1.0], |env, activity| {
-        let uniform_scale = activity_string_extra(env, activity, "rustyxr.projectionAreaScaleUv")
-            .and_then(|value| value.parse::<f32>().ok())
-            .filter(|value| value.is_finite())
-            .unwrap_or(1.0)
-            .clamp(0.05, 4.0);
-        let scale_x = activity_string_extra(env, activity, "rustyxr.projectionAreaScaleX")
-            .and_then(|value| value.parse::<f32>().ok())
-            .filter(|value| value.is_finite())
-            .unwrap_or(uniform_scale)
-            .clamp(0.05, 4.0);
-        let scale_y = activity_string_extra(env, activity, "rustyxr.projectionAreaScaleY")
-            .and_then(|value| value.parse::<f32>().ok())
-            .filter(|value| value.is_finite())
-            .unwrap_or(uniform_scale)
-            .clamp(0.05, 4.0);
+        let uniform_scale =
+            activity_string_extra(env, activity, "rustyquest.makepad.projectionAreaScaleUv")
+                .and_then(|value| value.parse::<f32>().ok())
+                .filter(|value| value.is_finite())
+                .unwrap_or(1.0)
+                .clamp(0.05, 4.0);
+        let scale_x =
+            activity_string_extra(env, activity, "rustyquest.makepad.projectionAreaScaleX")
+                .and_then(|value| value.parse::<f32>().ok())
+                .filter(|value| value.is_finite())
+                .unwrap_or(uniform_scale)
+                .clamp(0.05, 4.0);
+        let scale_y =
+            activity_string_extra(env, activity, "rustyquest.makepad.projectionAreaScaleY")
+                .and_then(|value| value.parse::<f32>().ok())
+                .filter(|value| value.is_finite())
+                .unwrap_or(uniform_scale)
+                .clamp(0.05, 4.0);
         [scale_x, scale_y]
     })
 }
 
 pub(super) fn projection_area_radius_from_activity(app: &android_activity::AndroidApp) -> [f32; 2] {
     with_activity_env(app, [0.47, 0.36], |env, activity| {
-        let radius_x = activity_string_extra(env, activity, "rustyxr.projectionAreaRadiusXUv")
-            .and_then(|value| value.parse::<f32>().ok())
-            .filter(|value| value.is_finite())
-            .unwrap_or(0.47)
-            .clamp(0.05, 0.5);
-        let radius_y = activity_string_extra(env, activity, "rustyxr.projectionAreaRadiusYUv")
-            .and_then(|value| value.parse::<f32>().ok())
-            .filter(|value| value.is_finite())
-            .unwrap_or(0.36)
-            .clamp(0.05, 0.5);
+        let radius_x =
+            activity_string_extra(env, activity, "rustyquest.makepad.projectionAreaRadiusXUv")
+                .and_then(|value| value.parse::<f32>().ok())
+                .filter(|value| value.is_finite())
+                .unwrap_or(0.47)
+                .clamp(0.05, 0.5);
+        let radius_y =
+            activity_string_extra(env, activity, "rustyquest.makepad.projectionAreaRadiusYUv")
+                .and_then(|value| value.parse::<f32>().ok())
+                .filter(|value| value.is_finite())
+                .unwrap_or(0.36)
+                .clamp(0.05, 0.5);
         [radius_x, radius_y]
     })
 }
@@ -223,17 +249,21 @@ pub(super) fn projection_area_corner_radius_uv_from_activity(
     app: &android_activity::AndroidApp,
 ) -> f32 {
     with_activity_env(app, 0.08, |env, activity| {
-        activity_string_extra(env, activity, "rustyxr.projectionAreaCornerRadiusUv")
-            .and_then(|value| value.parse::<f32>().ok())
-            .filter(|value| value.is_finite())
-            .unwrap_or(0.08)
-            .clamp(0.0, 0.5)
+        activity_string_extra(
+            env,
+            activity,
+            "rustyquest.makepad.projectionAreaCornerRadiusUv",
+        )
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|value| value.is_finite())
+        .unwrap_or(0.08)
+        .clamp(0.0, 0.5)
     })
 }
 
 pub(super) fn projection_area_opacity_from_activity(app: &android_activity::AndroidApp) -> f32 {
     with_activity_env(app, 1.0, |env, activity| {
-        activity_string_extra(env, activity, "rustyxr.projectionAreaOpacity")
+        activity_string_extra(env, activity, "rustyquest.makepad.projectionAreaOpacity")
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(1.0)
@@ -243,7 +273,7 @@ pub(super) fn projection_area_opacity_from_activity(app: &android_activity::Andr
 
 pub(super) fn projection_border_opacity_from_activity(app: &android_activity::AndroidApp) -> f32 {
     with_activity_env(app, 1.0, |env, activity| {
-        activity_string_extra(env, activity, "rustyxr.projectionBorderOpacity")
+        activity_string_extra(env, activity, "rustyquest.makepad.projectionBorderOpacity")
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(1.0)
@@ -255,7 +285,7 @@ pub(super) fn projection_alpha_mode_from_activity(
     app: &android_activity::AndroidApp,
 ) -> OesProjectionAlphaMode {
     with_activity_env(app, OesProjectionAlphaMode::default(), |env, activity| {
-        activity_string_extra(env, activity, "rustyxr.projectionAlphaMode")
+        activity_string_extra(env, activity, "rustyquest.makepad.projectionAlphaMode")
             .as_deref()
             .and_then(OesProjectionAlphaMode::parse)
             .unwrap_or_default()
@@ -264,7 +294,7 @@ pub(super) fn projection_alpha_mode_from_activity(
 
 pub(super) fn projection_alpha_scale_from_activity(app: &android_activity::AndroidApp) -> f32 {
     with_activity_env(app, 1.0, |env, activity| {
-        activity_string_extra(env, activity, "rustyxr.projectionAlphaScale")
+        activity_string_extra(env, activity, "rustyquest.makepad.projectionAlphaScale")
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(1.0)
@@ -274,7 +304,7 @@ pub(super) fn projection_alpha_scale_from_activity(app: &android_activity::Andro
 
 pub(super) fn projection_alpha_bias_from_activity(app: &android_activity::AndroidApp) -> f32 {
     with_activity_env(app, 0.0, |env, activity| {
-        activity_string_extra(env, activity, "rustyxr.projectionAlphaBias")
+        activity_string_extra(env, activity, "rustyquest.makepad.projectionAlphaBias")
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(0.0)

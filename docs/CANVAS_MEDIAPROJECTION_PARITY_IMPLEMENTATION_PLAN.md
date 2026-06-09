@@ -40,12 +40,12 @@ activity start is not a valid reference launch.
    Expose `rustyxr.cameraProjectionMode=world-canvas` by selecting the existing
    full-frame-to-projection-area shader path for live direct Camera2 OES frames.
 4. Add Makepad app-side MediaProjection streaming in the active Makepad Android
-   wrapper. The Rusty XR Makepad evidence app must set
-   `debug.rustyxr.camera.projection.mode=world-canvas` for the canvas-equivalent
+   wrapper. The Rusty Quest Makepad evidence app must set
+   `debug.rustyquest.makepad.camera.projection.mode=world-canvas` for the canvas-equivalent
    pass, size and place its XR panel from the solved projection depth/FOV/Y
    offset/overscan, and set
-   `debug.rustyxr.camera.projection.mode=display-screen-homography` plus
-   `debug.rustyxr.makepad.camera.projection.geometry.profile=camera-projection`
+   `debug.rustyquest.makepad.camera.projection.mode=display-screen-homography` plus
+   `debug.rustyquest.makepad.camera.projection.geometry.profile=camera-projection`
    for the custom screen-to-camera homography path.
 5. Add a parity capture harness that runs the three renderers, the two
    projection states, and the two capture sources. Do not substitute ADB

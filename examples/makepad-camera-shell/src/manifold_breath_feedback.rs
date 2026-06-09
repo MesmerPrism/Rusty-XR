@@ -482,4 +482,3 @@ mod tests {
         assert!(parse_breath_feedback_event(&event, BREATH_FEEDBACK_STREAM_ID).is_none());
     }
 }
-

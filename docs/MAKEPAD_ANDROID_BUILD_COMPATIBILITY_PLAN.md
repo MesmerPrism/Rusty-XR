@@ -111,7 +111,7 @@ launch for a connected Quest.
 
 ## Current Host-Aware Packaging State
 
-The maintained Rusty XR Makepad fork has moved the packaging path toward
+The maintained Rusty Quest Makepad fork has moved the packaging path toward
 runtime SDK resolution. Packaging should inspect the selected `--sdk-path`
 instead of treating installer URL constants as the build truth:
 
@@ -299,7 +299,7 @@ fault is isolated. It currently proves:
 - the Makepad Quest variant can generate the required OpenXR, passthrough, and
   headset camera manifest surface
 - a `makepad-xr` `XrRoot` app can launch through the generated XR activity
-- runtime profile values can be resolved through `rusty-xr-runtime-config` and
+- runtime profile values can be resolved through `rusty-quest-makepad-runtime-config` and
   logged at startup
 - the app can emit the same public diagnostic marker style used by existing
   scorecard tools
@@ -540,7 +540,7 @@ The migration is successful when a new contributor on macOS can:
 
 1. Clone Rusty XR and Makepad.
 2. Install Makepad Android tooling through `cargo-makepad`.
-3. Build a Rusty XR Makepad-compatible Quest APK without Unity's AndroidPlayer
+3. Build a Rusty Quest Makepad-compatible Quest APK without Unity's AndroidPlayer
    folder.
 4. Install it on at least one Quest.
 5. Run a synthetic profile and get scorecard-compatible logs.

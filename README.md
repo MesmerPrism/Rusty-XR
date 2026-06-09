@@ -40,7 +40,7 @@ is:
 Initial crate layout:
 
 - `rusty-xr-contracts`: shared XR data contracts.
-- `rusty-xr-runtime-config`: runtime configuration and launch-property helpers.
+- `rusty-quest-makepad-runtime-config`: runtime configuration and launch-property helpers for the Makepad Quest lane.
 - `rusty-xr-ble`: framework-neutral BLE and Android Bluetooth contracts.
 - `rusty-xr-debug-canvas`: normalized debug/test canvas and diagnostic HUD
   state primitives.
@@ -192,7 +192,7 @@ A standalone Makepad-first Quest comparison lane is available at
 [examples/makepad-camera-shell/README.md](examples/makepad-camera-shell/README.md).
 It uses Makepad's Android/OpenXR packaging surface, exercises `makepad-xr`, and
 emits a synthetic Rusty XR status marker before camera or broker behavior is
-added. The marker values already route through `rusty-xr-runtime-config`, so
+added. The marker values already route through `rusty-quest-makepad-runtime-config`, so
 the lane is anchored to the same public core as the custom APK examples.
 Current device validation reaches the generated XR activity, but GPU page
 faults in the Quest log are still an active Makepad-lane blocker; the same

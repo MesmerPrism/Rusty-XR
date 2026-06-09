@@ -408,7 +408,7 @@ The same helper can optionally run long-lived shell-side watchdogs. The
 proximity watchdog reads `dumpsys vrpowermanager` and only re-applies
 `com.oculus.vrpowermanager.prox_close` when the virtual proximity state is not
 already `CLOSE`. The focus guardian reads foreground-window state, polls the
-broker's experiment-control state, applies whitelisted `debug.rustyxr.*`
+broker's experiment-control state, applies whitelisted `debug.rustyquest.makepad.*`
 runtime properties, and reactively relaunches either the broker console or a
 target app after Meta shell takes focus. This is recovery after focus loss, not
 a pre-emptive Home-button intercept, and it should not be used to dismiss

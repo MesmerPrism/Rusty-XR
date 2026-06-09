@@ -118,10 +118,10 @@ def find_makepad_summary(root: Path, meta_report_path: Path | None) -> Path | No
             candidate = ancestor / MAKEPAD_SUMMARY_NAME
             if candidate.exists():
                 parsed = read_json(candidate)
-                if parsed.get("schema") == "rusty.xr.makepad-camera-device-gate.v1":
+                if parsed.get("schema") == "rusty.quest.makepad-camera-device-gate.v1":
                     return candidate
     candidate = find_named_json(root, MAKEPAD_SUMMARY_NAME)
-    if candidate is not None and read_json(candidate).get("schema") == "rusty.xr.makepad-camera-device-gate.v1":
+    if candidate is not None and read_json(candidate).get("schema") == "rusty.quest.makepad-camera-device-gate.v1":
         return candidate
     return None
 
@@ -683,7 +683,7 @@ def run_self_test() -> int:
         (makepad / MAKEPAD_SUMMARY_NAME).write_text(
             json.dumps(
                 {
-                    "schema": "rusty.xr.makepad-camera-device-gate.v1",
+                    "schema": "rusty.quest.makepad-camera-device-gate.v1",
                     "directCameraTexturePath": "cpu-yuv",
                     "xrRenderScale": 0.75,
                     "projectionBorderPolicy": "solid-red",

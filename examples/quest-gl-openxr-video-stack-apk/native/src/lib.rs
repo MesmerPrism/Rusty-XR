@@ -21,18 +21,16 @@ pub fn status_json() -> String {
 
 fn current_android_projection_property_config<'a>(
     pairs: impl IntoIterator<Item = (&'a str, &'a str)>,
-) -> rusty_xr_runtime_config::RuntimeConfigAliasParse {
-    use rusty_xr_runtime_config as rxrc;
+) -> rusty_quest_makepad_runtime_config::RuntimeConfigInputParse {
+    use rusty_quest_makepad_runtime_config as rxrc;
 
     let mut config = rxrc::RuntimeConfig::new();
-    let mut aliases = Vec::new();
+    let mut inputs = Vec::new();
     for (key, value) in pairs {
-        let Ok(alias) = rxrc::resolve_projection_runtime_key(key) else {
+        let Ok(input) = rxrc::resolve_projection_runtime_input(key) else {
             continue;
         };
-        if alias.source != rxrc::RuntimeKeyAliasSource::AndroidProperty
-            || alias.status != rxrc::RuntimeKeyAliasStatus::Current
-        {
+        if input.source != rxrc::RuntimeKeyInputSource::AndroidProperty {
             continue;
         }
         let Ok(parsed) = rxrc::parse_projection_runtime_pairs(
@@ -44,10 +42,10 @@ fn current_android_projection_property_config<'a>(
         for setting in parsed.config.iter() {
             config.insert(setting.clone());
         }
-        aliases.extend(parsed.aliases);
+        inputs.extend(parsed.inputs);
     }
 
-    rxrc::RuntimeConfigAliasParse { config, aliases }
+    rxrc::RuntimeConfigInputParse { config, inputs }
 }
 
 #[cfg(target_os = "android")]
@@ -534,7 +532,7 @@ mod android {
 #[cfg(test)]
 mod tests {
     use super::{current_android_projection_property_config, status_json};
-    use rusty_xr_runtime_config as rxrc;
+    use rusty_quest_makepad_runtime_config as rxrc;
 
     #[test]
     fn status_json_uses_public_schema() {
@@ -547,13 +545,28 @@ mod tests {
     #[test]
     fn current_android_projection_properties_cover_canonical_surface() {
         let parsed = current_android_projection_property_config([
-            ("debug.rustyxr.projection.depth.meters", "1.75"),
-            ("debug.rustyxr.projection.area.radius.x.uv", "0.42"),
-            ("debug.rustyxr.projection.border.policy", "solid-red"),
-            ("debug.rustyxr.projection.alpha.mode", "source-alpha"),
-            ("debug.rustyxr.source.visible.rect.width.uv", "0.875"),
-            ("debug.rustyxr.source.eye.mapping", "right-left"),
-            ("debug.rustyxr.source.texture.transform.source", "metadata"),
+            ("debug.rustyquest.makepad.projection.depth.meters", "1.75"),
+            (
+                "debug.rustyquest.makepad.projection.area.radius.x.uv",
+                "0.42",
+            ),
+            (
+                "debug.rustyquest.makepad.projection.border.policy",
+                "solid-red",
+            ),
+            (
+                "debug.rustyquest.makepad.projection.alpha.mode",
+                "source-alpha",
+            ),
+            (
+                "debug.rustyquest.makepad.source.visible.rect.width.uv",
+                "0.875",
+            ),
+            ("debug.rustyquest.makepad.source.eye.mapping", "right-left"),
+            (
+                "debug.rustyquest.makepad.source.texture.transform.source",
+                "metadata",
+            ),
         ]);
 
         assert_eq!(
@@ -584,17 +597,20 @@ mod tests {
             parsed.config.get(rxrc::KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE),
             Some(&rxrc::RuntimeValue::Text("metadata".to_string()))
         );
-        assert_eq!(parsed.aliases.len(), 7);
+        assert_eq!(parsed.inputs.len(), 7);
     }
 
     #[test]
-    fn current_android_projection_properties_reject_legacy_makepad_aliases() {
+    fn current_android_projection_properties_reject_removed_directional_inputs() {
         let parsed = current_android_projection_property_config([
             (
-                "debug.rustyxr.makepad.projection.area.offset.left.uv",
+                "debug.rustyquest.makepad.projection.area.offset.left.uv",
                 "0.125",
             ),
-            ("debug.rustyxr.projection.area.left.offset.x.uv", "0.25"),
+            (
+                "debug.rustyquest.makepad.projection.area.left.offset.x.uv",
+                "0.25",
+            ),
         ]);
 
         assert_eq!(
@@ -603,18 +619,24 @@ mod tests {
                 .get(rxrc::KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV),
             Some(&rxrc::RuntimeValue::Float(0.25))
         );
-        assert_eq!(parsed.aliases.len(), 1);
+        assert_eq!(parsed.inputs.len(), 1);
         assert_eq!(
-            parsed.aliases[0].status,
-            rxrc::RuntimeKeyAliasStatus::Current
+            parsed.inputs[0].source,
+            rxrc::RuntimeKeyInputSource::AndroidProperty
         );
     }
 
     #[test]
     fn current_android_projection_properties_ignore_invalid_values() {
         let parsed = current_android_projection_property_config([
-            ("debug.rustyxr.projection.depth.meters", "not-a-number"),
-            ("debug.rustyxr.projection.area.radius.x.uv", "0.42"),
+            (
+                "debug.rustyquest.makepad.projection.depth.meters",
+                "not-a-number",
+            ),
+            (
+                "debug.rustyquest.makepad.projection.area.radius.x.uv",
+                "0.42",
+            ),
         ]);
 
         assert_eq!(parsed.config.get(rxrc::KEY_PROJECTION_DEPTH_METERS), None);
@@ -622,6 +644,6 @@ mod tests {
             parsed.config.get(rxrc::KEY_PROJECTION_AREA_RADIUS_X_UV),
             Some(&rxrc::RuntimeValue::Float(0.42))
         );
-        assert_eq!(parsed.aliases.len(), 1);
+        assert_eq!(parsed.inputs.len(), 1);
     }
 }

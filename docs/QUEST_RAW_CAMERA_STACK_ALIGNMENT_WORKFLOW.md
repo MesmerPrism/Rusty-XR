@@ -278,14 +278,14 @@ Launch/profile behavior:
 - projection surface depth in meters. The suite-level
   `-ProjectionDepthMeters` default is forwarded as
   `rustyxr.projectionDepthMeters` for Vulkan/HWB and GL/OES, and
-  `debug.rustyxr.projection.depth.meters` for Makepad. Lane-specific depth
+  `debug.rustyquest.makepad.projection.depth.meters` for Makepad. Lane-specific depth
   overrides must be logged rather than
   hidden in renderer constants;
 - preview-surface shape values. The suite-level
   `-CameraPreviewFovYDegrees`, `-CameraPreviewOffsetYMeters`, and
   `-CameraRawOverlayOverscan` values are forwarded as the public
   `rustyxr.cameraPreview*` extras for Vulkan/HWB and GL/OES, and as
-  `debug.rustyxr.camera.preview.*` / `debug.rustyxr.camera.raw.overlay.overscan`
+  `debug.rustyquest.makepad.camera.preview.*` / `debug.rustyquest.makepad.camera.raw.overlay.overscan`
   properties for Makepad. This keeps the native-aligned HWB canvas target
   replayable by OES and Makepad custom-projection lanes without hiding shape
   differences in renderer constants;
@@ -296,14 +296,14 @@ Launch/profile behavior:
   `rustyxr.projectionAreaRightOffsetXUv`, and
   `rustyxr.projectionAreaRightOffsetYUv`. The shorter
   `rustyxr.projectionArea*` launch names and matching
-  `debug.rustyxr.projection.area.*` Android properties are the cross-renderer
+  `debug.rustyquest.makepad.projection.area.*` Android properties are the cross-renderer
   contract. Makepad-specific projection-area aliases are stale hygiene keys,
   not accepted runtime inputs;
 - independent projection-area and border opacity values such as
   `rustyxr.projectionAreaOpacity`, `rustyxr.projectionBorderOpacity`, and the
-  matching `debug.rustyxr.projection.*.opacity` Android properties;
+  matching `debug.rustyquest.makepad.projection.*.opacity` Android properties;
 - color-derived projection alpha controls such as
-  `rustyxr.projectionAlphaMode` and `debug.rustyxr.projection.alpha.mode`,
+  `rustyquest.makepad.projectionAlphaMode` and `debug.rustyquest.makepad.projection.alpha.mode`,
   with shared scale/bias controls;
 - synthetic pattern selection when running broker-synthetic validation;
 - screenshot, HzDB, logcat, freshness, visual-stimulus, and comparison capture
@@ -579,7 +579,7 @@ The suite applies the same policy to every public lane:
 | --- | --- | --- |
 | Vulkan/HWB | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` with `rustyxr.cameraPipelinePreset=raw-projection-unorm` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
 | GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
-| Makepad CPU-YUV | `debug.rustyxr.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyxr.processing.layer=blur` plus `debug.rustyxr.camera.blur.radius.px`; legacy `debug.rustyxr.makepad.*` aliases are compatibility-only |
+| Makepad CPU-YUV | `debug.rustyquest.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyquest.makepad.processing.layer=blur` plus `debug.rustyquest.makepad.camera.blur.radius.px` |
 
 Use `-ProjectionAreaOffsetXUv <value>` and `-ProjectionAreaOffsetYUv <value>`
 on the suite to run repeatable centering sweeps. The suite-level contract uses
@@ -587,7 +587,7 @@ screen/screenshot coordinates: positive X moves the projection area right and
 positive Y moves it down. Renderer-specific sign or viewport conventions must
 be normalized at the renderer/profile boundary before the app is launched.
 Prefer those suite-level controls for cross-lane work. The Makepad launcher
-wrapper writes the same current `debug.rustyxr.projection.area.*` properties as
+wrapper writes the same current `debug.rustyquest.makepad.projection.area.*` properties as
 the other Android-property paths; stale Makepad-specific projection-area
 aliases are hygiene-only cleanup keys.
 Treat these values as projection-area placement controls; do not hide
@@ -700,7 +700,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 ```
 
 The public Makepad example defaults to package
-`io.github.mesmerprism.rustyxr.makepad.camera` and its generated launcher/XR
+`io.github.mesmerprism.rustyquest.makepad.camera` and its generated launcher/XR
 activities; pass the Makepad identity flags only for a differently packaged
 APK.
 

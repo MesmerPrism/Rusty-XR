@@ -7,8 +7,8 @@ param(
     [string]$EvidenceMode = "custom",
     [string]$HwbApk = "examples\quest-composite-layer-apk\build\outputs\rusty-xr-quest-composite-layer-debug.apk",
     [string]$GlesApk = "examples\quest-gl-openxr-video-stack-apk\build\outputs\rusty-xr-quest-gl-openxr-video-stack-debug.apk",
-    [string]$MakepadApk = "examples\makepad-camera-shell\target\android\makepad-android-apk\rusty_xr_makepad_camera_shell\apk\rustyx_rmakepadcamera.apk",
-    [string]$MakepadPackageName = "io.github.mesmerprism.rustyxr.makepad.camera",
+    [string]$MakepadApk = "examples\makepad-camera-shell\target\android\makepad-android-apk\rusty_quest_makepad_camera_shell\apk\rusty_quest_makepad_camera.apk",
+    [string]$MakepadPackageName = "io.github.mesmerprism.rustyquest.makepad.camera",
     [int]$WarmupSeconds = 12,
     [int]$MakepadStartupTimeoutSeconds = 60,
     [int]$MakepadSampleSeconds = 32,
@@ -277,31 +277,31 @@ function New-TimingSummary {
 }
 
 $surfaceOverrideValues = @(
-    "rustyxr.projectionDepthMeters=1.434085",
-    "rustyxr.cameraPreviewFovYDegrees=69.763084",
-    "rustyxr.cameraPreviewOffsetYMeters=-0.168832",
-    "rustyxr.cameraRawOverlayOverscan=1.0",
-    ("rustyxr.projectionRuntimeResolutionEnabled={0}" -f $projectionRuntimeResolutionEnabledValue)
+    "rustyquest.makepad.projectionDepthMeters=1.434085",
+    "rustyquest.makepad.cameraPreviewFovYDegrees=69.763084",
+    "rustyquest.makepad.cameraPreviewOffsetYMeters=-0.168832",
+    "rustyquest.makepad.cameraRawOverlayOverscan=1.0",
+    ("rustyquest.makepad.projectionRuntimeResolutionEnabled={0}" -f $projectionRuntimeResolutionEnabledValue)
 )
 if ($SkipMediaProjection) {
-    $surfaceOverrideValues += "rustyxr.mediaProjection=false"
+    $surfaceOverrideValues += "rustyquest.makepad.mediaProjection=false"
 } else {
     $surfaceOverrideValues += @(
-        "rustyxr.mediaProjection=true",
-        ("rustyxr.mediaProjectionPort={0}" -f $MediaProjectionPort),
-        "rustyxr.mediaProjectionWidth=512",
-        "rustyxr.mediaProjectionHeight=288"
+        "rustyquest.makepad.mediaProjection=true",
+        ("rustyquest.makepad.mediaProjectionPort={0}" -f $MediaProjectionPort),
+        "rustyquest.makepad.mediaProjectionWidth=512",
+        "rustyquest.makepad.mediaProjectionHeight=288"
     )
 }
 $surfaceOverride = $surfaceOverrideValues -join ","
 
 $boundedProjectionAreaOverride = @(
-    "rustyxr.projectionAreaOffsetXUv=0.0",
-    "rustyxr.projectionAreaOffsetYUv=0.0",
-    "rustyxr.projectionAreaScaleUv=1.0",
-    "rustyxr.projectionAreaRadiusXUv=0.47",
-    "rustyxr.projectionAreaRadiusYUv=0.36",
-    "rustyxr.projectionAreaCornerRadiusUv=0.08"
+    "rustyquest.makepad.projectionAreaOffsetXUv=0.0",
+    "rustyquest.makepad.projectionAreaOffsetYUv=0.0",
+    "rustyquest.makepad.projectionAreaScaleUv=1.0",
+    "rustyquest.makepad.projectionAreaRadiusXUv=0.47",
+    "rustyquest.makepad.projectionAreaRadiusYUv=0.36",
+    "rustyquest.makepad.projectionAreaCornerRadiusUv=0.08"
 ) -join ","
 
 $projectionAreaRadiusXUv = if ($BoundedCanvasProjectionArea) { "0.47" } else { "0.5" }
@@ -309,44 +309,44 @@ $projectionAreaRadiusYUv = if ($BoundedCanvasProjectionArea) { "0.36" } else { "
 $projectionAreaCornerRadiusUv = if ($BoundedCanvasProjectionArea) { "0.08" } else { "0.0" }
 
 $projectionOpacityOverride = @(
-    ("rustyxr.projectionAreaOpacity={0}" -f (Format-LaunchFloat -Value $ProjectionAreaOpacity)),
-    ("rustyxr.projectionBorderOpacity={0}" -f (Format-LaunchFloat -Value $ProjectionBorderOpacity)),
-    ("rustyxr.projectionBorderPolicy={0}" -f $ProjectionBorderPolicy)
+    ("rustyquest.makepad.projectionAreaOpacity={0}" -f (Format-LaunchFloat -Value $ProjectionAreaOpacity)),
+    ("rustyquest.makepad.projectionBorderOpacity={0}" -f (Format-LaunchFloat -Value $ProjectionBorderOpacity)),
+    ("rustyquest.makepad.projectionBorderPolicy={0}" -f $ProjectionBorderPolicy)
 ) -join ","
 $blurRadiusPxText = Format-LaunchFloat -Value $BlurRadiusPx
 $processingLayerOverride = @(
-    ("rustyxr.processingLayer={0}" -f $ProcessingLayer),
-    ("rustyxr.peripheralStretchMode={0}" -f $PeripheralStretchMode),
-    ("rustyxr.peripheralStretchCoreScale={0}" -f (Format-LaunchFloat -Value $PeripheralStretchCoreScale)),
-    ("rustyxr.peripheralStretchEdgeInsetUv={0}" -f (Format-LaunchFloat -Value $PeripheralStretchEdgeInsetUv)),
-    ("rustyxr.peripheralStretchMaxInsetUv={0}" -f (Format-LaunchFloat -Value $PeripheralStretchMaxInsetUv)),
-    ("rustyxr.peripheralStretchCurve={0}" -f (Format-LaunchFloat -Value $PeripheralStretchCurve)),
-    ("rustyxr.peripheralStretchInnerBlendUv={0}" -f (Format-LaunchFloat -Value $PeripheralStretchInnerBlendUv)),
-    ("rustyxr.peripheralStretchBlendCurve={0}" -f (Format-LaunchFloat -Value $PeripheralStretchBlendCurve)),
-    ("rustyxr.peripheralStretchBlendMode={0}" -f $PeripheralStretchBlendMode),
-    ("rustyxr.peripheralStretchCornerMode={0}" -f $PeripheralStretchCornerMode),
-    ("rustyxr.peripheralStretchDebug={0}" -f $PeripheralStretchDebug),
-    ("rustyxr.cameraBlurRadiusPx={0}" -f $blurRadiusPxText)
+    ("rustyquest.makepad.processingLayer={0}" -f $ProcessingLayer),
+    ("rustyquest.makepad.peripheralStretchMode={0}" -f $PeripheralStretchMode),
+    ("rustyquest.makepad.peripheralStretchCoreScale={0}" -f (Format-LaunchFloat -Value $PeripheralStretchCoreScale)),
+    ("rustyquest.makepad.peripheralStretchEdgeInsetUv={0}" -f (Format-LaunchFloat -Value $PeripheralStretchEdgeInsetUv)),
+    ("rustyquest.makepad.peripheralStretchMaxInsetUv={0}" -f (Format-LaunchFloat -Value $PeripheralStretchMaxInsetUv)),
+    ("rustyquest.makepad.peripheralStretchCurve={0}" -f (Format-LaunchFloat -Value $PeripheralStretchCurve)),
+    ("rustyquest.makepad.peripheralStretchInnerBlendUv={0}" -f (Format-LaunchFloat -Value $PeripheralStretchInnerBlendUv)),
+    ("rustyquest.makepad.peripheralStretchBlendCurve={0}" -f (Format-LaunchFloat -Value $PeripheralStretchBlendCurve)),
+    ("rustyquest.makepad.peripheralStretchBlendMode={0}" -f $PeripheralStretchBlendMode),
+    ("rustyquest.makepad.peripheralStretchCornerMode={0}" -f $PeripheralStretchCornerMode),
+    ("rustyquest.makepad.peripheralStretchDebug={0}" -f $PeripheralStretchDebug),
+    ("rustyquest.makepad.cameraBlurRadiusPx={0}" -f $blurRadiusPxText)
 ) -join ","
 $sourceSamplingOverride = if ($SourceSamplingMode -eq "suite-default") {
     ""
 } else {
     @(
-        ("rustyxr.cameraSourceSamplingMode={0}" -f $SourceSamplingMode),
-        ("rustyxr.directCamera2OesSourceSamplingMode={0}" -f $SourceSamplingMode),
-        ("rustyxr.brokerH264SourceSamplingMode={0}" -f $SourceSamplingMode)
+        ("rustyquest.makepad.cameraSourceSamplingMode={0}" -f $SourceSamplingMode),
+        ("rustyquest.makepad.directCamera2OesSourceSamplingMode={0}" -f $SourceSamplingMode),
+        ("rustyquest.makepad.brokerH264SourceSamplingMode={0}" -f $SourceSamplingMode)
     ) -join ","
 }
 $targetLocalRasterFootprintOverride = switch ($TargetLocalRasterFootprint) {
     "default" { "" }
     "homography-reference-bounds" {
         @(
-            "rustyxr.cameraLeftTargetScreenUvRect=0.171875;0.21875;0.75;0.65625",
-            "rustyxr.cameraRightTargetScreenUvRect=0.078125;0.21875;0.75;0.671875",
-            "rustyxr.brokerH264LeftTargetScreenUvRect=0.171875;0.21875;0.75;0.65625",
-            "rustyxr.brokerH264RightTargetScreenUvRect=0.078125;0.21875;0.75;0.671875",
-            "rustyxr.directCamera2OesLeftTargetScreenUvRect=0.171875;0.21875;0.75;0.65625",
-            "rustyxr.directCamera2OesRightTargetScreenUvRect=0.078125;0.21875;0.75;0.671875"
+            "rustyquest.makepad.cameraLeftTargetScreenUvRect=0.171875;0.21875;0.75;0.65625",
+            "rustyquest.makepad.cameraRightTargetScreenUvRect=0.078125;0.21875;0.75;0.671875",
+            "rustyquest.makepad.brokerH264LeftTargetScreenUvRect=0.171875;0.21875;0.75;0.65625",
+            "rustyquest.makepad.brokerH264RightTargetScreenUvRect=0.078125;0.21875;0.75;0.671875",
+            "rustyquest.makepad.directCamera2OesLeftTargetScreenUvRect=0.171875;0.21875;0.75;0.65625",
+            "rustyquest.makepad.directCamera2OesRightTargetScreenUvRect=0.078125;0.21875;0.75;0.671875"
         ) -join ","
     }
 }
@@ -403,23 +403,23 @@ function Get-BrokerH264Override {
         $ProjectionGeometryProfile
     }
     return @(
-        ("rustyxr.brokerH264SourceMode={0}" -f $SourceMode),
-        ("rustyxr.brokerH264ProjectionGeometryProfile={0}" -f $brokerProjectionGeometryProfile),
-        $(if ($SourceSamplingMode -ne "suite-default") { ("rustyxr.brokerH264SourceSamplingMode={0}" -f $SourceSamplingMode) } else { "" }),
-        ("rustyxr.brokerH264SyntheticPattern={0}" -f $BrokerH264SyntheticPattern),
-        ("rustyxr.brokerH264SyntheticProjectionProfile={0}" -f $BrokerH264SyntheticProjectionProfile),
-        ("rustyxr.brokerH264StreamPort={0}" -f $BrokerH264LeftStreamPort),
-        ("rustyxr.brokerH264RightStreamPort={0}" -f $BrokerH264RightStreamPort),
-        ("rustyxr.brokerH264LeftCameraId={0}" -f $BrokerH264LeftCameraId),
-        ("rustyxr.brokerH264RightCameraId={0}" -f $BrokerH264RightCameraId),
-        "rustyxr.brokerH264Width=1280",
-        "rustyxr.brokerH264Height=1280",
-        "rustyxr.brokerH264CaptureMs=0",
-        "rustyxr.brokerH264MaxPackets=0",
-        ("rustyxr.brokerH264FrameRateHz={0}" -f $BrokerH264FrameRateHz),
-        ("rustyxr.brokerH264BitrateBps={0}" -f $BrokerH264BitrateBps),
-        "rustyxr.brokerH264LiveStream=true",
-        "rustyxr.brokerH264LiveDecode=true"
+        ("rustyquest.makepad.brokerH264SourceMode={0}" -f $SourceMode),
+        ("rustyquest.makepad.brokerH264ProjectionGeometryProfile={0}" -f $brokerProjectionGeometryProfile),
+        $(if ($SourceSamplingMode -ne "suite-default") { ("rustyquest.makepad.brokerH264SourceSamplingMode={0}" -f $SourceSamplingMode) } else { "" }),
+        ("rustyquest.makepad.brokerH264SyntheticPattern={0}" -f $BrokerH264SyntheticPattern),
+        ("rustyquest.makepad.brokerH264SyntheticProjectionProfile={0}" -f $BrokerH264SyntheticProjectionProfile),
+        ("rustyquest.makepad.brokerH264StreamPort={0}" -f $BrokerH264LeftStreamPort),
+        ("rustyquest.makepad.brokerH264RightStreamPort={0}" -f $BrokerH264RightStreamPort),
+        ("rustyquest.makepad.brokerH264LeftCameraId={0}" -f $BrokerH264LeftCameraId),
+        ("rustyquest.makepad.brokerH264RightCameraId={0}" -f $BrokerH264RightCameraId),
+        "rustyquest.makepad.brokerH264Width=1280",
+        "rustyquest.makepad.brokerH264Height=1280",
+        "rustyquest.makepad.brokerH264CaptureMs=0",
+        "rustyquest.makepad.brokerH264MaxPackets=0",
+        ("rustyquest.makepad.brokerH264FrameRateHz={0}" -f $BrokerH264FrameRateHz),
+        ("rustyquest.makepad.brokerH264BitrateBps={0}" -f $BrokerH264BitrateBps),
+        "rustyquest.makepad.brokerH264LiveStream=true",
+        "rustyquest.makepad.brokerH264LiveDecode=true"
     ) -join ","
 }
 
@@ -428,12 +428,12 @@ function Get-HwbProjectionStyleOverride {
     $passthroughOverride = if ($ProjectionBorderPolicy -eq "passthrough-underlay" -or
         $ProjectionAreaOpacity -lt 1.0 -or
         $ProjectionBorderOpacity -lt 1.0) {
-        "rustyxr.openxrPassthroughProbe=underlay"
+        "rustyquest.makepad.openxrPassthroughProbe=underlay"
     }
     else {
-        "rustyxr.openxrPassthroughProbe=off"
+        "rustyquest.makepad.openxrPassthroughProbe=off"
     }
-    return "rustyxr.cameraPipelinePreset=raw-projection-unorm,rustyxr.cameraProjectionEffectMode=raw-projection,$passthroughOverride,$projectionOpacityOverride,$processingLayerOverride"
+    return "rustyquest.makepad.cameraPipelinePreset=raw-projection-unorm,rustyquest.makepad.cameraProjectionEffectMode=raw-projection,$passthroughOverride,$projectionOpacityOverride,$processingLayerOverride"
 }
 
 function Get-GlesProjectionStyleOverride {
@@ -885,8 +885,8 @@ function Wait-MakepadForegroundForHzdb {
         if ($appError) {
             throw "$CaseId Makepad app error was visible before HzDB capture; see $foregroundRoot"
         }
-        $nonzeroXrCadenceReady = $logcatText -match "RUSTY_XR_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\.00)"
-        $xrFrameReady = ($logcatText -match "RUSTY_XR_MAKEPAD_OPENXR_END_FRAME") -or $nonzeroXrCadenceReady
+        $nonzeroXrCadenceReady = $logcatText -match "RUSTY_QUEST_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\.00)"
+        $xrFrameReady = ($logcatText -match "RUSTY_QUEST_MAKEPAD_OPENXR_END_FRAME") -or $nonzeroXrCadenceReady
         $sawXrFrameReady = $sawXrFrameReady -or $xrFrameReady
         $projectionReady = (
             ($logcatText -match "visibleCameraProjectionReady=true") -or
@@ -1586,8 +1586,8 @@ if (Test-LaneEnabled -Lane "hwb") {
         -RuntimeProfile $hwbCanvasRuntimeProfile `
         -Apk $HwbApk `
         -Override (Join-OverrideValues -Values @(
-            "rustyxr.cameraProjectionMode=world-canvas",
-            "rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic",
+            "rustyquest.makepad.cameraProjectionMode=world-canvas",
+            "rustyquest.makepad.cameraProjectionGeometryProfile=full-frame-diagnostic",
             (Get-HwbProjectionStyleOverride -Mode "canvas"),
             $projectionAreaOverride,
             $sourceSamplingOverride,
@@ -1604,8 +1604,8 @@ if (Test-LaneEnabled -Lane "hwb") {
         -RuntimeProfile $hwbCustomRuntimeProfile `
         -Apk $HwbApk `
         -Override (Join-OverrideValues -Values @(
-            "rustyxr.cameraProjectionMode=display-screen-homography",
-            "rustyxr.cameraProjectionGeometryProfile=camera-projection",
+            "rustyquest.makepad.cameraProjectionMode=display-screen-homography",
+            "rustyquest.makepad.cameraProjectionGeometryProfile=camera-projection",
             (Get-HwbProjectionStyleOverride -Mode "custom"),
             $projectionAreaOverride,
             $sourceSamplingOverride,
@@ -1624,9 +1624,9 @@ if (Test-LaneEnabled -Lane "oes") {
         -RuntimeProfile $glesCanvasRuntimeProfile `
         -Apk $GlesApk `
         -Override (Join-OverrideValues -Values @(
-            "rustyxr.cameraProjectionMode=world-canvas",
-            "rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic",
-            "rustyxr.directCamera2OesProjectionGeometryProfile=full-frame-diagnostic",
+            "rustyquest.makepad.cameraProjectionMode=world-canvas",
+            "rustyquest.makepad.cameraProjectionGeometryProfile=full-frame-diagnostic",
+            "rustyquest.makepad.directCamera2OesProjectionGeometryProfile=full-frame-diagnostic",
             (Get-GlesProjectionStyleOverride),
             $projectionAreaOverride,
             $sourceSamplingOverride,
@@ -1643,9 +1643,9 @@ if (Test-LaneEnabled -Lane "oes") {
         -RuntimeProfile $glesCustomRuntimeProfile `
         -Apk $GlesApk `
         -Override (Join-OverrideValues -Values @(
-            "rustyxr.cameraProjectionMode=display-screen-homography",
-            "rustyxr.cameraProjectionGeometryProfile=camera-projection",
-            "rustyxr.directCamera2OesProjectionGeometryProfile=camera-projection",
+            "rustyquest.makepad.cameraProjectionMode=display-screen-homography",
+            "rustyquest.makepad.cameraProjectionGeometryProfile=camera-projection",
+            "rustyquest.makepad.directCamera2OesProjectionGeometryProfile=camera-projection",
             (Get-GlesProjectionStyleOverride),
             $projectionAreaOverride,
             $sourceSamplingOverride,

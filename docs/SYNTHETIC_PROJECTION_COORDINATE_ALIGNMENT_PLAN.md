@@ -163,10 +163,10 @@ Known confusing settings:
 | Setting/surface | Current risk | Alignment rule |
 | --- | --- | --- |
 | `scale075` profile names | Historical performance profile names look like geometry intent | Never use for coordinate gates |
-| `rustyxr.cameraProjectionScale` | Changes HWB camera source surface before shader sampling | Log and tune separately from projection-area scale |
-| `rustyxr.projectionAreaScaleUv` / `projection_area_scale_*` | Changes where the intended projection area lands on screen | Use for screen-footprint scale, not source crop |
+| `rustyquest.makepad.cameraProjectionScale` | Changes HWB camera source surface before shader sampling | Log and tune separately from projection-area scale |
+| `rustyquest.makepad.projectionAreaScaleUv` / `projection_area_scale_*` | Changes where the intended projection area lands on screen | Use for screen-footprint scale, not source crop |
 | `contentUvScale=1.6000` | Makepad logs/hotloads it, but the active shader path does not use it as the projection footprint control | Do not tune until wired or renamed inactive |
-| Android `debug.rustyxr.*` properties | Persist across launches and can contaminate direct/broker comparisons | Device gate must clear or explicitly set every relevant property |
+| Android `debug.rustyquest.makepad.*` properties | Persist across launches and can contaminate direct/broker comparisons | Device gate must clear or explicitly set every relevant property |
 | Analyzer dense component union | Measures visible content after color segmentation | Use as screenshot evidence, not as the transform source |
 | Display-eye UV fiducial mapping | The mirror screenshot path can warp submitted display-eye UV non-linearly | Log it before converting screenshot deltas into projection-space tuning |
 
@@ -175,8 +175,8 @@ Known confusing settings:
 Trace these fields in order:
 
 1. catalog/runtime profile selected by the suite;
-2. launch override for `rustyxr.cameraProjectionScale`;
-3. launch override for `rustyxr.projectionAreaScaleUv`;
+2. launch override for `rustyquest.makepad.cameraProjectionScale`;
+3. launch override for `rustyquest.makepad.projectionAreaScaleUv`;
 4. native config log fields `projectionScale`, `projectionAreaScaleUv`,
    `projectionAreaRadiusXUv`, and `projectionAreaRadiusYUv`;
 5. generated `screen_to_camera` homography rows;
@@ -359,16 +359,16 @@ The native HWB `RuntimeConfig` defaults now match that full-feed intent:
 `projectionAreaRadiusXUv=0.5`, `projectionAreaRadiusYUv=0.5`, and
 `projectionAreaCornerRadiusUv=0.0`.
 
-The HWB clipping trace starts at `rustyxr.cameraProjectionScale` and
-`rustyxr.projectionAreaScaleUv`. `cameraProjectionScale=0.75` changes the
+The HWB clipping trace starts at `rustyquest.makepad.cameraProjectionScale` and
+`rustyquest.makepad.projectionAreaScaleUv`. `cameraProjectionScale=0.75` changes the
 camera-source footprint before the shader sees it; `projectionAreaScaleUv`
 changes the screen/projection-area mapping. Both must be recorded separately.
 
-The Makepad clipping trace starts at `debug.rustyxr.projection.scale` and
-`debug.rustyxr.makepad.projection.area.*`, then continues through
+The Makepad clipping trace starts at `debug.rustyquest.makepad.projection.scale` and
+`debug.rustyquest.makepad.projection.area.*`, then continues through
 `projection_area_screen_uv`, `screen_to_camera`, and `projection_area_mask`.
 The standalone Makepad device gate keeps projection scale at `1.0` while using
-`rustyxr.xrRenderScale=0.90` for the accepted target-local HWB performance
+`rustyquest.makepad.xrRenderScale=0.90` for the accepted target-local HWB performance
 lane; full-resolution `1.0` render-scale runs are explicit stress runs.
 
 The analyzer now emits a cross-lane parity check. A run can have usable

@@ -1,4 +1,4 @@
-pub use makepad_xr::makepad_widgets;
+pub use rusty_quest_makepad_xr::makepad_widgets;
 
 #[cfg(target_os = "android")]
 mod acamera_sys;
@@ -38,7 +38,7 @@ use projection_runtime::{
 };
 use projection_settings::*;
 use runtime_settings::*;
-use rusty_xr_runtime_config as rxrc;
+use rusty_quest_makepad_runtime_config as rxrc;
 #[cfg(target_os = "android")]
 use source_metadata::{
     broker_projection_plan_decision, BrokerProjectionPlanDecision, BrokerProjectionPlanKind,
@@ -82,14 +82,14 @@ use makepad_widgets::makepad_platform::{
     TextureFormat, TextureId, TextureUpdated,
 };
 use makepad_widgets::*;
-use makepad_xr::scene::{xr_widget_world_transform, XrNode};
 use manifold_breath_feedback::{ManifoldBreathFeedbackConfig, ManifoldBreathFeedbackSubscriber};
 use manifold_pose_publisher::{
     ManifoldPosePublisher, ManifoldPosePublisherConfig, ManifoldPoseSample,
 };
 use mesh_replay::{MeshReplayConfig, MeshReplayRuntime, MeshReplayUniforms};
+use rusty_quest_makepad_runtime_config::RuntimeConfig;
+use rusty_quest_makepad_xr::scene::{xr_widget_world_transform, XrNode};
 use rusty_xr_camera_model::{Rect2, SourceSamplingMode, Vec2};
-use rusty_xr_runtime_config::RuntimeConfig;
 use source_sampling::{
     makepad_cadence_sample_marker_line, makepad_cadence_start_marker_line,
     makepad_texture_content_probe_missing_marker_fields,
@@ -7511,7 +7511,7 @@ impl MatchEvent for App {
 impl AppMain for App {
     fn script_mod(vm: &mut ScriptVm) -> ScriptValue {
         crate::makepad_widgets::script_mod(vm);
-        makepad_xr::script_mod(vm);
+        rusty_quest_makepad_xr::script_mod(vm);
         self::script_mod(vm)
     }
 
@@ -7622,7 +7622,11 @@ mod projection_target_joystick_tests {
     #[test]
     fn joystick_controls_parse_canonical_offset_scale() {
         assert!(makepad_projection_target_joystick_controls_enabled_from_value("offset-scale"));
-        assert!(!makepad_projection_target_joystick_controls_enabled_from_value("joystick_offset_scale"));
+        assert!(
+            !makepad_projection_target_joystick_controls_enabled_from_value(
+                "joystick_offset_scale"
+            )
+        );
         assert!(!makepad_projection_target_joystick_controls_enabled_from_value("off"));
     }
 
@@ -7668,4 +7672,3 @@ mod projection_target_joystick_tests {
         assert_eq!(next, PROJECTION_TARGET_MAX_SCALE);
     }
 }
-

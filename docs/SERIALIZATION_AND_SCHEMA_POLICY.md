@@ -98,7 +98,7 @@ The initial export covers:
   including provider, preset, intended use, overhead policy, and raw-trace
   retention policy.
 - Projection property hygiene summaries for launch wrappers that clear or gate
-  persistent `debug.rustyxr.*` projection properties.
+  persistent `debug.rustyquest.makepad.*` projection properties.
 - Projection runtime readback reports that compare launch extras or Android
   property readbacks against the resolved manifest logged by the renderer.
 

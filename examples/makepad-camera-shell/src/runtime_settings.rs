@@ -1,6 +1,6 @@
 #[cfg(target_os = "android")]
-use rusty_xr_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
-use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
+use rusty_quest_makepad_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
+use rusty_quest_makepad_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 
 pub(crate) const DEFAULT_PROFILE: &str = "makepad-stereo-projection-pair-probe";
 pub(crate) const DEFAULT_TRANSPORT: &str = "makepad-direct-hwb-target-inner-band-stretch";
@@ -115,7 +115,7 @@ pub(crate) const FRAME_RASTER_TOP_LEFT_Y_DOWN: &str = "top-left-origin-y-down";
 pub(crate) const FRAME_RASTER_BOTTOM_LEFT_Y_UP: &str = "bottom-left-origin-y-up";
 pub(crate) const IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY: [[f32; 3]; 3] =
     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-pub(crate) const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
+pub(crate) const MAKEPAD_BRANCH: &str = "rusty-quest/android-libstd-packaging";
 pub(crate) const MAKEPAD_REV: &str = "f5b0c6f1b";
 pub(crate) const DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-left-source";
 #[cfg(target_os = "android")]
@@ -160,17 +160,14 @@ pub(crate) const KEY_ANDROID_PACKAGER: &str = "android_packager";
 pub(crate) const KEY_MAKEPAD_REVISION: &str = "revision";
 pub(crate) const KEY_MAKEPAD_BRANCH: &str = "branch";
 pub(crate) const KEY_STUDIO_HOST: &str = "studio_host";
-pub(crate) const KEY_MAKEPAD_HORIZONTAL_ALIGNMENT_STRENGTH: &str =
-    "horizontal_alignment_strength";
+pub(crate) const KEY_MAKEPAD_HORIZONTAL_ALIGNMENT_STRENGTH: &str = "horizontal_alignment_strength";
 pub(crate) const KEY_MAKEPAD_HORIZONTAL_OFFSET_UV: &str = "horizontal_offset_uv";
 pub(crate) const KEY_MAKEPAD_HORIZONTAL_OFFSET_LEFT_UV: &str = "horizontal_offset_left_uv";
-pub(crate) const KEY_MAKEPAD_HORIZONTAL_OFFSET_RIGHT_UV: &str =
-    "horizontal_offset_right_uv";
+pub(crate) const KEY_MAKEPAD_HORIZONTAL_OFFSET_RIGHT_UV: &str = "horizontal_offset_right_uv";
 pub(crate) const KEY_MAKEPAD_VERTICAL_OFFSET_UV: &str = "vertical_offset_uv";
 pub(crate) const KEY_MAKEPAD_CONTENT_UV_SCALE: &str = "content_uv_scale";
 pub(crate) const KEY_MAKEPAD_PROJECTION_BORDER_OPACITY: &str = "projection_border_opacity";
-pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_DIAGNOSTIC: &str =
-    "projection_area_diagnostic";
+pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_DIAGNOSTIC: &str = "projection_area_diagnostic";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV: &str =
     "projection_area_offset_left_uv";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_OFFSET_RIGHT_UV: &str =
@@ -179,14 +176,11 @@ pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_OFFSET_VERTICAL_UV: &str =
     "projection_area_offset_vertical_uv";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_SCALE_X: &str = "projection_area_scale_x";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_SCALE_Y: &str = "projection_area_scale_y";
-pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_RADIUS_X_UV: &str =
-    "projection_area_radius_x_uv";
-pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_RADIUS_Y_UV: &str =
-    "projection_area_radius_y_uv";
+pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_RADIUS_X_UV: &str = "projection_area_radius_x_uv";
+pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_RADIUS_Y_UV: &str = "projection_area_radius_y_uv";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_CORNER_RADIUS_UV: &str =
     "projection_area_corner_radius_uv";
-pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_KEYSTONE_X: &str =
-    "projection_area_keystone_x";
+pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_KEYSTONE_X: &str = "projection_area_keystone_x";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_BOW_X: &str = "projection_area_bow_x";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_OPACITY: &str = "projection_area_opacity";
 pub(crate) const KEY_MAKEPAD_PROJECTION_ALPHA_MODE: &str = "projection_alpha_mode";
@@ -203,13 +197,11 @@ pub(crate) const KEY_MAKEPAD_BROKER_H264_ENABLED: &str = "broker_h264_enabled";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_HOST: &str = "broker_h264_host";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_BROKER_PORT: &str = "broker_h264_broker_port";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_STREAM_PORT: &str = "broker_h264_stream_port";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_RIGHT_STREAM_PORT: &str =
-    "broker_h264_right_stream_port";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_RIGHT_STREAM_PORT: &str = "broker_h264_right_stream_port";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_SOURCE_MODE: &str = "broker_h264_source_mode";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_DECODE_OUTPUT_MODE: &str =
     "broker_h264_decode_output_mode";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PATTERN: &str =
-    "broker_h264_synthetic_pattern";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PATTERN: &str = "broker_h264_synthetic_pattern";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_PROJECTION_GEOMETRY_PROFILE: &str =
     "broker_h264_projection_geometry_profile";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_SOURCE_SAMPLING_MODE: &str =
@@ -229,10 +221,8 @@ pub(crate) const KEY_CAMERA_TARGET_SCREEN_UV_RECT: &str = "camera_target_screen_
 pub(crate) const KEY_CAMERA_LEFT_TARGET_SCREEN_UV_RECT: &str = "camera_left_target_screen_uv_rect";
 pub(crate) const KEY_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT: &str =
     "camera_right_target_screen_uv_rect";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_LEFT_CAMERA_ID: &str =
-    "broker_h264_left_camera_id";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_RIGHT_CAMERA_ID: &str =
-    "broker_h264_right_camera_id";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_LEFT_CAMERA_ID: &str = "broker_h264_left_camera_id";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_RIGHT_CAMERA_ID: &str = "broker_h264_right_camera_id";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_WIDTH: &str = "broker_h264_width";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_HEIGHT: &str = "broker_h264_height";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_CAPTURE_MS: &str = "broker_h264_capture_ms";
@@ -241,13 +231,10 @@ pub(crate) const KEY_MAKEPAD_BROKER_H264_BITRATE_BPS: &str = "broker_h264_bitrat
 pub(crate) const KEY_MAKEPAD_BROKER_H264_FRAME_RATE_HZ: &str = "broker_h264_frame_rate_hz";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_COMMAND_TIMEOUT_MS: &str =
     "broker_h264_command_timeout_ms";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_STREAM_TIMEOUT_MS: &str =
-    "broker_h264_stream_timeout_ms";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_DECODE_TIMEOUT_MS: &str =
-    "broker_h264_decode_timeout_ms";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_STREAM_TIMEOUT_MS: &str = "broker_h264_stream_timeout_ms";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_DECODE_TIMEOUT_MS: &str = "broker_h264_decode_timeout_ms";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_LIVE_STREAM: &str = "broker_h264_live_stream";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_STEREO_PAIR_ID: &str =
-    "broker_h264_stereo_pair_id";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_STEREO_PAIR_ID: &str = "broker_h264_stereo_pair_id";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_STEREO_PAIR_MAX_DELTA_NS: &str =
     "broker_h264_stereo_pair_max_delta_ns";
 pub(crate) const KEY_MANIFOLD_POSE_PUBLISH_ENABLED: &str = "manifold_pose_publish_enabled";
@@ -536,8 +523,7 @@ fn explicit_hotload_value(
     current_property: &'static str,
     current_env: &'static str,
 ) -> Option<String> {
-    android_system_property_value(current_property)
-        .or_else(|| std::env::var(current_env).ok())
+    android_system_property_value(current_property).or_else(|| std::env::var(current_env).ok())
 }
 
 pub(crate) fn hotload_u32(key: &'static str, default: u32, min: u32, max: u32) -> u32 {

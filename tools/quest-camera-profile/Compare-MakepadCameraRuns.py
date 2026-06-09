@@ -189,7 +189,7 @@ def build_comparison(run_specs: list[str]) -> dict[str, Any]:
         name = explicit_name or path.stem or f"run-{index}"
         rows.append(row_from_report(name, report_path))
     return {
-        "schema": "rusty.xr.makepad-camera-run-comparison.v1",
+        "schema": "rusty.quest.makepad-camera-run-comparison.v1",
         "rows": rows,
         "baselineComparisons": compare_to_baseline(rows),
     }

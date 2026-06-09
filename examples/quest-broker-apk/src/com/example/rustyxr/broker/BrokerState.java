@@ -2710,17 +2710,17 @@ final class BrokerState {
         private static final String BROKER_PACKAGE = "com.example.rustyxr.broker";
         private static final String BROKER_ACTIVITY = "com.example.rustyxr.broker.MainActivity";
         private static final String PROP_STRENGTH =
-            "debug.rustyxr.makepad.horizontal.alignment.strength";
+            "debug.rustyquest.makepad.horizontal.alignment.strength";
         private static final String PROP_GLOBAL_UV =
-            "debug.rustyxr.makepad.horizontal.offset.uv";
+            "debug.rustyquest.makepad.horizontal.offset.uv";
         private static final String PROP_LEFT_UV =
-            "debug.rustyxr.makepad.horizontal.offset.left.uv";
+            "debug.rustyquest.makepad.horizontal.offset.left.uv";
         private static final String PROP_RIGHT_UV =
-            "debug.rustyxr.makepad.horizontal.offset.right.uv";
+            "debug.rustyquest.makepad.horizontal.offset.right.uv";
         private static final String PROP_VERTICAL_UV =
-            "debug.rustyxr.makepad.vertical.offset.uv";
+            "debug.rustyquest.makepad.vertical.offset.uv";
         private static final String PROP_CONTENT_SCALE =
-            "debug.rustyxr.makepad.content.uv.scale";
+            "debug.rustyquest.makepad.content.uv.scale";
 
         private long revision;
         private long lastUpdatedUnixMs;

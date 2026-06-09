@@ -1,5 +1,5 @@
 use jni::{objects::JObject, sys::jobject, JavaVM};
-use rusty_xr_runtime_config as rxrc;
+use rusty_quest_makepad_runtime_config as rxrc;
 
 use super::openxr_gles_config::{
     activity_string_extra, android_system_property_value,
@@ -8,14 +8,11 @@ use super::openxr_gles_config::{
 };
 
 pub(super) fn oes_current_android_projection_property_values() -> Vec<(&'static str, String)> {
-    rxrc::PROJECTION_RUNTIME_KEY_ALIASES
+    rxrc::PROJECTION_RUNTIME_KEY_INPUTS
         .iter()
-        .filter(|alias| {
-            alias.source == rxrc::RuntimeKeyAliasSource::AndroidProperty
-                && alias.status == rxrc::RuntimeKeyAliasStatus::Current
-        })
-        .filter_map(|alias| {
-            android_system_property_value(alias.alias).map(|value| (alias.alias, value))
+        .filter(|input| input.source == rxrc::RuntimeKeyInputSource::AndroidProperty)
+        .filter_map(|input| {
+            android_system_property_value(input.input).map(|value| (input.input, value))
         })
         .collect()
 }

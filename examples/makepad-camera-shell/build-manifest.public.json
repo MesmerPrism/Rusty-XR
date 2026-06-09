@@ -1,17 +1,17 @@
 {
-  "schemaVersion": "rusty.xr.android-build-manifest.v1",
+  "schemaVersion": "rusty.quest.makepad.android-build-manifest.v1",
   "exampleId": "makepad-camera-shell",
   "artifactKind": "apk",
   "artifact": {
     "kind": "apk",
-    "outputPath": "build/outputs/rusty-xr-makepad-camera-release.apk"
+    "outputPath": "build/outputs/rusty-quest-makepad-camera-release.apk"
   },
   "android": {
     "generatedManifest": {
-      "path": "target/android/makepad-android-apk/rusty_xr_makepad_camera_shell/tmp/AndroidManifest.xml",
-      "producedBy": "cargo makepad android --variant=quest --no-icon build -p rusty-xr-makepad-camera-shell --release"
+      "path": "target/android/makepad-android-apk/rusty_quest_makepad_camera_shell/tmp/AndroidManifest.xml",
+      "producedBy": "cargo makepad android --variant=quest --no-icon build -p rusty-quest-makepad-camera-shell --release"
     },
-    "packageName": "io.github.mesmerprism.rustyxr.makepad.camera",
+    "packageName": "io.github.mesmerprism.rustyquest.makepad.camera",
     "minSdk": 1,
     "targetSdk": 33,
     "abi": "arm64-v8a",
@@ -43,10 +43,10 @@
       "required": true
     },
     {
-      "label": "Rusty XR runtime configuration core",
+      "label": "Rusty Quest Makepad runtime configuration core",
       "kind": "rust-source",
       "scope": "workspace",
-      "path": "../../crates/rusty-xr-runtime-config/src/lib.rs",
+      "path": "../../crates/rusty-quest-makepad-runtime-config/src/lib.rs",
       "required": true
     },
     {
@@ -99,25 +99,25 @@
     {
       "label": "Generated Android manifest",
       "kind": "android-manifest",
-      "path": "target/android/makepad-android-apk/rusty_xr_makepad_camera_shell/tmp/AndroidManifest.xml",
+      "path": "target/android/makepad-android-apk/rusty_quest_makepad_camera_shell/tmp/AndroidManifest.xml",
       "producedBy": "cargo makepad android --variant=quest --no-icon build"
     },
     {
       "label": "Generated Java activities",
       "kind": "java-source",
-      "path": "target/android/makepad-android-apk/rusty_xr_makepad_camera_shell/tmp/io/github/mesmerprism/rustyxr/makepad/camera",
+      "path": "target/android/makepad-android-apk/rusty_quest_makepad_camera_shell/tmp/io/github/mesmerprism/rustyquest/makepad/camera",
       "producedBy": "cargo makepad android --variant=quest --no-icon build"
     },
     {
       "label": "Rust shared library",
       "kind": "shared-library",
-      "path": "target/android/makepad-android-apk/rusty_xr_makepad_camera_shell/apk/lib/arm64-v8a/libmakepad.so",
+      "path": "target/android/makepad-android-apk/rusty_quest_makepad_camera_shell/apk/lib/arm64-v8a/libmakepad.so",
       "producedBy": "cargo makepad android --variant=quest --no-icon build"
     },
     {
       "label": "Signed Quest APK",
       "kind": "apk",
-      "path": "target/android/makepad-android-apk/rusty_xr_makepad_camera_shell/apk/rustyx_rmakepadcamera.apk",
+      "path": "target/android/makepad-android-apk/rusty_quest_makepad_camera_shell/apk/rusty_quest_makepad_camera.apk",
       "producedBy": "cargo makepad android --variant=quest --no-icon build"
     }
   ],
@@ -125,16 +125,16 @@
     "makepad-quest-variant",
     "maintained-makepad-fork-branch",
     "openxr-generated-android-manifest",
-    "makepad-xr-openxr-smoke",
-    "makepad-xr-synthetic-stereo-scene",
-    "rusty-xr-runtime-config-core",
+    "makepad-quest-openxr-smoke",
+    "makepad-quest-synthetic-stereo-scene",
+    "rusty-quest-makepad-runtime-config-core",
     "headset-camera-permission-flow",
     "android-ndk-camera2-metadata-probe",
     "android-ndk-camera2-private-acquisition-probe",
     "makepad-projection-border-policy-toggle",
     "makepad-native-passthrough-underlay-toggle",
     "broker-h264-mediacodec-cpu-yuv-stereo",
-    "makepad-xr-controller-pose-provider",
+    "makepad-quest-controller-pose-provider",
     "manifold-object-pose-stream-publish",
     "makepad-projection-target-joystick-scale",
     "synthetic-camera-status-log",

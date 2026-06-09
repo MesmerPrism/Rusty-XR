@@ -229,38 +229,38 @@ The Java camera bridge sends public frame metadata to Rust:
 
 Useful launch extras:
 
-- `rustyxr.camera`: `true` by default; set `false` for synthetic renderer
+- `rustyquest.makepad.camera`: `true` by default; set `false` for synthetic renderer
   smoke tests.
-- `rustyxr.cameraTier`: `synthetic`, `cpu-diagnostic-flat-copy`,
+- `rustyquest.makepad.cameraTier`: `synthetic`, `cpu-diagnostic-flat-copy`,
   `camera-source-diagnostics`, `gpu-buffer-probe`, or `gpu-projected`. The
   GPU-buffer probe samples imported camera buffers without claiming stereo
   alignment. The `gpu-projected` tier is reserved for metadata-backed
   projection and must keep `alignedProjection=false` when pose or stereo
   metadata is missing.
-- `rustyxr.cameraAcquisition`: `java-camera2` by default. Set
+- `rustyquest.makepad.cameraAcquisition`: `java-camera2` by default. Set
   `native-ndk` only for the experimental native acquisition probe, which uses
   Android NDK `ACamera*` plus `AImageReader` `PRIVATE` hardware buffers and
   feeds the same Vulkan projection path. Keep this as a separate acquisition
   axis from projection, border, and shader color checks.
-- `rustyxr.cameraStartDelayMs`: optional delay before requesting/starting the
+- `rustyquest.makepad.cameraStartDelayMs`: optional delay before requesting/starting the
   headset camera. Use it to test acquisition lifecycle timing without changing
   projection, border, or shader code.
-- `rustyxr.nativeSourceMode`: free-form label for native acquisition source
+- `rustyquest.makepad.nativeSourceMode`: free-form label for native acquisition source
   experiments. It is logged with native camera selection so headset runs can
   distinguish automatic synthetic dual-back selection, explicit side IDs, and
   other source-shape probes.
-- `rustyxr.cameraWidth` / `rustyxr.cameraHeight`: requested camera target
+- `rustyquest.makepad.cameraWidth` / `rustyquest.makepad.cameraHeight`: requested camera target
   dimensions. The default profile requests `1280x1280`. Explicit non-square
   requests, such as `1280x960`, are honored when the runtime exposes that size
   and the preferred-square override is disabled.
-- `rustyxr.cameraPreferredSquare`: preferred square Camera2 size. The default
+- `rustyquest.makepad.cameraPreferredSquare`: preferred square Camera2 size. The default
   is `1280`. Set it to `0` when testing a non-square acquisition size.
-- `rustyxr.cameraMaxDimension`: preferred maximum Camera2 dimension before
+- `rustyquest.makepad.cameraMaxDimension`: preferred maximum Camera2 dimension before
   larger formats are deprioritized. The default is `1920`.
-- `rustyxr.cameraStereoLayout`: `mono`, `side-by-side`, `top-bottom`, or
+- `rustyquest.makepad.cameraStereoLayout`: `mono`, `side-by-side`, `top-bottom`, or
   `separate`. The final stereo profile requests `separate`; it must not be
   treated as successful unless paired left/right GPU buffers are active.
-- `rustyxr.cameraStereoPairMaxDeltaNs`: soft left/right timestamp target for
+- `rustyquest.makepad.cameraStereoPairMaxDeltaNs`: soft left/right timestamp target for
   pairing separate GPU camera frames. The public profile uses `5000000`.
   Separate Camera2 streams can drift outside that target under concurrent
   delivery, so the service publishes the latest available left/right pair
@@ -268,20 +268,20 @@ Useful launch extras:
   deltas for release validation. The Java pending-pair queue stays small, but
   the stereo `ImageReader` uses a deeper opaque-buffer pool so Vulkan-retained
   `AHardwareBuffer` imports do not starve Camera2.
-- `rustyxr.cameraStereoImageReaderMaxImages`: max image count for each
+- `rustyquest.makepad.cameraStereoImageReaderMaxImages`: max image count for each
   separate-eye `PRIVATE` `ImageReader`. The default public profile uses `8` so
   Java `Image` ownership, Camera2 producer buffers, and Vulkan-retained
   hardware-buffer imports have enough slack to avoid producer starvation.
   `3` is kept as an explicit acquisition diagnostic because some lower-level
   camera stacks retain fewer images; test it separately from AE target FPS
   changes.
-- `rustyxr.cameraSourceEyeMapping`: `left-right` or `right-left`. It controls
+- `rustyquest.makepad.cameraSourceEyeMapping`: `left-right` or `right-left`. It controls
   whether the display left eye samples the left/source-0 camera or the
   right/source-1 camera. This is a runtime visual diagnostic knob because
   Camera2 source IDs are device/runtime observations, not portable eye labels.
   The sample stereo profile uses `left-right` and relies on diagnostics plus
   manual inspection before acceptance.
-- `rustyxr.leftCameraTextureRotation` / `rustyxr.rightCameraTextureRotation`:
+- `rustyquest.makepad.leftCameraTextureRotation` / `rustyquest.makepad.rightCameraTextureRotation`:
   `rotate0`, `rotate90`, `rotate180`, or `rotate270`, with matching
   `FlipX`, `FlipY`, and `Mirror` extras for each eye. These transforms are
   applied after projection UV calculation and before sampling. The projected
@@ -290,60 +290,60 @@ Useful launch extras:
   for paths that expose a different texture origin; flat diagnostic surfaces
   may need a different transform because they do not use the same projection UV
   path.
-- `rustyxr.cameraColorMode`: `external-rgb` by default. Use
+- `rustyquest.makepad.cameraColorMode`: `external-rgb` by default. Use
   `external-cr-y-cb-bt601-narrow` when the external sampler exposes
   narrow-range BT.601-like channels in the observed `Cr/Y/Cb` order instead of
   already normalized RGB. The mode is applied before raw projection color,
   luma, and border feedback are resolved.
-- `rustyxr.cameraColorContrast`, `rustyxr.cameraColorBrightness`, and
-  `rustyxr.cameraColorSaturation`: public tone controls applied after any
+- `rustyquest.makepad.cameraColorContrast`, `rustyquest.makepad.cameraColorBrightness`, and
+  `rustyquest.makepad.cameraColorSaturation`: public tone controls applied after any
   external-format normalization and before luma or border feedback is resolved.
   The final projected stereo profile and the quad-surface A/B profile use a
   small contrast/brightness lift so the camera-driven border and the projected
   raw feed stay in the same color domain.
-- `rustyxr.cameraOrientationDiagnosticMode`: `off`,
+- `rustyquest.makepad.cameraOrientationDiagnosticMode`: `off`,
   `cycle-source-eye-mapping`, `cycle-left-texture-transform`,
   `cycle-right-texture-transform`, or `cycle-all`. Cycling modes are for live
   diagnosis only and do not count as visual acceptance.
-- `rustyxr.visualReleaseAccepted`: `false` by default. A release run may set it
-  only together with `rustyxr.visualAcceptanceToken=manual-visual-accepted`
+- `rustyquest.makepad.visualReleaseAccepted`: `false` by default. A release run may set it
+  only together with `rustyquest.makepad.visualAcceptanceToken=manual-visual-accepted`
   after manual headset/cast inspection confirms upright imagery, correct
   source-eye mapping, stable projection under head motion, and a visible
   camera-driven soft border that blends back into the raw projected camera
   image rather than covering the interior with an opaque rim.
-- `rustyxr.cameraEstimatedPose`: `false` by default. Set it only with an
-  explicit calibration profile, together with `rustyxr.cameraEstimatedPoseX`,
+- `rustyquest.makepad.cameraEstimatedPose`: `false` by default. Set it only with an
+  explicit calibration profile, together with `rustyquest.makepad.cameraEstimatedPoseX`,
   `Y`, `Z`, `Qx`, `Qy`, `Qz`, and `Qw`, to mark the pose source as
   `estimated-profile`. Estimated-profile pose is logged explicitly and is
   never treated as a platform-provided pose.
-- `rustyxr.cameraEstimatedStereoPose`: `false` by default. Set it only when
-  both `rustyxr.cameraEstimatedLeftPose*` and
-  `rustyxr.cameraEstimatedRightPose*` launch extras define valid finite
-  per-eye poses. Optional `rustyxr.cameraEstimatedPoseLabel`,
-  `rustyxr.cameraEstimatedPoseVersion`, and
-  `rustyxr.cameraPoseCoordinateConvention` describe the public calibration
+- `rustyquest.makepad.cameraEstimatedStereoPose`: `false` by default. Set it only when
+  both `rustyquest.makepad.cameraEstimatedLeftPose*` and
+  `rustyquest.makepad.cameraEstimatedRightPose*` launch extras define valid finite
+  per-eye poses. Optional `rustyquest.makepad.cameraEstimatedPoseLabel`,
+  `rustyquest.makepad.cameraEstimatedPoseVersion`, and
+  `rustyquest.makepad.cameraPoseCoordinateConvention` describe the public calibration
   profile. A single shared estimated pose is not enough for stereo alignment.
-- `rustyxr.cameraAllowCpuFallback`: set `false` when validating that a Tier 2
+- `rustyquest.makepad.cameraAllowCpuFallback`: set `false` when validating that a Tier 2
   request does not silently use the Tier 1 CPU path.
-- `rustyxr.cameraCpuUploadHz`: diagnostic CPU conversion/upload cadence. The
+- `rustyquest.makepad.cameraCpuUploadHz`: diagnostic CPU conversion/upload cadence. The
   MVP CPU `YUV_420_888 -> RGBA -> Vulkan copy` path samples at roughly `4 Hz`
   at the ImageReader boundary so the OpenXR frame loop can continue submitting
   between camera uploads. Use `0` to disable CPU camera frame delivery while
   keeping the custom OpenXR layer running.
-- `rustyxr.cameraTargetFps`: optional Camera2 sensor-delivery request. When set
-  without `rustyxr.cameraFpsMin` / `rustyxr.cameraFpsMax`, the service requests
+- `rustyquest.makepad.cameraTargetFps`: optional Camera2 sensor-delivery request. When set
+  without `rustyquest.makepad.cameraFpsMin` / `rustyquest.makepad.cameraFpsMax`, the service requests
   a fixed `CONTROL_AE_TARGET_FPS_RANGE`; the final projected stereo profiles
   request `72-72`, then log the selected supported range if the Camera2 HAL
   chooses a lower or wider range.
-- `rustyxr.cameraFpsMin` / `rustyxr.cameraFpsMax`: optional Camera2 AE target
+- `rustyquest.makepad.cameraFpsMin` / `rustyquest.makepad.cameraFpsMax`: optional Camera2 AE target
   FPS range request. This is an exposure/capture request to the Android camera
   stack, not a hard delivery guarantee. Horizon OS, the Camera2 HAL, stream
   size/format, exposure, lighting, concurrent-camera use, thermal state, and
   stream min-frame-duration limits can still produce a lower or different
   cadence.
-- `rustyxr.mediaProjection`: `false` by default; set `true` only when the
+- `rustyquest.makepad.mediaProjection`: `false` by default; set `true` only when the
   final screen should be streamed back to Windows.
-- `rustyxr.brokerH264Consumer`: `false` by default. Set it to `true` for the
+- `rustyquest.makepad.brokerH264Consumer`: `false` by default. Set it to `true` for the
   composite app to run a bounded broker H.264 consumer probe. The probe sends
   `camera_provider.start_app_camera_h264_stream` to a broker already running
   on `127.0.0.1:8765`, connects to the broker's device-local H.264 binary
@@ -359,35 +359,35 @@ Useful launch extras:
   decoded hardware-buffer frame forwards intrinsics, lens pose, pose source,
   pixel domains, and sensor orientation to the native metadata parser. Launch
   this with
-  `rustyxr.camera=false` when isolating broker-owned capture from composite-app
+  `rustyquest.makepad.camera=false` when isolating broker-owned capture from composite-app
   consumption. Optional extras:
-  `rustyxr.brokerHost`, `rustyxr.brokerPort`,
-  `rustyxr.brokerH264StreamPort`, `rustyxr.brokerH264CameraId`,
-  `rustyxr.brokerH264LeftCameraId`, `rustyxr.brokerH264RightCameraId`,
-  `rustyxr.brokerH264Width`, `rustyxr.brokerH264Height`,
-  `rustyxr.brokerH264CaptureMs`, `rustyxr.brokerH264MaxPackets`,
-  `rustyxr.brokerH264BitrateBps`,
-  `rustyxr.brokerH264FrameRateHz`, and
-  `rustyxr.brokerH264DecodeTimeoutMs`,
-  `rustyxr.brokerH264DecodeOutputMode`, `rustyxr.brokerH264SourceMode`,
-  `rustyxr.brokerH264SyntheticPattern`, `rustyxr.brokerH264LiveStream`, and
-  `rustyxr.brokerH264LiveDecode`. The default source mode is
+  `rustyquest.makepad.brokerHost`, `rustyquest.makepad.brokerPort`,
+  `rustyquest.makepad.brokerH264StreamPort`, `rustyquest.makepad.brokerH264CameraId`,
+  `rustyquest.makepad.brokerH264LeftCameraId`, `rustyquest.makepad.brokerH264RightCameraId`,
+  `rustyquest.makepad.brokerH264Width`, `rustyquest.makepad.brokerH264Height`,
+  `rustyquest.makepad.brokerH264CaptureMs`, `rustyquest.makepad.brokerH264MaxPackets`,
+  `rustyquest.makepad.brokerH264BitrateBps`,
+  `rustyquest.makepad.brokerH264FrameRateHz`, and
+  `rustyquest.makepad.brokerH264DecodeTimeoutMs`,
+  `rustyquest.makepad.brokerH264DecodeOutputMode`, `rustyquest.makepad.brokerH264SourceMode`,
+  `rustyquest.makepad.brokerH264SyntheticPattern`, `rustyquest.makepad.brokerH264LiveStream`, and
+  `rustyquest.makepad.brokerH264LiveDecode`. The default source mode is
   `broker-camera`, which asks the running broker to start an app-context
-  Camera2-to-H.264 stream. Set `rustyxr.brokerH264SourceMode=broker-synthetic`
+  Camera2-to-H.264 stream. Set `rustyquest.makepad.brokerH264SourceMode=broker-synthetic`
   to request the broker's deterministic MediaCodec synthetic H.264 source
-  instead; `rustyxr.brokerH264SyntheticPattern` can be `diagnostic-grid`,
+  instead; `rustyquest.makepad.brokerH264SyntheticPattern` can be `diagnostic-grid`,
   `checkerboard`, `luma-ramp`, or `motion-bar`. `diagnostic-grid` includes a
   checkerboard-anchored 1-pixel white line overlay for blur/projection
-  diagnostics. `rustyxr.brokerH264FrameRateHz` requests the broker synthetic
+  diagnostics. `rustyquest.makepad.brokerH264FrameRateHz` requests the broker synthetic
   encoder cadence; the observed packet/decode cadence should be treated as the
   measured result because device encoder support may clamp or fall back. Set
-  `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
+  `rustyquest.makepad.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
   laptop test source, or other tool has already exposed a `RXYRVID1` H.264
   stream on the configured port. Existing-stream mode skips the broker start
   command and only tests receive, decode, hardware-buffer handoff, and OpenXR
   draw. When
-  `rustyxr.brokerH264LiveStream=true` and
-  `rustyxr.brokerH264LiveDecode=true`, stereo hardware-buffer mode decodes
+  `rustyquest.makepad.brokerH264LiveStream=true` and
+  `rustyquest.makepad.brokerH264LiveDecode=true`, stereo hardware-buffer mode decodes
   packets as they arrive, pairs left/right decoded frames with a small queue,
   submits them immediately through the native stereo bridge, and closes the
   Java `HardwareBuffer` handles after native acquisition. Live decode also logs
@@ -395,26 +395,26 @@ Useful launch extras:
   reports on the same `Rusty XR broker H.264 consumer probe:` marker so
   long-running validation can sample packet, decode, and native-pair cadence
   before the stream reaches its terminal report. For sustained broker-synthetic
-  performance validation, use `rustyxr.brokerH264MaxPackets=0` and set
-  `rustyxr.brokerH264CaptureMs` longer than the profile warmup plus sampling
+  performance validation, use `rustyquest.makepad.brokerH264MaxPackets=0` and set
+  `rustyquest.makepad.brokerH264CaptureMs` longer than the profile warmup plus sampling
   window so freshness checks run while decoded frames are still arriving. Set
-  `rustyxr.brokerH264LiveDecode=false` to force the older retained-clip replay
+  `rustyquest.makepad.brokerH264LiveDecode=false` to force the older retained-clip replay
   path for regression comparison.
-- `rustyxr.openxrPassthroughProbe`: `off` by default. `client` creates an
+- `rustyquest.makepad.openxrPassthroughProbe`: `off` by default. `client` creates an
   optional `XR_FB_passthrough` client/layer for runtime-state diagnostics;
   `warmup` creates and resumes the layer briefly, then pauses passthrough.
   This does not replace the custom camera composite and should be tested
   separately from acquisition and color changes.
-- `rustyxr.depth`: `off` by default. `status` starts the environment-depth
+- `rustyquest.makepad.depth`: `off` by default. `status` starts the environment-depth
   provider and logs acquisition diagnostics without changing the render clear
   color. `visualize` also maps acquisition state to the headset clear color:
   blue while waiting, green after a fresh acquired depth image, amber when the
   runtime reports no image for a frame, and red after an acquire error. This is
   a provider/cadence/status diagnostic, not a false-color depth-map renderer.
-- `rustyxr.depthHandRemoval`: `false` by default. When supported by the
+- `rustyquest.makepad.depthHandRemoval`: `false` by default. When supported by the
   runtime, this requests environment-depth hand removal before provider start
   and logs whether the setting was supported and applied.
-- `rustyxr.handParticles`: `off` by default. `meta`, `openxr`, `hand-mesh`,
+- `rustyquest.makepad.handParticles`: `off` by default. `meta`, `openxr`, `hand-mesh`,
   or `on` enables the live OpenXR hand mesh path using `XR_EXT_hand_tracking`
   and `XR_FB_hand_tracking_mesh`; the app logs extension availability, hand
   mesh bind data, per-frame sampler status, and cross-hand neighbor link
@@ -428,8 +428,8 @@ is exposed, the example requests `72 Hz` and logs `activeDisplayRefreshHz` in
 the recurring `OpenXR frame` line. Use logcat lines beginning with
 `Camera2 AE FPS range` and `Camera2 delivery stats` to compare the requested
 range, applied supported range, and observed image timestamp cadence.
-Use the launch extra `rustyxr.xrDisplayRefreshHz=90.0` when a comparison must
-match a 90 Hz app shell. Use `rustyxr.cameraTargetFps` only for Camera2
+Use the launch extra `rustyquest.makepad.xrDisplayRefreshHz=90.0` when a comparison must
+match a 90 Hz app shell. Use `rustyquest.makepad.cameraTargetFps` only for Camera2
 capture-rate experiments; it does not force display refresh. The final
 projection status line also reports `cameraProjectionRenderFrameCount`,
 `cameraDistinctFrameCount`, `cameraRepeatedRenderFrameCount`,
@@ -478,7 +478,7 @@ The brightness trigger for border bleed uses the current final projected camera
 sample at that display pixel, with a small projected-neighborhood smooth, so
 the soft bleed follows dark regions in the visible stereo composite instead of
 raw left/right texture UVs, fullscreen screen UVs, or an inward guide sample.
-`rustyxr.cameraProjectionMode` selects the display mapping used by the
+`rustyquest.makepad.cameraProjectionMode` selects the display mapping used by the
 projected profile. The default `display-screen-homography` mode renders a
 fullscreen multiview pass and composes display-eye screen UVs back into the
 head-anchored content surface before sampling the source camera. The
@@ -558,7 +558,7 @@ when the broker is already publishing `bio:breath`: that profile disables
 joystick target tuning and maps the broker payload's `volume01` field onto
 `projectionTargetScale`. By default `volume01=0.0` maps to scale `0.75` and
 `volume01=1.0` maps to scale `1.15`; set
-`rustyxr.projectionTargetBreathInvert=true` if a run should reverse that
+`rustyquest.makepad.projectionTargetBreathInvert=true` if a run should reverse that
 relationship.
 When intrinsics or pose metadata is missing, this example logs the fallback
 reason and remains a GPU-buffer probe.
@@ -580,9 +580,9 @@ missing.
 
 The current Quest Camera2 hardware-buffer path is sampled through Vulkan
 external-format import, and the public projected stereo profiles use
-`rustyxr.cameraColorMode=external-rgb` with
-`rustyxr.cameraColorContrast=1.1`, `rustyxr.cameraColorBrightness=0.04`, and
-`rustyxr.cameraColorSaturation=1.0`. Use
+`rustyquest.makepad.cameraColorMode=external-rgb` with
+`rustyquest.makepad.cameraColorContrast=1.1`, `rustyquest.makepad.cameraColorBrightness=0.04`, and
+`rustyquest.makepad.cameraColorSaturation=1.0`. Use
 `external-cr-y-cb-bt601-narrow` only as a diagnostic switch when a
 device/runtime exposes YCbCr-like channels at the shader boundary; this switch
 does not move the live path back to CPU-readable YUV frames.
@@ -642,11 +642,11 @@ The catalog keeps camera path experiments as separate runtime profiles:
   render-time optimization before the path can be treated as production
   quality.
 - `broker-h264-stereo-live-openxr-projection-scale065-probe`: the same
-  live-bounded broker stereo path with `rustyxr.xrRenderScale=0.65`. Use it as
+  live-bounded broker stereo path with `rustyquest.makepad.xrRenderScale=0.65`. Use it as
   the current performance comparison profile when the `0.75` visual-quality
   profile is render-cost limited.
 - `broker-h264-stereo-live-openxr-projection-scale075-probe`: the same live
-  broker stereo capture/decode/pair/import path at `rustyxr.xrRenderScale=0.75`
+  broker stereo capture/decode/pair/import path at `rustyquest.makepad.xrRenderScale=0.75`
   with square `1280x1280` broker frames and frame-order live stereo pairing, but
   with the direct raw-projection shader variant selected. Use it as the
   renderer-parity profile before explicitly selecting the `border-composite`
@@ -654,34 +654,34 @@ The catalog keeps camera path experiments as separate runtime profiles:
   orientation/alignment; motion-induced stream-latency artifacts remain a
   separate compensation task.
 - `broker-h264-stereo-live-openxr-projection-scale065-probe`: the same fast
-  raw-projection path at `rustyxr.xrRenderScale=0.65` for fragment-load headroom
+  raw-projection path at `rustyquest.makepad.xrRenderScale=0.65` for fragment-load headroom
   checks.
 - For projection-area alignment, override any direct or broker raw-projection
-  profile with `rustyxr.cameraPipelinePreset=raw-projection-unorm` and
-  `rustyxr.projectionBorderPolicy=solid-red` to keep camera pixels inside the
+  profile with `rustyquest.makepad.cameraPipelinePreset=raw-projection-unorm` and
+  `rustyquest.makepad.projectionBorderPolicy=solid-red` to keep camera pixels inside the
   hard public projection-area mask and render the outside-projection area as
-  opaque red. Use `rustyxr.projectionBorderPolicy=passthrough-underlay` when
+  opaque red. Use `rustyquest.makepad.projectionBorderPolicy=passthrough-underlay` when
   the same outside-projection area should be transparent over the public OpenXR
-  passthrough underlay instead. Use `rustyxr.processingLayer=blur` with
-  `rustyxr.cameraBlurRadiusPx=<px>` for the same projection-area policies with
+  passthrough underlay instead. Use `rustyquest.makepad.processingLayer=blur` with
+  `rustyquest.makepad.cameraBlurRadiusPx=<px>` for the same projection-area policies with
   the public diagnostic blur layer applied to valid camera samples only. Use
-  `rustyxr.projectionAreaOffsetYUv=<value>` for controlled vertical centering
+  `rustyquest.makepad.projectionAreaOffsetYUv=<value>` for controlled vertical centering
   sweeps after the hard-mask evidence is valid.
-  Use `rustyxr.projectionAreaOpacity=<0..1>` to fade the projected camera
-  window and `rustyxr.projectionBorderOpacity=<0..1>` to fade the
+  Use `rustyquest.makepad.projectionAreaOpacity=<0..1>` to fade the projected camera
+  window and `rustyquest.makepad.projectionBorderOpacity=<0..1>` to fade the
   surrounding solid border independently. A red-border passthrough alignment
   run should keep the solid-red preset and set
-  `rustyxr.openxrPassthroughProbe=underlay` so opacity changes do not alter the
+  `rustyquest.makepad.openxrPassthroughProbe=underlay` so opacity changes do not alter the
   projection geometry.
-  Use `rustyxr.projectionAlphaMode=red|green|blue|luma` or an inverse
+  Use `rustyquest.makepad.projectionAlphaMode=red|green|blue|luma` or an inverse
   variant only after the hard-mask geometry is stable; the selected color mask
   is multiplied by projection-area opacity with optional
-  `rustyxr.projectionAlphaScale` and `rustyxr.projectionAlphaBias`.
-  Use `rustyxr.projectionDepthMeters=<meters>` for the head-anchored
-  projection surface depth. The default is `1.0`; `rustyxr.cameraProjectionScale`
+  `rustyquest.makepad.projectionAlphaScale` and `rustyquest.makepad.projectionAlphaBias`.
+  Use `rustyquest.makepad.projectionDepthMeters=<meters>` for the head-anchored
+  projection surface depth. The default is `1.0`; `rustyquest.makepad.cameraProjectionScale`
   remains a footprint/content-scale variable and is not a depth fallback.
 - `broker-h264` existing-stream mode: set
-  `rustyxr.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
+  `rustyquest.makepad.brokerH264SourceMode=existing-stream` when a broker TCP proxy,
   laptop test source, or other tool has already exposed a `RXYRVID1` H.264
   stream on the configured port. This skips the broker Camera2 start command
   and isolates incoming-stream receive, MediaCodec decode, hardware-buffer
@@ -691,8 +691,8 @@ The catalog keeps camera path experiments as separate runtime profiles:
   for a remote sender because it exercises the receiver side without needing a
   second headset.
 - Temporal projected profiles expose receiver-side smoothing and adoption
-  controls through `rustyxr.cameraTemporalProjection*` and
-  `rustyxr.cameraFrameAdoption*` launch values. The current frame-adoption mode
+  controls through `rustyquest.makepad.cameraTemporalProjection*` and
+  `rustyquest.makepad.cameraFrameAdoption*` launch values. The current frame-adoption mode
   is `hold-until-smooth`: when enabled, the projected path can keep the last
   accepted stereo frame/projection for a bounded hold window instead of
   adopting a candidate whose projected screen-space motion exceeds the
@@ -706,11 +706,11 @@ The catalog keeps camera path experiments as separate runtime profiles:
   use when validating projection, border behavior, CPU-upload avoidance, import
   cache reuse, and Camera2 delivery cadence.
 - `camera-stereo-gpu-composite-performance-065`: same aligned Vulkan RGB path,
-  but with `rustyxr.xrRenderScale=0.65`. Use this to separate shader/fragment
+  but with `rustyquest.makepad.xrRenderScale=0.65`. Use this to separate shader/fragment
   headroom from camera delivery cadence without changing projection, border, or
   color assumptions.
 - `camera-stereo-gpu-composite-scale075`: same direct in-app Camera2 stereo
-  projection at `rustyxr.xrRenderScale=0.75`, but selects the direct
+  projection at `rustyquest.makepad.xrRenderScale=0.75`, but selects the direct
   raw-projection shader path. Use it for direct renderer parity checks against
   the broker renderer-parity profile.
 - `camera-stereo-temporal-pose-clamp-scale075`: direct in-app Camera2 stereo
@@ -720,7 +720,7 @@ The catalog keeps camera path experiments as separate runtime profiles:
   it the deterministic lockstep proof before visually tuning the screen-motion
   clamp.
 - `camera-stereo-gpu-composite-scale065`: same direct raw-projection path
-  at `rustyxr.xrRenderScale=0.65` for fragment-load headroom checks.
+  at `rustyquest.makepad.xrRenderScale=0.65` for fragment-load headroom checks.
 - `camera-stereo-gpu-composite-ycbcr-diagnostic`: same projection and border,
   but with shader-side `Cr/Y/Cb` BT.601 narrow-range decode. Use this only
   when `Vulkan imported camera hardware buffer` diagnostics show the external
@@ -770,7 +770,7 @@ test run can identify which path is active.
 On the April 30, 2026 Quest headset validation pass, increasing the Vulkan
 hardware-buffer import cache to match the stereo producer pool removed import
 evictions after warm-up. The aligned projected path held `72 FPS` at
-`rustyxr.xrRenderScale=0.65`, while the `0.75` baseline remained useful for
+`rustyquest.makepad.xrRenderScale=0.65`, while the `0.75` baseline remained useful for
 geometry/color comparison but did not hold display cadence on that run. The
 same run showed Camera2 applying a `60-60` AE range for a `72-72` request and
 delivering below display cadence, so camera delivery FPS must be evaluated
@@ -859,28 +859,28 @@ powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\to
 Ad-hoc values can be layered on top of the profile:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Send-QuestCompositeHotloadProfile.ps1 -Serial <serial> -RuntimeProfile passthrough-underlay-hotload-gradient -Override "rustyxr.passthroughColorPhase=0.42","rustyxr.passthroughColorAmplitude=1.0"
+powershell -ExecutionPolicy Bypass -File .\examples\quest-composite-layer-apk\tools\Send-QuestCompositeHotloadProfile.ps1 -Serial <serial> -RuntimeProfile passthrough-underlay-hotload-gradient -Override "rustyquest.makepad.passthroughColorPhase=0.42","rustyquest.makepad.passthroughColorAmplitude=1.0"
 ```
 
 Live native passthrough style extras currently include
-`rustyxr.passthroughStyleMode` (`none`, `bcs`, `mono-to-rgba`, `color-lut`),
-`rustyxr.passthroughOpacity`, `rustyxr.passthroughEdgeR/G/B/A`,
-`rustyxr.passthroughBrightness`, `rustyxr.passthroughContrast`,
-`rustyxr.passthroughSaturation`, `rustyxr.passthroughColorPhase`, and
-`rustyxr.passthroughColorAmplitude`.
+`rustyquest.makepad.passthroughStyleMode` (`none`, `bcs`, `mono-to-rgba`, `color-lut`),
+`rustyquest.makepad.passthroughOpacity`, `rustyquest.makepad.passthroughEdgeR/G/B/A`,
+`rustyquest.makepad.passthroughBrightness`, `rustyquest.makepad.passthroughContrast`,
+`rustyquest.makepad.passthroughSaturation`, `rustyquest.makepad.passthroughColorPhase`, and
+`rustyquest.makepad.passthroughColorAmplitude`.
 
 The `color-lut` mode uses `XR_META_passthrough_color_lut` when the runtime
 exposes it. The example builds two RGB 3D LUTs: a smooth cyclic opponent-color
-palette and its half-phase inverse. `rustyxr.passthroughLutFlickerHz` is the
+palette and its half-phase inverse. `rustyquest.makepad.passthroughLutFlickerHz` is the
 full A/B cycle rate in hertz, so a 40 Hz flicker requires 80 state transitions
 per second. The native loop logs measured `passthrough LUT flicker stats`
 including observed frame rate, observed switch rate, and skipped half-cycles.
-`rustyxr.xrDisplayRefreshHz` can request a runtime display-refresh target when
+`rustyquest.makepad.xrDisplayRefreshHz` can request a runtime display-refresh target when
 the device advertises `XR_FB_display_refresh_rate`.
 
 The `full-field-red-black-flicker-*` profiles disable passthrough and flicker
 the submitted projection-layer clear color between bright red and black. This
-uses `rustyxr.fullFieldFlickerHz`, also interpreted as full red/black cycles per
+uses `rustyquest.makepad.fullFieldFlickerHz`, also interpreted as full red/black cycles per
 second, and logs `full-field flicker stats` from the OpenXR frame loop. The
 10 Hz profile has integer frame timing at 120 Hz, the 40 Hz profile is
 frame-quantized at 120 Hz because each half-cycle averages 1.5 frames, and the
@@ -916,7 +916,7 @@ and [streaming diagnostics tools](../../tools/quest-streaming-diagnostics/README
 when comparing direct in-app Camera2 projection against broker H.264 streaming.
 The current public workflow treats these as separate lanes: synthetic
 compositor, direct projected Camera2, broker existing-stream receive/decode,
-and broker live projected stereo, each at `rustyxr.xrRenderScale=0.75` and
+and broker live projected stereo, each at `rustyquest.makepad.xrRenderScale=0.75` and
 `0.65` where applicable.
 
 The important current lesson is that broker receive/decode and Java/native
@@ -961,7 +961,7 @@ surface diagnostics over passthrough and check logcat for the corresponding
 draw line. The scene particle map line is
 `Rusty XR environment depth scene particle map draw`. These profiles submit
 `openxrPassthroughProbe=underlay`; use `passthrough-only-layer-probe` to launch
-the native passthrough layer with `rustyxr.projectionLayerVisible=false` when
+the native passthrough layer with `rustyquest.makepad.projectionLayerVisible=false` when
 isolating passthrough from projection-layer rendering. ADB screenshots may still
 show protected compositor passthrough as black even when it is visible in the
 headset.
@@ -1113,7 +1113,7 @@ harnesses should treat this as a required manual step.
 - after consent, logcat contains `MediaProjection stream frame`
 - the Windows receiver writes `display_composite_*.rgba` frames plus
   `frames.jsonl`
-- with `rustyxr.brokerH264Consumer=true`, logcat contains
+- with `rustyquest.makepad.brokerH264Consumer=true`, logcat contains
   `Rusty XR broker H.264 consumer probe` with `broker_command_accepted=true`,
   `stream_packet_count` greater than zero, `decode_succeeded=true`, and
   `decoded_frame_count` greater than zero. In the default `surface-texture`
@@ -1123,7 +1123,7 @@ harnesses should treat this as a required manual step.
   cross-app broker H.264 consumption through a decoder Surface and Java
   external texture only; it does not yet make decoded frames available as a
   Vulkan/OpenXR texture.
-- with `rustyxr.brokerH264DecodeOutputMode=hardware-buffer`, logcat should
+- with `rustyquest.makepad.brokerH264DecodeOutputMode=hardware-buffer`, logcat should
   additionally contain `hardware_buffer_target_created=true`,
   `hardware_buffer_native_accepted_count` greater than zero,
   `Rusty XR received headset camera GPU buffer frame`, and
@@ -1140,7 +1140,7 @@ harnesses should treat this as a required manual step.
 For an OpenXR-only camera smoke test, launch with MediaProjection disabled:
 
 ```powershell
-adb shell am start -a android.intent.action.MAIN -c com.oculus.intent.category.VR -n com.example.rustyxr.composite/.CompositeLayerActivity --ez rustyxr.camera true --ez rustyxr.mediaProjection false --es rustyxr.cameraTier cpu-diagnostic-flat-copy --ei rustyxr.cameraWidth 1280 --ei rustyxr.cameraHeight 1280 --ei rustyxr.cameraPreferredSquare 1280 --ei rustyxr.cameraMaxDimension 1920 --ei rustyxr.cameraCpuUploadHz 4
+adb shell am start -a android.intent.action.MAIN -c com.oculus.intent.category.VR -n com.example.rustyxr.composite/.CompositeLayerActivity --ez rustyquest.makepad.camera true --ez rustyquest.makepad.mediaProjection false --es rustyquest.makepad.cameraTier cpu-diagnostic-flat-copy --ei rustyquest.makepad.cameraWidth 1280 --ei rustyquest.makepad.cameraHeight 1280 --ei rustyquest.makepad.cameraPreferredSquare 1280 --ei rustyquest.makepad.cameraMaxDimension 1920 --ei rustyquest.makepad.cameraCpuUploadHz 4
 ```
 
 Use this mode first when debugging loading or black-screen behavior. If OpenXR

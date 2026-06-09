@@ -118,7 +118,7 @@ unless the user explicitly approves a sanitized extraction.
 
 - `rusty-xr-contracts`: shared math, pose, timing, eye-view, camera/depth metadata, hand snapshots, plain stereo/feedback layer descriptors, border tuning, performance hints, render payloads, counters, room mesh source state, semantic room mesh snapshots, and capture lifecycle metadata.
 - `rusty-xr-contracts` also owns small interaction contracts such as `InteractionRay`, `XrCanvasSurface`, `HandMenuAnchor`, and `HandInfluencePoint`.
-- `rusty-xr-runtime-config`: generic runtime keys, typed values, config maps, and public Android property naming helpers.
+- `rusty-quest-makepad-runtime-config`: generic runtime keys, typed values, config maps, and public Android property naming helpers for the Makepad Quest lane.
 - `rusty-xr-ble`: pure BLE UUID, scan result, GATT path, notification, operation, and Android Bluetooth permission models.
 - `rusty-xr-lsl`: pure LSL descriptor, role, channel schema, filter, endpoint status, staleness, roundtrip, biofeedback, and telemetry models.
 - `rusty-xr-polar`: Polar H10 GATT IDs, HR/RR decoder, uncompressed ECG/ACC PMD decoders, PMD command builders, and public LSL schemas.

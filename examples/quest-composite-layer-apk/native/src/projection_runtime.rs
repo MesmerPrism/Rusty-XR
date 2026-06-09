@@ -6,7 +6,7 @@ use super::{
     CameraProjectionAlphaMode, CameraProjectionBorderPolicy, CameraProjectionMode,
     ProjectionTargetJoystickControls, RuntimeConfig, StereoSourceEyeMapping,
 };
-use rusty_xr_runtime_config as rxrc;
+use rusty_quest_makepad_runtime_config as rxrc;
 
 #[cfg(target_os = "android")]
 pub(super) fn log_projection_runtime_manifest(
@@ -19,12 +19,12 @@ pub(super) fn log_projection_runtime_manifest(
         log_info(line);
     }
     log_info(format!(
-        "RUSTY_XR_HWB_PROJECTION_RUNTIME schema=rusty.xr.hwb-projection-runtime.v1 phase={} mode={} resolvedManifestConsumptionEnabled={}",
+        "RUSTY_QUEST_HWB_PROJECTION_RUNTIME schema=rusty.quest.hwb-projection-runtime.v1 phase={} mode={} resolvedManifestConsumptionEnabled={}",
         phase,
         if config.projection_runtime_resolution_enabled {
             "resolved-manifest"
         } else {
-            "legacy"
+            "direct"
         },
         config.projection_runtime_resolution_enabled
     ));
@@ -38,7 +38,7 @@ pub(super) fn hwb_projection_runtime_resolution(
         &RuntimeConfig::default(),
         rxrc::RuntimeConfigSource::Default,
     );
-    let (property_config, aliases) = hwb_projection_runtime_android_property_config();
+    let (property_config, inputs) = hwb_projection_runtime_android_property_config();
     let mut builder = rxrc::ProjectionRuntimeConfigBuilder::new();
     builder
         .push_layer("hwb-defaults", 0, defaults)
@@ -55,7 +55,7 @@ pub(super) fn hwb_projection_runtime_resolution(
     builder
         .push_layer("hwb-android-properties", 20, property_config)
         .expect("manifest owner should be valid");
-    builder.with_aliases(aliases).resolve()
+    builder.with_inputs(inputs).resolve()
 }
 
 pub(super) fn public_projection_runtime_config(
@@ -697,19 +697,16 @@ pub(super) fn apply_hwb_projection_runtime_resolution(
 }
 
 fn hwb_projection_runtime_android_property_config(
-) -> (rxrc::RuntimeConfig, Vec<rxrc::RuntimeKeyAliasRecord>) {
-    let values = rxrc::PROJECTION_RUNTIME_KEY_ALIASES
+) -> (rxrc::RuntimeConfig, Vec<rxrc::RuntimeKeyInputRecord>) {
+    let values = rxrc::PROJECTION_RUNTIME_KEY_INPUTS
         .iter()
-        .filter(|alias| {
-            alias.source == rxrc::RuntimeKeyAliasSource::AndroidProperty
-                && alias.status == rxrc::RuntimeKeyAliasStatus::Current
-        })
-        .filter_map(|alias| {
-            hwb_android_system_property_value(alias.alias).map(|value| (alias.alias, value))
+        .filter(|input| input.source == rxrc::RuntimeKeyInputSource::AndroidProperty)
+        .filter_map(|input| {
+            hwb_android_system_property_value(input.input).map(|value| (input.input, value))
         })
         .collect::<Vec<_>>();
     let mut config = rxrc::RuntimeConfig::new();
-    let mut aliases = Vec::new();
+    let mut inputs = Vec::new();
     for (key, value) in values {
         let Ok(parsed) = rxrc::parse_projection_runtime_pairs(
             rxrc::RuntimeConfigSource::AndroidProperty,
@@ -720,9 +717,9 @@ fn hwb_projection_runtime_android_property_config(
         for setting in parsed.config.iter() {
             config.insert(setting.clone());
         }
-        aliases.extend(parsed.aliases);
+        inputs.extend(parsed.inputs);
     }
-    (config, aliases)
+    (config, inputs)
 }
 
 #[cfg(target_os = "android")]

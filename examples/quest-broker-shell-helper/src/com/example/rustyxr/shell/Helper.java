@@ -2371,7 +2371,7 @@ public final class Helper {
     }
 
     private static boolean isAllowedRuntimeProperty(String name) {
-        return name != null && name.startsWith("debug.rustyxr.") && name.length() <= 92;
+        return name != null && name.startsWith("debug.rustyquest.makepad.") && name.length() <= 92;
     }
 
     private static void sendFocusGuardianHeartbeat(

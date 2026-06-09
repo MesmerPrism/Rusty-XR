@@ -59,7 +59,10 @@ pub(crate) fn makepad_default_target_screen_uv_rect(left: bool) -> Rect2 {
 }
 
 pub(crate) fn makepad_runtime_target_screen_footprint_pair() -> MakepadTargetScreenFootprintPair {
-    let shared_text = hotload_text(KEY_CAMERA_TARGET_SCREEN_UV_RECT, DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT);
+    let shared_text = hotload_text(
+        KEY_CAMERA_TARGET_SCREEN_UV_RECT,
+        DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT,
+    );
     let left_default_text = if shared_text.is_empty() {
         DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT
     } else {
@@ -2179,4 +2182,3 @@ mod tests {
         );
     }
 }
-

@@ -4,7 +4,7 @@ use super::openxr_gles_config::{
     OesProcessingLayer, OesProjectionAlphaMode, OesProjectionBorderPolicy,
     OesProjectionRuntimeState, OesProjectionTuning,
 };
-use rusty_xr_runtime_config as rxrc;
+use rusty_quest_makepad_runtime_config as rxrc;
 
 pub(super) use super::projection_runtime_layers::{
     oes_projection_runtime_resolution_enabled, oes_projection_runtime_resolution_from_state,

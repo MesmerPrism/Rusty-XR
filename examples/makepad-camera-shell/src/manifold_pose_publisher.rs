@@ -367,4 +367,3 @@ mod tests {
         assert_eq!(frame.len(), 8);
     }
 }
-

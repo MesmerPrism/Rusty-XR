@@ -1,4 +1,4 @@
-use rusty_xr_runtime_config as rxrc;
+use rusty_quest_makepad_runtime_config as rxrc;
 
 use crate::current_android_projection_property_config;
 
@@ -92,6 +92,6 @@ pub(super) fn oes_projection_runtime_resolution(
         .expect("manifest owner should be valid")
         .with_layer("oes-android-properties", 20, property_parse.config)
         .expect("manifest owner should be valid")
-        .with_aliases(property_parse.aliases)
+        .with_inputs(property_parse.inputs)
         .resolve()
 }

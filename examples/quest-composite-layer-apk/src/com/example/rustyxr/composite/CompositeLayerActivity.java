@@ -285,20 +285,20 @@ public final class CompositeLayerActivity extends NativeActivity {
     }
 
     private boolean shouldRequestMediaProjection() {
-        return booleanExtra("rustyxr.mediaProjection", false);
+        return booleanExtra("rustyquest.makepad.mediaProjection", false);
     }
 
     private boolean shouldStartHeadsetCamera() {
-        return booleanExtra("rustyxr.camera", true);
+        return booleanExtra("rustyquest.makepad.camera", true);
     }
 
     private boolean shouldStartBrokerH264Consumer() {
-        return booleanExtra("rustyxr.brokerH264Consumer", false);
+        return booleanExtra("rustyquest.makepad.brokerH264Consumer", false);
     }
 
     private boolean shouldStartProjectionTargetBreathControls() {
         String controls = stringExtra(
-            "rustyxr.projectionTargetBreathControls",
+            "rustyquest.makepad.projectionTargetBreathControls",
             DEFAULT_PROJECTION_TARGET_BREATH_CONTROLS);
         String normalized = controls.trim().toLowerCase(java.util.Locale.US).replace('_', '-');
         return "scale".equals(normalized) ||
@@ -312,7 +312,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     }
 
     private boolean shouldRenderBrokerH264HardwareBuffer() {
-        String mode = stringExtra("rustyxr.brokerH264DecodeOutputMode", DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE);
+        String mode = stringExtra("rustyquest.makepad.brokerH264DecodeOutputMode", DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE);
         return shouldStartBrokerH264Consumer() &&
             "hardware-buffer".equals(mode.trim().toLowerCase(java.util.Locale.US).replace('_', '-'));
     }
@@ -433,53 +433,53 @@ public final class CompositeLayerActivity extends NativeActivity {
     }
 
     private long mediaProjectionDelayMs() {
-        long delay = longExtra("rustyxr.mediaProjectionDelayMs", DEFAULT_MEDIA_PROJECTION_DELAY_MS);
+        long delay = longExtra("rustyquest.makepad.mediaProjectionDelayMs", DEFAULT_MEDIA_PROJECTION_DELAY_MS);
         return Math.max(0, delay);
     }
 
     private long cameraStartDelayMs() {
-        long delay = longExtra("rustyxr.cameraStartDelayMs", DEFAULT_CAMERA_START_DELAY_MS);
+        long delay = longExtra("rustyquest.makepad.cameraStartDelayMs", DEFAULT_CAMERA_START_DELAY_MS);
         return Math.max(0, delay);
     }
 
     private String cameraTier() {
-        return stringExtra("rustyxr.cameraTier", DEFAULT_CAMERA_TIER);
+        return stringExtra("rustyquest.makepad.cameraTier", DEFAULT_CAMERA_TIER);
     }
 
     private String cameraStereoLayout() {
-        return stringExtra("rustyxr.cameraStereoLayout", DEFAULT_CAMERA_STEREO_LAYOUT);
+        return stringExtra("rustyquest.makepad.cameraStereoLayout", DEFAULT_CAMERA_STEREO_LAYOUT);
     }
 
     private String cameraAcquisition() {
-        return stringExtra("rustyxr.cameraAcquisition", DEFAULT_CAMERA_ACQUISITION);
+        return stringExtra("rustyquest.makepad.cameraAcquisition", DEFAULT_CAMERA_ACQUISITION);
     }
 
     private boolean allowCpuFallback() {
-        return booleanExtra("rustyxr.cameraAllowCpuFallback", DEFAULT_CAMERA_ALLOW_CPU_FALLBACK);
+        return booleanExtra("rustyquest.makepad.cameraAllowCpuFallback", DEFAULT_CAMERA_ALLOW_CPU_FALLBACK);
     }
 
     private boolean diagnosticHudVisible() {
-        if (hasExtra("rustyxr.diagnosticHudVisible")) {
-            return booleanExtra("rustyxr.diagnosticHudVisible", DEFAULT_DIAGNOSTIC_HUD_VISIBLE);
+        if (hasExtra("rustyquest.makepad.diagnosticHudVisible")) {
+            return booleanExtra("rustyquest.makepad.diagnosticHudVisible", DEFAULT_DIAGNOSTIC_HUD_VISIBLE);
         }
-        if (hasExtra("rustyxr.diagnosticsHudVisible")) {
-            return booleanExtra("rustyxr.diagnosticsHudVisible", DEFAULT_DIAGNOSTIC_HUD_VISIBLE);
+        if (hasExtra("rustyquest.makepad.diagnosticsHudVisible")) {
+            return booleanExtra("rustyquest.makepad.diagnosticsHudVisible", DEFAULT_DIAGNOSTIC_HUD_VISIBLE);
         }
         return booleanExtra(
-            "rustyxr.oscOverlayEnabled",
-            booleanExtra("rustyxr.oscEnabled", DEFAULT_DIAGNOSTIC_HUD_VISIBLE));
+            "rustyquest.makepad.oscOverlayEnabled",
+            booleanExtra("rustyquest.makepad.oscEnabled", DEFAULT_DIAGNOSTIC_HUD_VISIBLE));
     }
 
     private void sendRuntimeConfig(boolean cameraEnabled, boolean mediaProjectionEnabled) {
         boolean brokerH264HardwareBufferRender = shouldRenderBrokerH264HardwareBuffer();
         boolean rendererCameraEnabled = cameraEnabled || brokerH264HardwareBufferRender;
         String tier = rendererCameraEnabled ? cameraTier() : "synthetic";
-        int cpuUploadHz = intExtra("rustyxr.cameraCpuUploadHz", DEFAULT_CAMERA_CPU_UPLOAD_HZ);
-        int cameraTargetFps = Math.max(0, intExtra("rustyxr.cameraTargetFps", DEFAULT_CAMERA_TARGET_FPS));
-        int cameraFpsMin = Math.max(0, intExtra("rustyxr.cameraFpsMin", DEFAULT_CAMERA_FPS_MIN));
-        int cameraFpsMax = Math.max(0, intExtra("rustyxr.cameraFpsMax", DEFAULT_CAMERA_FPS_MAX));
-        int stereoImageReaderMaxImages = Math.max(2, intExtra("rustyxr.cameraStereoImageReaderMaxImages", DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES));
-        int fixedFoveationLevel = Math.max(0, intExtra("rustyxr.xrFixedFoveationLevel", DEFAULT_XR_FIXED_FOVEATION_LEVEL));
+        int cpuUploadHz = intExtra("rustyquest.makepad.cameraCpuUploadHz", DEFAULT_CAMERA_CPU_UPLOAD_HZ);
+        int cameraTargetFps = Math.max(0, intExtra("rustyquest.makepad.cameraTargetFps", DEFAULT_CAMERA_TARGET_FPS));
+        int cameraFpsMin = Math.max(0, intExtra("rustyquest.makepad.cameraFpsMin", DEFAULT_CAMERA_FPS_MIN));
+        int cameraFpsMax = Math.max(0, intExtra("rustyquest.makepad.cameraFpsMax", DEFAULT_CAMERA_FPS_MAX));
+        int stereoImageReaderMaxImages = Math.max(2, intExtra("rustyquest.makepad.cameraStereoImageReaderMaxImages", DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES));
+        int fixedFoveationLevel = Math.max(0, intExtra("rustyquest.makepad.xrFixedFoveationLevel", DEFAULT_XR_FIXED_FOVEATION_LEVEL));
         boolean hudVisible = diagnosticHudVisible();
         StringBuilder builder = new StringBuilder(256);
         builder.append('{');
@@ -496,166 +496,166 @@ public final class CompositeLayerActivity extends NativeActivity {
         builder.append(",\"cameraStereoImageReaderMaxImages\":").append(stereoImageReaderMaxImages);
         builder.append(",\"cameraStartDelayMs\":").append(cameraStartDelayMs());
         builder.append(',');
-        appendJsonString(builder, "nativeSourceMode", stringExtra("rustyxr.nativeSourceMode", "auto"));
-        builder.append(",\"projectionRuntimeResolutionEnabled\":").append(booleanExtra("rustyxr.projectionRuntimeResolutionEnabled", false));
-        builder.append(",\"cameraProjectionFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraProjectionFovYDegrees", DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES)));
-        builder.append(",\"cameraPreviewFovYDegrees\":").append(floatJson(floatExtra("rustyxr.cameraPreviewFovYDegrees", DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES)));
-        builder.append(",\"cameraPreviewOffsetYMeters\":").append(floatJson(floatExtra("rustyxr.cameraPreviewOffsetYMeters", DEFAULT_CAMERA_PREVIEW_OFFSET_Y_METERS)));
-        builder.append(",\"cameraProjectionScale\":").append(floatJson(floatExtra("rustyxr.cameraProjectionScale", DEFAULT_CAMERA_PROJECTION_SCALE)));
-        builder.append(",\"projectionDepthMeters\":").append(floatJson(floatExtra("rustyxr.projectionDepthMeters", DEFAULT_CAMERA_PROJECTION_DEPTH_METERS)));
-        builder.append(",\"projectionAreaScaleUv\":").append(floatJson(floatExtra("rustyxr.projectionAreaScaleUv", DEFAULT_CAMERA_PROJECTION_AREA_SCALE_UV)));
-        float projectionAreaOffsetXUv = floatExtra("rustyxr.projectionAreaOffsetXUv", DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_X_UV);
-        float projectionAreaOffsetYUv = floatExtra("rustyxr.projectionAreaOffsetYUv", DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_Y_UV);
+        appendJsonString(builder, "nativeSourceMode", stringExtra("rustyquest.makepad.nativeSourceMode", "auto"));
+        builder.append(",\"projectionRuntimeResolutionEnabled\":").append(booleanExtra("rustyquest.makepad.projectionRuntimeResolutionEnabled", false));
+        builder.append(",\"cameraProjectionFovYDegrees\":").append(floatJson(floatExtra("rustyquest.makepad.cameraProjectionFovYDegrees", DEFAULT_CAMERA_PROJECTION_FOV_Y_DEGREES)));
+        builder.append(",\"cameraPreviewFovYDegrees\":").append(floatJson(floatExtra("rustyquest.makepad.cameraPreviewFovYDegrees", DEFAULT_CAMERA_PREVIEW_FOV_Y_DEGREES)));
+        builder.append(",\"cameraPreviewOffsetYMeters\":").append(floatJson(floatExtra("rustyquest.makepad.cameraPreviewOffsetYMeters", DEFAULT_CAMERA_PREVIEW_OFFSET_Y_METERS)));
+        builder.append(",\"cameraProjectionScale\":").append(floatJson(floatExtra("rustyquest.makepad.cameraProjectionScale", DEFAULT_CAMERA_PROJECTION_SCALE)));
+        builder.append(",\"projectionDepthMeters\":").append(floatJson(floatExtra("rustyquest.makepad.projectionDepthMeters", DEFAULT_CAMERA_PROJECTION_DEPTH_METERS)));
+        builder.append(",\"projectionAreaScaleUv\":").append(floatJson(floatExtra("rustyquest.makepad.projectionAreaScaleUv", DEFAULT_CAMERA_PROJECTION_AREA_SCALE_UV)));
+        float projectionAreaOffsetXUv = floatExtra("rustyquest.makepad.projectionAreaOffsetXUv", DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_X_UV);
+        float projectionAreaOffsetYUv = floatExtra("rustyquest.makepad.projectionAreaOffsetYUv", DEFAULT_CAMERA_PROJECTION_AREA_OFFSET_Y_UV);
         builder.append(",\"projectionAreaOffsetXUv\":").append(floatJson(projectionAreaOffsetXUv));
         builder.append(",\"projectionAreaOffsetYUv\":").append(floatJson(projectionAreaOffsetYUv));
-        builder.append(",\"projectionAreaLeftOffsetXUv\":").append(floatJson(floatExtra("rustyxr.projectionAreaLeftOffsetXUv", projectionAreaOffsetXUv)));
-        builder.append(",\"projectionAreaLeftOffsetYUv\":").append(floatJson(floatExtra("rustyxr.projectionAreaLeftOffsetYUv", projectionAreaOffsetYUv)));
-        builder.append(",\"projectionAreaRightOffsetXUv\":").append(floatJson(floatExtra("rustyxr.projectionAreaRightOffsetXUv", projectionAreaOffsetXUv)));
-        builder.append(",\"projectionAreaRightOffsetYUv\":").append(floatJson(floatExtra("rustyxr.projectionAreaRightOffsetYUv", projectionAreaOffsetYUv)));
-        builder.append(",\"projectionAreaRadiusXUv\":").append(floatJson(floatExtra("rustyxr.projectionAreaRadiusXUv", DEFAULT_CAMERA_PROJECTION_AREA_RADIUS_X_UV)));
-        builder.append(",\"projectionAreaRadiusYUv\":").append(floatJson(floatExtra("rustyxr.projectionAreaRadiusYUv", DEFAULT_CAMERA_PROJECTION_AREA_RADIUS_Y_UV)));
-        builder.append(",\"projectionAreaCornerRadiusUv\":").append(floatJson(floatExtra("rustyxr.projectionAreaCornerRadiusUv", DEFAULT_CAMERA_PROJECTION_AREA_CORNER_RADIUS_UV)));
-        builder.append(",\"projectionAreaOpacity\":").append(floatJson(floatExtra("rustyxr.projectionAreaOpacity", DEFAULT_CAMERA_PROJECTION_AREA_OPACITY)));
-        builder.append(",\"projectionBorderOpacity\":").append(floatJson(floatExtra("rustyxr.projectionBorderOpacity", DEFAULT_CAMERA_PROJECTION_BORDER_OPACITY)));
-        builder.append(",\"projectionTargetOffsetXUv\":").append(floatJson(floatExtra("rustyxr.projectionTargetOffsetXUv", DEFAULT_PROJECTION_TARGET_OFFSET_X_UV)));
-        builder.append(",\"projectionTargetOffsetYUv\":").append(floatJson(floatExtra("rustyxr.projectionTargetOffsetYUv", DEFAULT_PROJECTION_TARGET_OFFSET_Y_UV)));
-        builder.append(",\"projectionTargetScale\":").append(floatJson(floatExtra("rustyxr.projectionTargetScale", DEFAULT_PROJECTION_TARGET_SCALE)));
+        builder.append(",\"projectionAreaLeftOffsetXUv\":").append(floatJson(floatExtra("rustyquest.makepad.projectionAreaLeftOffsetXUv", projectionAreaOffsetXUv)));
+        builder.append(",\"projectionAreaLeftOffsetYUv\":").append(floatJson(floatExtra("rustyquest.makepad.projectionAreaLeftOffsetYUv", projectionAreaOffsetYUv)));
+        builder.append(",\"projectionAreaRightOffsetXUv\":").append(floatJson(floatExtra("rustyquest.makepad.projectionAreaRightOffsetXUv", projectionAreaOffsetXUv)));
+        builder.append(",\"projectionAreaRightOffsetYUv\":").append(floatJson(floatExtra("rustyquest.makepad.projectionAreaRightOffsetYUv", projectionAreaOffsetYUv)));
+        builder.append(",\"projectionAreaRadiusXUv\":").append(floatJson(floatExtra("rustyquest.makepad.projectionAreaRadiusXUv", DEFAULT_CAMERA_PROJECTION_AREA_RADIUS_X_UV)));
+        builder.append(",\"projectionAreaRadiusYUv\":").append(floatJson(floatExtra("rustyquest.makepad.projectionAreaRadiusYUv", DEFAULT_CAMERA_PROJECTION_AREA_RADIUS_Y_UV)));
+        builder.append(",\"projectionAreaCornerRadiusUv\":").append(floatJson(floatExtra("rustyquest.makepad.projectionAreaCornerRadiusUv", DEFAULT_CAMERA_PROJECTION_AREA_CORNER_RADIUS_UV)));
+        builder.append(",\"projectionAreaOpacity\":").append(floatJson(floatExtra("rustyquest.makepad.projectionAreaOpacity", DEFAULT_CAMERA_PROJECTION_AREA_OPACITY)));
+        builder.append(",\"projectionBorderOpacity\":").append(floatJson(floatExtra("rustyquest.makepad.projectionBorderOpacity", DEFAULT_CAMERA_PROJECTION_BORDER_OPACITY)));
+        builder.append(",\"projectionTargetOffsetXUv\":").append(floatJson(floatExtra("rustyquest.makepad.projectionTargetOffsetXUv", DEFAULT_PROJECTION_TARGET_OFFSET_X_UV)));
+        builder.append(",\"projectionTargetOffsetYUv\":").append(floatJson(floatExtra("rustyquest.makepad.projectionTargetOffsetYUv", DEFAULT_PROJECTION_TARGET_OFFSET_Y_UV)));
+        builder.append(",\"projectionTargetScale\":").append(floatJson(floatExtra("rustyquest.makepad.projectionTargetScale", DEFAULT_PROJECTION_TARGET_SCALE)));
         builder.append(',');
-        appendJsonString(builder, "projectionTargetJoystickControls", stringExtra("rustyxr.projectionTargetJoystickControls", DEFAULT_PROJECTION_TARGET_JOYSTICK_CONTROLS));
+        appendJsonString(builder, "projectionTargetJoystickControls", stringExtra("rustyquest.makepad.projectionTargetJoystickControls", DEFAULT_PROJECTION_TARGET_JOYSTICK_CONTROLS));
         builder.append(',');
-        appendJsonString(builder, "projectionBorderPolicy", stringExtra("rustyxr.projectionBorderPolicy", DEFAULT_PROJECTION_BORDER_POLICY));
+        appendJsonString(builder, "projectionBorderPolicy", stringExtra("rustyquest.makepad.projectionBorderPolicy", DEFAULT_PROJECTION_BORDER_POLICY));
         builder.append(',');
-        appendJsonString(builder, "projectionAlphaMode", stringExtra("rustyxr.projectionAlphaMode", DEFAULT_CAMERA_PROJECTION_ALPHA_MODE));
-        builder.append(",\"projectionAlphaScale\":").append(floatJson(floatExtra("rustyxr.projectionAlphaScale", DEFAULT_CAMERA_PROJECTION_ALPHA_SCALE)));
-        builder.append(",\"projectionAlphaBias\":").append(floatJson(floatExtra("rustyxr.projectionAlphaBias", DEFAULT_CAMERA_PROJECTION_ALPHA_BIAS)));
-        builder.append(",\"cameraRawOverlayOverscan\":").append(floatJson(floatExtra("rustyxr.cameraRawOverlayOverscan", DEFAULT_CAMERA_RAW_OVERLAY_OVERSCAN)));
-        builder.append(",\"cameraFullViewOverlayOverscan\":").append(floatJson(floatExtra("rustyxr.cameraFullViewOverlayOverscan", DEFAULT_CAMERA_FULL_VIEW_OVERLAY_OVERSCAN)));
-        builder.append(",\"cameraEdgeFade\":").append(floatJson(floatExtra("rustyxr.cameraEdgeFade", DEFAULT_CAMERA_EDGE_FADE)));
+        appendJsonString(builder, "projectionAlphaMode", stringExtra("rustyquest.makepad.projectionAlphaMode", DEFAULT_CAMERA_PROJECTION_ALPHA_MODE));
+        builder.append(",\"projectionAlphaScale\":").append(floatJson(floatExtra("rustyquest.makepad.projectionAlphaScale", DEFAULT_CAMERA_PROJECTION_ALPHA_SCALE)));
+        builder.append(",\"projectionAlphaBias\":").append(floatJson(floatExtra("rustyquest.makepad.projectionAlphaBias", DEFAULT_CAMERA_PROJECTION_ALPHA_BIAS)));
+        builder.append(",\"cameraRawOverlayOverscan\":").append(floatJson(floatExtra("rustyquest.makepad.cameraRawOverlayOverscan", DEFAULT_CAMERA_RAW_OVERLAY_OVERSCAN)));
+        builder.append(",\"cameraFullViewOverlayOverscan\":").append(floatJson(floatExtra("rustyquest.makepad.cameraFullViewOverlayOverscan", DEFAULT_CAMERA_FULL_VIEW_OVERLAY_OVERSCAN)));
+        builder.append(",\"cameraEdgeFade\":").append(floatJson(floatExtra("rustyquest.makepad.cameraEdgeFade", DEFAULT_CAMERA_EDGE_FADE)));
         builder.append(',');
-        appendJsonString(builder, "cameraProjectionMode", stringExtra("rustyxr.cameraProjectionMode", DEFAULT_CAMERA_PROJECTION_MODE));
+        appendJsonString(builder, "cameraProjectionMode", stringExtra("rustyquest.makepad.cameraProjectionMode", DEFAULT_CAMERA_PROJECTION_MODE));
         builder.append(',');
-        appendJsonString(builder, "cameraPipelinePreset", stringExtra("rustyxr.cameraPipelinePreset", DEFAULT_CAMERA_PIPELINE_PRESET));
+        appendJsonString(builder, "cameraPipelinePreset", stringExtra("rustyquest.makepad.cameraPipelinePreset", DEFAULT_CAMERA_PIPELINE_PRESET));
         builder.append(',');
-        appendJsonString(builder, "cameraProjectionEffectMode", stringExtra("rustyxr.cameraProjectionEffectMode", DEFAULT_CAMERA_PROJECTION_EFFECT_MODE));
+        appendJsonString(builder, "cameraProjectionEffectMode", stringExtra("rustyquest.makepad.cameraProjectionEffectMode", DEFAULT_CAMERA_PROJECTION_EFFECT_MODE));
         builder.append(',');
-        appendJsonString(builder, "processingLayer", stringExtra("rustyxr.processingLayer", DEFAULT_PROCESSING_LAYER));
+        appendJsonString(builder, "processingLayer", stringExtra("rustyquest.makepad.processingLayer", DEFAULT_PROCESSING_LAYER));
         builder.append(',');
-        appendJsonString(builder, "peripheralStretchMode", stringExtra("rustyxr.peripheralStretchMode", DEFAULT_PERIPHERAL_STRETCH_MODE));
-        builder.append(",\"peripheralStretchCoreScale\":").append(floatJson(floatExtra("rustyxr.peripheralStretchCoreScale", DEFAULT_PERIPHERAL_STRETCH_CORE_SCALE)));
-        builder.append(",\"peripheralStretchEdgeInsetUv\":").append(floatJson(floatExtra("rustyxr.peripheralStretchEdgeInsetUv", DEFAULT_PERIPHERAL_STRETCH_EDGE_INSET_UV)));
-        builder.append(",\"peripheralStretchMaxInsetUv\":").append(floatJson(floatExtra("rustyxr.peripheralStretchMaxInsetUv", DEFAULT_PERIPHERAL_STRETCH_MAX_INSET_UV)));
-        builder.append(",\"peripheralStretchCurve\":").append(floatJson(floatExtra("rustyxr.peripheralStretchCurve", DEFAULT_PERIPHERAL_STRETCH_CURVE)));
-        builder.append(",\"peripheralStretchInnerBlendUv\":").append(floatJson(floatExtra("rustyxr.peripheralStretchInnerBlendUv", DEFAULT_PERIPHERAL_STRETCH_INNER_BLEND_UV)));
-        builder.append(",\"peripheralStretchBlendCurve\":").append(floatJson(floatExtra("rustyxr.peripheralStretchBlendCurve", DEFAULT_PERIPHERAL_STRETCH_BLEND_CURVE)));
+        appendJsonString(builder, "peripheralStretchMode", stringExtra("rustyquest.makepad.peripheralStretchMode", DEFAULT_PERIPHERAL_STRETCH_MODE));
+        builder.append(",\"peripheralStretchCoreScale\":").append(floatJson(floatExtra("rustyquest.makepad.peripheralStretchCoreScale", DEFAULT_PERIPHERAL_STRETCH_CORE_SCALE)));
+        builder.append(",\"peripheralStretchEdgeInsetUv\":").append(floatJson(floatExtra("rustyquest.makepad.peripheralStretchEdgeInsetUv", DEFAULT_PERIPHERAL_STRETCH_EDGE_INSET_UV)));
+        builder.append(",\"peripheralStretchMaxInsetUv\":").append(floatJson(floatExtra("rustyquest.makepad.peripheralStretchMaxInsetUv", DEFAULT_PERIPHERAL_STRETCH_MAX_INSET_UV)));
+        builder.append(",\"peripheralStretchCurve\":").append(floatJson(floatExtra("rustyquest.makepad.peripheralStretchCurve", DEFAULT_PERIPHERAL_STRETCH_CURVE)));
+        builder.append(",\"peripheralStretchInnerBlendUv\":").append(floatJson(floatExtra("rustyquest.makepad.peripheralStretchInnerBlendUv", DEFAULT_PERIPHERAL_STRETCH_INNER_BLEND_UV)));
+        builder.append(",\"peripheralStretchBlendCurve\":").append(floatJson(floatExtra("rustyquest.makepad.peripheralStretchBlendCurve", DEFAULT_PERIPHERAL_STRETCH_BLEND_CURVE)));
         builder.append(',');
-        appendJsonString(builder, "peripheralStretchBlendMode", stringExtra("rustyxr.peripheralStretchBlendMode", DEFAULT_PERIPHERAL_STRETCH_BLEND_MODE));
+        appendJsonString(builder, "peripheralStretchBlendMode", stringExtra("rustyquest.makepad.peripheralStretchBlendMode", DEFAULT_PERIPHERAL_STRETCH_BLEND_MODE));
         builder.append(',');
-        appendJsonString(builder, "peripheralStretchCornerMode", stringExtra("rustyxr.peripheralStretchCornerMode", DEFAULT_PERIPHERAL_STRETCH_CORNER_MODE));
+        appendJsonString(builder, "peripheralStretchCornerMode", stringExtra("rustyquest.makepad.peripheralStretchCornerMode", DEFAULT_PERIPHERAL_STRETCH_CORNER_MODE));
         builder.append(',');
-        appendJsonString(builder, "peripheralStretchDebug", stringExtra("rustyxr.peripheralStretchDebug", DEFAULT_PERIPHERAL_STRETCH_DEBUG));
+        appendJsonString(builder, "peripheralStretchDebug", stringExtra("rustyquest.makepad.peripheralStretchDebug", DEFAULT_PERIPHERAL_STRETCH_DEBUG));
         builder.append(',');
-        appendJsonString(builder, "cameraFeedMode", stringExtra("rustyxr.cameraFeedMode", DEFAULT_CAMERA_FEED_MODE));
+        appendJsonString(builder, "cameraFeedMode", stringExtra("rustyquest.makepad.cameraFeedMode", DEFAULT_CAMERA_FEED_MODE));
         builder.append(',');
-        appendJsonString(builder, "cameraColorMode", stringExtra("rustyxr.cameraColorMode", DEFAULT_CAMERA_COLOR_MODE));
+        appendJsonString(builder, "cameraColorMode", stringExtra("rustyquest.makepad.cameraColorMode", DEFAULT_CAMERA_COLOR_MODE));
         builder.append(',');
-        appendJsonString(builder, "cameraSamplerBindingMode", stringExtra("rustyxr.cameraSamplerBindingMode", DEFAULT_CAMERA_SAMPLER_BINDING_MODE));
+        appendJsonString(builder, "cameraSamplerBindingMode", stringExtra("rustyquest.makepad.cameraSamplerBindingMode", DEFAULT_CAMERA_SAMPLER_BINDING_MODE));
         builder.append(',');
-        appendJsonString(builder, "cameraImportImageLayout", stringExtra("rustyxr.cameraImportImageLayout", DEFAULT_CAMERA_IMPORT_IMAGE_LAYOUT));
-        builder.append(",\"cameraImportCacheLimit\":").append(Math.max(2, intExtra("rustyxr.cameraImportCacheLimit", DEFAULT_CAMERA_IMPORT_CACHE_LIMIT)));
+        appendJsonString(builder, "cameraImportImageLayout", stringExtra("rustyquest.makepad.cameraImportImageLayout", DEFAULT_CAMERA_IMPORT_IMAGE_LAYOUT));
+        builder.append(",\"cameraImportCacheLimit\":").append(Math.max(2, intExtra("rustyquest.makepad.cameraImportCacheLimit", DEFAULT_CAMERA_IMPORT_CACHE_LIMIT)));
         builder.append(',');
-        appendJsonString(builder, "cameraColorMatrix", stringExtra("rustyxr.cameraColorMatrix", DEFAULT_CAMERA_COLOR_MATRIX));
+        appendJsonString(builder, "cameraColorMatrix", stringExtra("rustyquest.makepad.cameraColorMatrix", DEFAULT_CAMERA_COLOR_MATRIX));
         builder.append(',');
-        appendJsonString(builder, "cameraColorOffset", stringExtra("rustyxr.cameraColorOffset", DEFAULT_CAMERA_COLOR_OFFSET));
-        builder.append(",\"cameraColorContrast\":").append(floatJson(floatExtra("rustyxr.cameraColorContrast", DEFAULT_CAMERA_COLOR_CONTRAST)));
-        builder.append(",\"cameraColorBrightness\":").append(floatJson(floatExtra("rustyxr.cameraColorBrightness", DEFAULT_CAMERA_COLOR_BRIGHTNESS)));
-        builder.append(",\"cameraColorSaturation\":").append(floatJson(floatExtra("rustyxr.cameraColorSaturation", DEFAULT_CAMERA_COLOR_SATURATION)));
-        builder.append(",\"cameraBlurRadiusPx\":").append(floatJson(floatExtra("rustyxr.cameraBlurRadiusPx", DEFAULT_CAMERA_BLUR_RADIUS_PX)));
-        builder.append(",\"cameraTemporalProjectionEnabled\":").append(booleanExtra("rustyxr.cameraTemporalProjectionEnabled", DEFAULT_CAMERA_TEMPORAL_PROJECTION_ENABLED));
+        appendJsonString(builder, "cameraColorOffset", stringExtra("rustyquest.makepad.cameraColorOffset", DEFAULT_CAMERA_COLOR_OFFSET));
+        builder.append(",\"cameraColorContrast\":").append(floatJson(floatExtra("rustyquest.makepad.cameraColorContrast", DEFAULT_CAMERA_COLOR_CONTRAST)));
+        builder.append(",\"cameraColorBrightness\":").append(floatJson(floatExtra("rustyquest.makepad.cameraColorBrightness", DEFAULT_CAMERA_COLOR_BRIGHTNESS)));
+        builder.append(",\"cameraColorSaturation\":").append(floatJson(floatExtra("rustyquest.makepad.cameraColorSaturation", DEFAULT_CAMERA_COLOR_SATURATION)));
+        builder.append(",\"cameraBlurRadiusPx\":").append(floatJson(floatExtra("rustyquest.makepad.cameraBlurRadiusPx", DEFAULT_CAMERA_BLUR_RADIUS_PX)));
+        builder.append(",\"cameraTemporalProjectionEnabled\":").append(booleanExtra("rustyquest.makepad.cameraTemporalProjectionEnabled", DEFAULT_CAMERA_TEMPORAL_PROJECTION_ENABLED));
         builder.append(',');
-        appendJsonString(builder, "cameraTemporalMode", stringExtra("rustyxr.cameraTemporalMode", DEFAULT_CAMERA_TEMPORAL_MODE));
-        builder.append(",\"cameraTemporalMaxPixelsPerFrame\":").append(floatJson(floatExtra("rustyxr.cameraTemporalMaxPixelsPerFrame", DEFAULT_CAMERA_TEMPORAL_MAX_PIXELS_PER_FRAME)));
-        builder.append(",\"cameraTemporalMaxAngularDegreesPerFrame\":").append(floatJson(floatExtra("rustyxr.cameraTemporalMaxAngularDegreesPerFrame", DEFAULT_CAMERA_TEMPORAL_MAX_ANGULAR_DEGREES_PER_FRAME)));
-        builder.append(",\"cameraTemporalMaxLinearMetersPerFrame\":").append(floatJson(floatExtra("rustyxr.cameraTemporalMaxLinearMetersPerFrame", DEFAULT_CAMERA_TEMPORAL_MAX_LINEAR_METERS_PER_FRAME)));
-        builder.append(",\"cameraTemporalCatchupHalfLifeMs\":").append(floatJson(floatExtra("rustyxr.cameraTemporalCatchupHalfLifeMs", DEFAULT_CAMERA_TEMPORAL_CATCHUP_HALF_LIFE_MS)));
-        builder.append(",\"cameraTemporalMaxVisualLagMs\":").append(floatJson(floatExtra("rustyxr.cameraTemporalMaxVisualLagMs", DEFAULT_CAMERA_TEMPORAL_MAX_VISUAL_LAG_MS)));
-        builder.append(",\"cameraTemporalStereoLockstep\":").append(booleanExtra("rustyxr.cameraTemporalStereoLockstep", DEFAULT_CAMERA_TEMPORAL_STEREO_LOCKSTEP));
+        appendJsonString(builder, "cameraTemporalMode", stringExtra("rustyquest.makepad.cameraTemporalMode", DEFAULT_CAMERA_TEMPORAL_MODE));
+        builder.append(",\"cameraTemporalMaxPixelsPerFrame\":").append(floatJson(floatExtra("rustyquest.makepad.cameraTemporalMaxPixelsPerFrame", DEFAULT_CAMERA_TEMPORAL_MAX_PIXELS_PER_FRAME)));
+        builder.append(",\"cameraTemporalMaxAngularDegreesPerFrame\":").append(floatJson(floatExtra("rustyquest.makepad.cameraTemporalMaxAngularDegreesPerFrame", DEFAULT_CAMERA_TEMPORAL_MAX_ANGULAR_DEGREES_PER_FRAME)));
+        builder.append(",\"cameraTemporalMaxLinearMetersPerFrame\":").append(floatJson(floatExtra("rustyquest.makepad.cameraTemporalMaxLinearMetersPerFrame", DEFAULT_CAMERA_TEMPORAL_MAX_LINEAR_METERS_PER_FRAME)));
+        builder.append(",\"cameraTemporalCatchupHalfLifeMs\":").append(floatJson(floatExtra("rustyquest.makepad.cameraTemporalCatchupHalfLifeMs", DEFAULT_CAMERA_TEMPORAL_CATCHUP_HALF_LIFE_MS)));
+        builder.append(",\"cameraTemporalMaxVisualLagMs\":").append(floatJson(floatExtra("rustyquest.makepad.cameraTemporalMaxVisualLagMs", DEFAULT_CAMERA_TEMPORAL_MAX_VISUAL_LAG_MS)));
+        builder.append(",\"cameraTemporalStereoLockstep\":").append(booleanExtra("rustyquest.makepad.cameraTemporalStereoLockstep", DEFAULT_CAMERA_TEMPORAL_STEREO_LOCKSTEP));
         builder.append(',');
-        appendJsonString(builder, "cameraTemporalEdgeMode", stringExtra("rustyxr.cameraTemporalEdgeMode", DEFAULT_CAMERA_TEMPORAL_EDGE_MODE));
+        appendJsonString(builder, "cameraTemporalEdgeMode", stringExtra("rustyquest.makepad.cameraTemporalEdgeMode", DEFAULT_CAMERA_TEMPORAL_EDGE_MODE));
         builder.append(',');
-        appendJsonString(builder, "cameraFrameAdoptionMode", stringExtra("rustyxr.cameraFrameAdoptionMode", DEFAULT_CAMERA_FRAME_ADOPTION_MODE));
-        builder.append(",\"cameraFrameAdoptionMaxJumpPx\":").append(floatJson(floatExtra("rustyxr.cameraFrameAdoptionMaxJumpPx", DEFAULT_CAMERA_FRAME_ADOPTION_MAX_JUMP_PX)));
-        builder.append(",\"cameraFrameAdoptionMaxHoldMs\":").append(floatJson(floatExtra("rustyxr.cameraFrameAdoptionMaxHoldMs", DEFAULT_CAMERA_FRAME_ADOPTION_MAX_HOLD_MS)));
+        appendJsonString(builder, "cameraFrameAdoptionMode", stringExtra("rustyquest.makepad.cameraFrameAdoptionMode", DEFAULT_CAMERA_FRAME_ADOPTION_MODE));
+        builder.append(",\"cameraFrameAdoptionMaxJumpPx\":").append(floatJson(floatExtra("rustyquest.makepad.cameraFrameAdoptionMaxJumpPx", DEFAULT_CAMERA_FRAME_ADOPTION_MAX_JUMP_PX)));
+        builder.append(",\"cameraFrameAdoptionMaxHoldMs\":").append(floatJson(floatExtra("rustyquest.makepad.cameraFrameAdoptionMaxHoldMs", DEFAULT_CAMERA_FRAME_ADOPTION_MAX_HOLD_MS)));
         builder.append(',');
-        appendJsonString(builder, "cameraTextureRotation", stringExtra("rustyxr.cameraTextureRotation", DEFAULT_CAMERA_TEXTURE_ROTATION));
-        builder.append(",\"cameraTextureFlipX\":").append(booleanExtra("rustyxr.cameraTextureFlipX", DEFAULT_CAMERA_TEXTURE_FLIP_X));
-        builder.append(",\"cameraTextureFlipY\":").append(booleanExtra("rustyxr.cameraTextureFlipY", DEFAULT_CAMERA_TEXTURE_FLIP_Y));
-        builder.append(",\"cameraTextureMirror\":").append(booleanExtra("rustyxr.cameraTextureMirror", DEFAULT_CAMERA_TEXTURE_MIRROR));
+        appendJsonString(builder, "cameraTextureRotation", stringExtra("rustyquest.makepad.cameraTextureRotation", DEFAULT_CAMERA_TEXTURE_ROTATION));
+        builder.append(",\"cameraTextureFlipX\":").append(booleanExtra("rustyquest.makepad.cameraTextureFlipX", DEFAULT_CAMERA_TEXTURE_FLIP_X));
+        builder.append(",\"cameraTextureFlipY\":").append(booleanExtra("rustyquest.makepad.cameraTextureFlipY", DEFAULT_CAMERA_TEXTURE_FLIP_Y));
+        builder.append(",\"cameraTextureMirror\":").append(booleanExtra("rustyquest.makepad.cameraTextureMirror", DEFAULT_CAMERA_TEXTURE_MIRROR));
         builder.append(',');
-        appendJsonString(builder, "cameraTextureTransformSource", stringExtra("rustyxr.cameraTextureTransformSource", DEFAULT_CAMERA_TEXTURE_TRANSFORM_SOURCE));
+        appendJsonString(builder, "cameraTextureTransformSource", stringExtra("rustyquest.makepad.cameraTextureTransformSource", DEFAULT_CAMERA_TEXTURE_TRANSFORM_SOURCE));
         builder.append(',');
-        appendJsonString(builder, "cameraTextureTransformReason", stringExtra("rustyxr.cameraTextureTransformReason", DEFAULT_CAMERA_TEXTURE_TRANSFORM_REASON));
+        appendJsonString(builder, "cameraTextureTransformReason", stringExtra("rustyquest.makepad.cameraTextureTransformReason", DEFAULT_CAMERA_TEXTURE_TRANSFORM_REASON));
         builder.append(',');
-        appendJsonString(builder, "leftCameraTextureRotation", stringExtra("rustyxr.leftCameraTextureRotation", stringExtra("rustyxr.cameraTextureRotation", DEFAULT_CAMERA_TEXTURE_ROTATION)));
-        builder.append(",\"leftCameraTextureFlipX\":").append(booleanExtra("rustyxr.leftCameraTextureFlipX", booleanExtra("rustyxr.cameraTextureFlipX", DEFAULT_CAMERA_TEXTURE_FLIP_X)));
-        builder.append(",\"leftCameraTextureFlipY\":").append(booleanExtra("rustyxr.leftCameraTextureFlipY", booleanExtra("rustyxr.cameraTextureFlipY", DEFAULT_CAMERA_TEXTURE_FLIP_Y)));
-        builder.append(",\"leftCameraTextureMirror\":").append(booleanExtra("rustyxr.leftCameraTextureMirror", booleanExtra("rustyxr.cameraTextureMirror", DEFAULT_CAMERA_TEXTURE_MIRROR)));
+        appendJsonString(builder, "leftCameraTextureRotation", stringExtra("rustyquest.makepad.leftCameraTextureRotation", stringExtra("rustyquest.makepad.cameraTextureRotation", DEFAULT_CAMERA_TEXTURE_ROTATION)));
+        builder.append(",\"leftCameraTextureFlipX\":").append(booleanExtra("rustyquest.makepad.leftCameraTextureFlipX", booleanExtra("rustyquest.makepad.cameraTextureFlipX", DEFAULT_CAMERA_TEXTURE_FLIP_X)));
+        builder.append(",\"leftCameraTextureFlipY\":").append(booleanExtra("rustyquest.makepad.leftCameraTextureFlipY", booleanExtra("rustyquest.makepad.cameraTextureFlipY", DEFAULT_CAMERA_TEXTURE_FLIP_Y)));
+        builder.append(",\"leftCameraTextureMirror\":").append(booleanExtra("rustyquest.makepad.leftCameraTextureMirror", booleanExtra("rustyquest.makepad.cameraTextureMirror", DEFAULT_CAMERA_TEXTURE_MIRROR)));
         builder.append(',');
-        appendJsonString(builder, "leftCameraTextureTransformSource", stringExtra("rustyxr.leftCameraTextureTransformSource", stringExtra("rustyxr.cameraTextureTransformSource", DEFAULT_CAMERA_TEXTURE_TRANSFORM_SOURCE)));
+        appendJsonString(builder, "leftCameraTextureTransformSource", stringExtra("rustyquest.makepad.leftCameraTextureTransformSource", stringExtra("rustyquest.makepad.cameraTextureTransformSource", DEFAULT_CAMERA_TEXTURE_TRANSFORM_SOURCE)));
         builder.append(',');
-        appendJsonString(builder, "leftCameraTextureTransformReason", stringExtra("rustyxr.leftCameraTextureTransformReason", stringExtra("rustyxr.cameraTextureTransformReason", DEFAULT_CAMERA_TEXTURE_TRANSFORM_REASON)));
+        appendJsonString(builder, "leftCameraTextureTransformReason", stringExtra("rustyquest.makepad.leftCameraTextureTransformReason", stringExtra("rustyquest.makepad.cameraTextureTransformReason", DEFAULT_CAMERA_TEXTURE_TRANSFORM_REASON)));
         builder.append(',');
-        appendJsonString(builder, "rightCameraTextureRotation", stringExtra("rustyxr.rightCameraTextureRotation", stringExtra("rustyxr.cameraTextureRotation", DEFAULT_CAMERA_TEXTURE_ROTATION)));
-        builder.append(",\"rightCameraTextureFlipX\":").append(booleanExtra("rustyxr.rightCameraTextureFlipX", booleanExtra("rustyxr.cameraTextureFlipX", DEFAULT_CAMERA_TEXTURE_FLIP_X)));
-        builder.append(",\"rightCameraTextureFlipY\":").append(booleanExtra("rustyxr.rightCameraTextureFlipY", booleanExtra("rustyxr.cameraTextureFlipY", DEFAULT_CAMERA_TEXTURE_FLIP_Y)));
-        builder.append(",\"rightCameraTextureMirror\":").append(booleanExtra("rustyxr.rightCameraTextureMirror", booleanExtra("rustyxr.cameraTextureMirror", DEFAULT_CAMERA_TEXTURE_MIRROR)));
+        appendJsonString(builder, "rightCameraTextureRotation", stringExtra("rustyquest.makepad.rightCameraTextureRotation", stringExtra("rustyquest.makepad.cameraTextureRotation", DEFAULT_CAMERA_TEXTURE_ROTATION)));
+        builder.append(",\"rightCameraTextureFlipX\":").append(booleanExtra("rustyquest.makepad.rightCameraTextureFlipX", booleanExtra("rustyquest.makepad.cameraTextureFlipX", DEFAULT_CAMERA_TEXTURE_FLIP_X)));
+        builder.append(",\"rightCameraTextureFlipY\":").append(booleanExtra("rustyquest.makepad.rightCameraTextureFlipY", booleanExtra("rustyquest.makepad.cameraTextureFlipY", DEFAULT_CAMERA_TEXTURE_FLIP_Y)));
+        builder.append(",\"rightCameraTextureMirror\":").append(booleanExtra("rustyquest.makepad.rightCameraTextureMirror", booleanExtra("rustyquest.makepad.cameraTextureMirror", DEFAULT_CAMERA_TEXTURE_MIRROR)));
         builder.append(',');
-        appendJsonString(builder, "rightCameraTextureTransformSource", stringExtra("rustyxr.rightCameraTextureTransformSource", stringExtra("rustyxr.cameraTextureTransformSource", DEFAULT_CAMERA_TEXTURE_TRANSFORM_SOURCE)));
+        appendJsonString(builder, "rightCameraTextureTransformSource", stringExtra("rustyquest.makepad.rightCameraTextureTransformSource", stringExtra("rustyquest.makepad.cameraTextureTransformSource", DEFAULT_CAMERA_TEXTURE_TRANSFORM_SOURCE)));
         builder.append(',');
-        appendJsonString(builder, "rightCameraTextureTransformReason", stringExtra("rustyxr.rightCameraTextureTransformReason", stringExtra("rustyxr.cameraTextureTransformReason", DEFAULT_CAMERA_TEXTURE_TRANSFORM_REASON)));
+        appendJsonString(builder, "rightCameraTextureTransformReason", stringExtra("rustyquest.makepad.rightCameraTextureTransformReason", stringExtra("rustyquest.makepad.cameraTextureTransformReason", DEFAULT_CAMERA_TEXTURE_TRANSFORM_REASON)));
         builder.append(',');
-        appendJsonString(builder, "cameraSourceEyeMapping", stringExtra("rustyxr.cameraSourceEyeMapping", DEFAULT_CAMERA_SOURCE_EYE_MAPPING));
+        appendJsonString(builder, "cameraSourceEyeMapping", stringExtra("rustyquest.makepad.cameraSourceEyeMapping", DEFAULT_CAMERA_SOURCE_EYE_MAPPING));
         builder.append(',');
-        appendJsonString(builder, "cameraOrientationDiagnosticMode", stringExtra("rustyxr.cameraOrientationDiagnosticMode", DEFAULT_CAMERA_ORIENTATION_DIAGNOSTIC_MODE));
-        builder.append(",\"visualReleaseAccepted\":").append(booleanExtra("rustyxr.visualReleaseAccepted", false));
+        appendJsonString(builder, "cameraOrientationDiagnosticMode", stringExtra("rustyquest.makepad.cameraOrientationDiagnosticMode", DEFAULT_CAMERA_ORIENTATION_DIAGNOSTIC_MODE));
+        builder.append(",\"visualReleaseAccepted\":").append(booleanExtra("rustyquest.makepad.visualReleaseAccepted", false));
         builder.append(',');
-        appendJsonString(builder, "visualAcceptanceToken", stringExtra("rustyxr.visualAcceptanceToken", ""));
-        builder.append(",\"xrRenderScale\":").append(floatJson(floatExtra("rustyxr.xrRenderScale", DEFAULT_XR_RENDER_SCALE)));
-        builder.append(",\"xrDisplayRefreshHz\":").append(floatJson(floatExtra("rustyxr.xrDisplayRefreshHz", DEFAULT_XR_DISPLAY_REFRESH_HZ)));
+        appendJsonString(builder, "visualAcceptanceToken", stringExtra("rustyquest.makepad.visualAcceptanceToken", ""));
+        builder.append(",\"xrRenderScale\":").append(floatJson(floatExtra("rustyquest.makepad.xrRenderScale", DEFAULT_XR_RENDER_SCALE)));
+        builder.append(",\"xrDisplayRefreshHz\":").append(floatJson(floatExtra("rustyquest.makepad.xrDisplayRefreshHz", DEFAULT_XR_DISPLAY_REFRESH_HZ)));
         builder.append(",\"xrFixedFoveationLevel\":").append(fixedFoveationLevel);
         builder.append(',');
-        appendJsonString(builder, "xrColorFormat", stringExtra("rustyxr.xrColorFormat", DEFAULT_XR_COLOR_FORMAT));
+        appendJsonString(builder, "xrColorFormat", stringExtra("rustyquest.makepad.xrColorFormat", DEFAULT_XR_COLOR_FORMAT));
         builder.append(',');
-        appendJsonString(builder, "environmentDepthMode", stringExtra("rustyxr.depth", DEFAULT_ENVIRONMENT_DEPTH_MODE));
-        builder.append(",\"environmentDepthHandRemoval\":").append(booleanExtra("rustyxr.depthHandRemoval", DEFAULT_ENVIRONMENT_DEPTH_HAND_REMOVAL));
+        appendJsonString(builder, "environmentDepthMode", stringExtra("rustyquest.makepad.depth", DEFAULT_ENVIRONMENT_DEPTH_MODE));
+        builder.append(",\"environmentDepthHandRemoval\":").append(booleanExtra("rustyquest.makepad.depthHandRemoval", DEFAULT_ENVIRONMENT_DEPTH_HAND_REMOVAL));
         builder.append(',');
-        appendJsonString(builder, "handParticleMode", stringExtra("rustyxr.handParticles", DEFAULT_HAND_PARTICLE_MODE));
+        appendJsonString(builder, "handParticleMode", stringExtra("rustyquest.makepad.handParticles", DEFAULT_HAND_PARTICLE_MODE));
         builder.append(',');
-        appendJsonString(builder, "openxrPassthroughProbe", stringExtra("rustyxr.openxrPassthroughProbe", DEFAULT_OPENXR_PASSTHROUGH_PROBE));
+        appendJsonString(builder, "openxrPassthroughProbe", stringExtra("rustyquest.makepad.openxrPassthroughProbe", DEFAULT_OPENXR_PASSTHROUGH_PROBE));
         builder.append(',');
-        appendJsonString(builder, "passthroughStyleMode", stringExtra("rustyxr.passthroughStyleMode", DEFAULT_PASSTHROUGH_STYLE_MODE));
-        builder.append(",\"passthroughOpacity\":").append(floatJson(floatExtra("rustyxr.passthroughOpacity", DEFAULT_PASSTHROUGH_OPACITY)));
-        builder.append(",\"passthroughEdgeR\":").append(floatJson(floatExtra("rustyxr.passthroughEdgeR", DEFAULT_PASSTHROUGH_EDGE_R)));
-        builder.append(",\"passthroughEdgeG\":").append(floatJson(floatExtra("rustyxr.passthroughEdgeG", DEFAULT_PASSTHROUGH_EDGE_G)));
-        builder.append(",\"passthroughEdgeB\":").append(floatJson(floatExtra("rustyxr.passthroughEdgeB", DEFAULT_PASSTHROUGH_EDGE_B)));
-        builder.append(",\"passthroughEdgeA\":").append(floatJson(floatExtra("rustyxr.passthroughEdgeA", DEFAULT_PASSTHROUGH_EDGE_A)));
-        builder.append(",\"passthroughBrightness\":").append(floatJson(floatExtra("rustyxr.passthroughBrightness", DEFAULT_PASSTHROUGH_BRIGHTNESS)));
-        builder.append(",\"passthroughContrast\":").append(floatJson(floatExtra("rustyxr.passthroughContrast", DEFAULT_PASSTHROUGH_CONTRAST)));
-        builder.append(",\"passthroughSaturation\":").append(floatJson(floatExtra("rustyxr.passthroughSaturation", DEFAULT_PASSTHROUGH_SATURATION)));
-        builder.append(",\"passthroughColorPhase\":").append(floatJson(floatExtra("rustyxr.passthroughColorPhase", DEFAULT_PASSTHROUGH_COLOR_PHASE)));
-        builder.append(",\"passthroughColorAmplitude\":").append(floatJson(floatExtra("rustyxr.passthroughColorAmplitude", DEFAULT_PASSTHROUGH_COLOR_AMPLITUDE)));
-        builder.append(",\"passthroughLutResolution\":").append(Math.max(2, intExtra("rustyxr.passthroughLutResolution", DEFAULT_PASSTHROUGH_LUT_RESOLUTION)));
-        builder.append(",\"passthroughLutWeight\":").append(floatJson(floatExtra("rustyxr.passthroughLutWeight", DEFAULT_PASSTHROUGH_LUT_WEIGHT)));
-        builder.append(",\"passthroughLutFlickerHz\":").append(floatJson(floatExtra("rustyxr.passthroughLutFlickerHz", DEFAULT_PASSTHROUGH_LUT_FLICKER_HZ)));
-        builder.append(",\"fullFieldFlickerHz\":").append(floatJson(floatExtra("rustyxr.fullFieldFlickerHz", DEFAULT_FULL_FIELD_FLICKER_HZ)));
-        builder.append(",\"projectionLayerVisible\":").append(booleanExtra("rustyxr.projectionLayerVisible", DEFAULT_PROJECTION_LAYER_VISIBLE));
+        appendJsonString(builder, "passthroughStyleMode", stringExtra("rustyquest.makepad.passthroughStyleMode", DEFAULT_PASSTHROUGH_STYLE_MODE));
+        builder.append(",\"passthroughOpacity\":").append(floatJson(floatExtra("rustyquest.makepad.passthroughOpacity", DEFAULT_PASSTHROUGH_OPACITY)));
+        builder.append(",\"passthroughEdgeR\":").append(floatJson(floatExtra("rustyquest.makepad.passthroughEdgeR", DEFAULT_PASSTHROUGH_EDGE_R)));
+        builder.append(",\"passthroughEdgeG\":").append(floatJson(floatExtra("rustyquest.makepad.passthroughEdgeG", DEFAULT_PASSTHROUGH_EDGE_G)));
+        builder.append(",\"passthroughEdgeB\":").append(floatJson(floatExtra("rustyquest.makepad.passthroughEdgeB", DEFAULT_PASSTHROUGH_EDGE_B)));
+        builder.append(",\"passthroughEdgeA\":").append(floatJson(floatExtra("rustyquest.makepad.passthroughEdgeA", DEFAULT_PASSTHROUGH_EDGE_A)));
+        builder.append(",\"passthroughBrightness\":").append(floatJson(floatExtra("rustyquest.makepad.passthroughBrightness", DEFAULT_PASSTHROUGH_BRIGHTNESS)));
+        builder.append(",\"passthroughContrast\":").append(floatJson(floatExtra("rustyquest.makepad.passthroughContrast", DEFAULT_PASSTHROUGH_CONTRAST)));
+        builder.append(",\"passthroughSaturation\":").append(floatJson(floatExtra("rustyquest.makepad.passthroughSaturation", DEFAULT_PASSTHROUGH_SATURATION)));
+        builder.append(",\"passthroughColorPhase\":").append(floatJson(floatExtra("rustyquest.makepad.passthroughColorPhase", DEFAULT_PASSTHROUGH_COLOR_PHASE)));
+        builder.append(",\"passthroughColorAmplitude\":").append(floatJson(floatExtra("rustyquest.makepad.passthroughColorAmplitude", DEFAULT_PASSTHROUGH_COLOR_AMPLITUDE)));
+        builder.append(",\"passthroughLutResolution\":").append(Math.max(2, intExtra("rustyquest.makepad.passthroughLutResolution", DEFAULT_PASSTHROUGH_LUT_RESOLUTION)));
+        builder.append(",\"passthroughLutWeight\":").append(floatJson(floatExtra("rustyquest.makepad.passthroughLutWeight", DEFAULT_PASSTHROUGH_LUT_WEIGHT)));
+        builder.append(",\"passthroughLutFlickerHz\":").append(floatJson(floatExtra("rustyquest.makepad.passthroughLutFlickerHz", DEFAULT_PASSTHROUGH_LUT_FLICKER_HZ)));
+        builder.append(",\"fullFieldFlickerHz\":").append(floatJson(floatExtra("rustyquest.makepad.fullFieldFlickerHz", DEFAULT_FULL_FIELD_FLICKER_HZ)));
+        builder.append(",\"projectionLayerVisible\":").append(booleanExtra("rustyquest.makepad.projectionLayerVisible", DEFAULT_PROJECTION_LAYER_VISIBLE));
         builder.append(",\"diagnosticHudVisible\":").append(hudVisible);
         builder.append(',');
-        appendJsonString(builder, "diagnosticHudCommand", stringExtra("rustyxr.diagnosticHudCommand", DEFAULT_DIAGNOSTIC_HUD_COMMAND));
-        builder.append(",\"oscEnabled\":").append(booleanExtra("rustyxr.oscEnabled", DEFAULT_OSC_ENABLED));
-        builder.append(",\"oscOverlayEnabled\":").append(booleanExtra("rustyxr.oscOverlayEnabled", hudVisible && DEFAULT_OSC_OVERLAY_ENABLED));
+        appendJsonString(builder, "diagnosticHudCommand", stringExtra("rustyquest.makepad.diagnosticHudCommand", DEFAULT_DIAGNOSTIC_HUD_COMMAND));
+        builder.append(",\"oscEnabled\":").append(booleanExtra("rustyquest.makepad.oscEnabled", DEFAULT_OSC_ENABLED));
+        builder.append(",\"oscOverlayEnabled\":").append(booleanExtra("rustyquest.makepad.oscOverlayEnabled", hudVisible && DEFAULT_OSC_OVERLAY_ENABLED));
         builder.append(',');
-        appendJsonString(builder, "oscListenAddr", stringExtra("rustyxr.oscListenAddr", DEFAULT_OSC_LISTEN_ADDR));
-        builder.append(",\"oscMaxPacketBytes\":").append(Math.max(256, intExtra("rustyxr.oscMaxPacketBytes", DEFAULT_OSC_MAX_PACKET_BYTES)));
+        appendJsonString(builder, "oscListenAddr", stringExtra("rustyquest.makepad.oscListenAddr", DEFAULT_OSC_LISTEN_ADDR));
+        builder.append(",\"oscMaxPacketBytes\":").append(Math.max(256, intExtra("rustyquest.makepad.oscMaxPacketBytes", DEFAULT_OSC_MAX_PACKET_BYTES)));
         builder.append(',');
         appendJsonString(builder, "stereoLayout", cameraStereoLayout());
         builder.append('}');
@@ -693,128 +693,128 @@ public final class CompositeLayerActivity extends NativeActivity {
         }
 
         Intent serviceIntent = new Intent(this, HeadsetCameraService.class);
-        serviceIntent.putExtra(HeadsetCameraService.EXTRA_WIDTH, intExtra("rustyxr.cameraWidth", DEFAULT_CAMERA_SIZE));
-        serviceIntent.putExtra(HeadsetCameraService.EXTRA_HEIGHT, intExtra("rustyxr.cameraHeight", DEFAULT_CAMERA_SIZE));
+        serviceIntent.putExtra(HeadsetCameraService.EXTRA_WIDTH, intExtra("rustyquest.makepad.cameraWidth", DEFAULT_CAMERA_SIZE));
+        serviceIntent.putExtra(HeadsetCameraService.EXTRA_HEIGHT, intExtra("rustyquest.makepad.cameraHeight", DEFAULT_CAMERA_SIZE));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_PREFERRED_SQUARE_SIZE,
-            intExtra("rustyxr.cameraPreferredSquare", DEFAULT_CAMERA_SIZE));
+            intExtra("rustyquest.makepad.cameraPreferredSquare", DEFAULT_CAMERA_SIZE));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_MAX_DIMENSION,
-            intExtra("rustyxr.cameraMaxDimension", DEFAULT_CAMERA_MAX_DIMENSION));
+            intExtra("rustyquest.makepad.cameraMaxDimension", DEFAULT_CAMERA_MAX_DIMENSION));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_CPU_UPLOAD_HZ,
-            intExtra("rustyxr.cameraCpuUploadHz", DEFAULT_CAMERA_CPU_UPLOAD_HZ));
+            intExtra("rustyquest.makepad.cameraCpuUploadHz", DEFAULT_CAMERA_CPU_UPLOAD_HZ));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_CAMERA_TARGET_FPS,
-            intExtra("rustyxr.cameraTargetFps", DEFAULT_CAMERA_TARGET_FPS));
+            intExtra("rustyquest.makepad.cameraTargetFps", DEFAULT_CAMERA_TARGET_FPS));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_CAMERA_FPS_MIN,
-            intExtra("rustyxr.cameraFpsMin", DEFAULT_CAMERA_FPS_MIN));
+            intExtra("rustyquest.makepad.cameraFpsMin", DEFAULT_CAMERA_FPS_MIN));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_CAMERA_FPS_MAX,
-            intExtra("rustyxr.cameraFpsMax", DEFAULT_CAMERA_FPS_MAX));
+            intExtra("rustyquest.makepad.cameraFpsMax", DEFAULT_CAMERA_FPS_MAX));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_STEREO_IMAGE_READER_MAX_IMAGES,
-            intExtra("rustyxr.cameraStereoImageReaderMaxImages", DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES));
+            intExtra("rustyquest.makepad.cameraStereoImageReaderMaxImages", DEFAULT_CAMERA_STEREO_IMAGE_READER_MAX_IMAGES));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_PROJECTION_GEOMETRY_PROFILE,
-            stringExtra("rustyxr.cameraProjectionGeometryProfile", DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE));
+            stringExtra("rustyquest.makepad.cameraProjectionGeometryProfile", DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_SOURCE_SAMPLING_MODE,
-            stringExtra("rustyxr.cameraSourceSamplingMode", DEFAULT_CAMERA_SOURCE_SAMPLING_MODE));
+            stringExtra("rustyquest.makepad.cameraSourceSamplingMode", DEFAULT_CAMERA_SOURCE_SAMPLING_MODE));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_TARGET_SCREEN_UV_RECT,
-            stringExtra("rustyxr.cameraTargetScreenUvRect", DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT));
+            stringExtra("rustyquest.makepad.cameraTargetScreenUvRect", DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_LEFT_TARGET_SCREEN_UV_RECT,
-            stringExtra("rustyxr.cameraLeftTargetScreenUvRect", DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT));
+            stringExtra("rustyquest.makepad.cameraLeftTargetScreenUvRect", DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_RIGHT_TARGET_SCREEN_UV_RECT,
-            stringExtra("rustyxr.cameraRightTargetScreenUvRect", DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT));
+            stringExtra("rustyquest.makepad.cameraRightTargetScreenUvRect", DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT));
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_CAMERA_TIER, cameraTier());
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_STEREO_LAYOUT, cameraStereoLayout());
         serviceIntent.putExtra(HeadsetCameraService.EXTRA_ALLOW_CPU_FALLBACK, allowCpuFallback());
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_POSE,
-            booleanExtra("rustyxr.cameraEstimatedPose", false));
+            booleanExtra("rustyquest.makepad.cameraEstimatedPose", false));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_POSE_X,
-            floatExtra("rustyxr.cameraEstimatedPoseX", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedPoseX", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_POSE_Y,
-            floatExtra("rustyxr.cameraEstimatedPoseY", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedPoseY", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_POSE_Z,
-            floatExtra("rustyxr.cameraEstimatedPoseZ", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedPoseZ", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_POSE_QX,
-            floatExtra("rustyxr.cameraEstimatedPoseQx", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedPoseQx", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_POSE_QY,
-            floatExtra("rustyxr.cameraEstimatedPoseQy", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedPoseQy", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_POSE_QZ,
-            floatExtra("rustyxr.cameraEstimatedPoseQz", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedPoseQz", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_POSE_QW,
-            floatExtra("rustyxr.cameraEstimatedPoseQw", 1.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedPoseQw", 1.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_STEREO_POSE,
-            booleanExtra("rustyxr.cameraEstimatedStereoPose", false));
+            booleanExtra("rustyquest.makepad.cameraEstimatedStereoPose", false));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_POSE_LABEL,
-            stringExtra("rustyxr.cameraEstimatedPoseLabel", "launch-extra"));
+            stringExtra("rustyquest.makepad.cameraEstimatedPoseLabel", "launch-extra"));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_POSE_VERSION,
-            stringExtra("rustyxr.cameraEstimatedPoseVersion", "unspecified"));
+            stringExtra("rustyquest.makepad.cameraEstimatedPoseVersion", "unspecified"));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_POSE_COORDINATE_CONVENTION,
-            stringExtra("rustyxr.cameraPoseCoordinateConvention", "android-camera2-lens-pose-reference-from-camera"));
+            stringExtra("rustyquest.makepad.cameraPoseCoordinateConvention", "android-camera2-lens-pose-reference-from-camera"));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_LEFT_POSE_X,
-            floatExtra("rustyxr.cameraEstimatedLeftPoseX", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedLeftPoseX", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_LEFT_POSE_Y,
-            floatExtra("rustyxr.cameraEstimatedLeftPoseY", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedLeftPoseY", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_LEFT_POSE_Z,
-            floatExtra("rustyxr.cameraEstimatedLeftPoseZ", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedLeftPoseZ", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_LEFT_POSE_QX,
-            floatExtra("rustyxr.cameraEstimatedLeftPoseQx", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedLeftPoseQx", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_LEFT_POSE_QY,
-            floatExtra("rustyxr.cameraEstimatedLeftPoseQy", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedLeftPoseQy", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_LEFT_POSE_QZ,
-            floatExtra("rustyxr.cameraEstimatedLeftPoseQz", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedLeftPoseQz", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_LEFT_POSE_QW,
-            floatExtra("rustyxr.cameraEstimatedLeftPoseQw", 1.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedLeftPoseQw", 1.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_RIGHT_POSE_X,
-            floatExtra("rustyxr.cameraEstimatedRightPoseX", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedRightPoseX", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_RIGHT_POSE_Y,
-            floatExtra("rustyxr.cameraEstimatedRightPoseY", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedRightPoseY", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_RIGHT_POSE_Z,
-            floatExtra("rustyxr.cameraEstimatedRightPoseZ", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedRightPoseZ", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_RIGHT_POSE_QX,
-            floatExtra("rustyxr.cameraEstimatedRightPoseQx", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedRightPoseQx", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_RIGHT_POSE_QY,
-            floatExtra("rustyxr.cameraEstimatedRightPoseQy", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedRightPoseQy", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_RIGHT_POSE_QZ,
-            floatExtra("rustyxr.cameraEstimatedRightPoseQz", 0.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedRightPoseQz", 0.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_ESTIMATED_RIGHT_POSE_QW,
-            floatExtra("rustyxr.cameraEstimatedRightPoseQw", 1.0f));
+            floatExtra("rustyquest.makepad.cameraEstimatedRightPoseQw", 1.0f));
         serviceIntent.putExtra(
             HeadsetCameraService.EXTRA_STEREO_PAIR_MAX_DELTA_NS,
-            longExtra("rustyxr.cameraStereoPairMaxDeltaNs", 5_000_000L));
+            longExtra("rustyquest.makepad.cameraStereoPairMaxDeltaNs", 5_000_000L));
         try {
             startService(serviceIntent);
             sendNativeEvent("headsetCameraServiceStarted");
@@ -829,13 +829,13 @@ public final class CompositeLayerActivity extends NativeActivity {
             return;
         }
 
-        boolean brokerStereo = booleanExtra("rustyxr.brokerH264Stereo", false);
-        String brokerCameraId = stringExtra("rustyxr.brokerH264CameraId", "");
+        boolean brokerStereo = booleanExtra("rustyquest.makepad.brokerH264Stereo", false);
+        String brokerCameraId = stringExtra("rustyquest.makepad.brokerH264CameraId", "");
         String brokerLeftCameraId = stringExtra(
-            "rustyxr.brokerH264LeftCameraId",
+            "rustyquest.makepad.brokerH264LeftCameraId",
             brokerStereo ? DEFAULT_BROKER_H264_LEFT_CAMERA_ID : brokerCameraId);
         String brokerRightCameraId = stringExtra(
-            "rustyxr.brokerH264RightCameraId",
+            "rustyquest.makepad.brokerH264RightCameraId",
             brokerStereo ? DEFAULT_BROKER_H264_RIGHT_CAMERA_ID : "");
         if (brokerStereo && shouldAutoSelectBrokerH264StereoCameraIds(brokerLeftCameraId, brokerRightCameraId)) {
             BrokerH264StereoCameraIds autoIds =
@@ -857,71 +857,71 @@ public final class CompositeLayerActivity extends NativeActivity {
             }
         }
 
-        boolean brokerLiveStream = booleanExtra("rustyxr.brokerH264LiveStream", false);
-        int brokerH264CaptureMs = intExtra("rustyxr.brokerH264CaptureMs", DEFAULT_BROKER_H264_CAPTURE_MS);
-        int brokerH264MaxPackets = intExtra("rustyxr.brokerH264MaxPackets", DEFAULT_BROKER_H264_MAX_PACKETS);
+        boolean brokerLiveStream = booleanExtra("rustyquest.makepad.brokerH264LiveStream", false);
+        int brokerH264CaptureMs = intExtra("rustyquest.makepad.brokerH264CaptureMs", DEFAULT_BROKER_H264_CAPTURE_MS);
+        int brokerH264MaxPackets = intExtra("rustyquest.makepad.brokerH264MaxPackets", DEFAULT_BROKER_H264_MAX_PACKETS);
 
         BrokerH264ConsumerProbe.Config config = new BrokerH264ConsumerProbe.Config(
-            stringExtra("rustyxr.brokerHost", DEFAULT_BROKER_HOST),
-            Math.max(1, intExtra("rustyxr.brokerPort", DEFAULT_BROKER_PORT)),
-            Math.max(1, intExtra("rustyxr.brokerH264StreamPort", DEFAULT_BROKER_H264_STREAM_PORT)),
-            Math.max(1, intExtra("rustyxr.brokerH264RightStreamPort", DEFAULT_BROKER_H264_RIGHT_STREAM_PORT)),
+            stringExtra("rustyquest.makepad.brokerHost", DEFAULT_BROKER_HOST),
+            Math.max(1, intExtra("rustyquest.makepad.brokerPort", DEFAULT_BROKER_PORT)),
+            Math.max(1, intExtra("rustyquest.makepad.brokerH264StreamPort", DEFAULT_BROKER_H264_STREAM_PORT)),
+            Math.max(1, intExtra("rustyquest.makepad.brokerH264RightStreamPort", DEFAULT_BROKER_H264_RIGHT_STREAM_PORT)),
             brokerCameraId,
             brokerLeftCameraId,
             brokerRightCameraId,
-            Math.max(16, intExtra("rustyxr.brokerH264Width", DEFAULT_BROKER_H264_WIDTH)),
-            Math.max(16, intExtra("rustyxr.brokerH264Height", DEFAULT_BROKER_H264_HEIGHT)),
+            Math.max(16, intExtra("rustyquest.makepad.brokerH264Width", DEFAULT_BROKER_H264_WIDTH)),
+            Math.max(16, intExtra("rustyquest.makepad.brokerH264Height", DEFAULT_BROKER_H264_HEIGHT)),
             brokerLiveStream ? Math.max(0, brokerH264CaptureMs) : Math.max(100, brokerH264CaptureMs),
             brokerLiveStream ? Math.max(0, brokerH264MaxPackets) : Math.max(1, brokerH264MaxPackets),
-            Math.max(100000, intExtra("rustyxr.brokerH264BitrateBps", DEFAULT_BROKER_H264_BITRATE_BPS)),
+            Math.max(100000, intExtra("rustyquest.makepad.brokerH264BitrateBps", DEFAULT_BROKER_H264_BITRATE_BPS)),
             clampInt(
-                intExtra("rustyxr.brokerH264FrameRateHz", DEFAULT_BROKER_H264_FRAME_RATE_HZ),
+                intExtra("rustyquest.makepad.brokerH264FrameRateHz", DEFAULT_BROKER_H264_FRAME_RATE_HZ),
                 1,
                 120),
-            Math.max(1000, intExtra("rustyxr.brokerH264CommandTimeoutMs", DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS)),
-            Math.max(1000, intExtra("rustyxr.brokerH264StreamTimeoutMs", DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS)),
-            Math.max(1000, intExtra("rustyxr.brokerH264DecodeTimeoutMs", DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS)),
-            stringExtra("rustyxr.brokerH264DecodeOutputMode", DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE),
+            Math.max(1000, intExtra("rustyquest.makepad.brokerH264CommandTimeoutMs", DEFAULT_BROKER_H264_COMMAND_TIMEOUT_MS)),
+            Math.max(1000, intExtra("rustyquest.makepad.brokerH264StreamTimeoutMs", DEFAULT_BROKER_H264_STREAM_TIMEOUT_MS)),
+            Math.max(1000, intExtra("rustyquest.makepad.brokerH264DecodeTimeoutMs", DEFAULT_BROKER_H264_DECODE_TIMEOUT_MS)),
+            stringExtra("rustyquest.makepad.brokerH264DecodeOutputMode", DEFAULT_BROKER_H264_DECODE_OUTPUT_MODE),
             brokerStereo,
             brokerLiveStream,
-            stringExtra("rustyxr.brokerH264SourceMode", DEFAULT_BROKER_H264_SOURCE_MODE),
-            stringExtra("rustyxr.brokerH264SyntheticPattern", DEFAULT_BROKER_H264_SYNTHETIC_PATTERN),
+            stringExtra("rustyquest.makepad.brokerH264SourceMode", DEFAULT_BROKER_H264_SOURCE_MODE),
+            stringExtra("rustyquest.makepad.brokerH264SyntheticPattern", DEFAULT_BROKER_H264_SYNTHETIC_PATTERN),
             stringExtra(
-                "rustyxr.brokerH264SyntheticProjectionProfile",
+                "rustyquest.makepad.brokerH264SyntheticProjectionProfile",
                 DEFAULT_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE),
             stringExtra(
-                "rustyxr.brokerH264ProjectionGeometryProfile",
+                "rustyquest.makepad.brokerH264ProjectionGeometryProfile",
                 stringExtra(
-                    "rustyxr.brokerH264SyntheticProjectionProfile",
+                    "rustyquest.makepad.brokerH264SyntheticProjectionProfile",
                     DEFAULT_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE)),
             stringExtra(
-                "rustyxr.brokerH264SourceSamplingMode",
-                stringExtra("rustyxr.cameraSourceSamplingMode", DEFAULT_CAMERA_SOURCE_SAMPLING_MODE)),
+                "rustyquest.makepad.brokerH264SourceSamplingMode",
+                stringExtra("rustyquest.makepad.cameraSourceSamplingMode", DEFAULT_CAMERA_SOURCE_SAMPLING_MODE)),
             stringExtra(
-                "rustyxr.brokerH264TargetScreenUvRect",
-                stringExtra("rustyxr.cameraTargetScreenUvRect", DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT)),
+                "rustyquest.makepad.brokerH264TargetScreenUvRect",
+                stringExtra("rustyquest.makepad.cameraTargetScreenUvRect", DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT)),
             stringExtra(
-                "rustyxr.brokerH264LeftTargetScreenUvRect",
-                stringExtra("rustyxr.cameraLeftTargetScreenUvRect", DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT)),
+                "rustyquest.makepad.brokerH264LeftTargetScreenUvRect",
+                stringExtra("rustyquest.makepad.cameraLeftTargetScreenUvRect", DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT)),
             stringExtra(
-                "rustyxr.brokerH264RightTargetScreenUvRect",
-                stringExtra("rustyxr.cameraRightTargetScreenUvRect", DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT)),
-            booleanExtra("rustyxr.brokerH264LiveDecode", DEFAULT_BROKER_H264_LIVE_DECODE),
-            booleanExtra("rustyxr.brokerH264ByteIdentityProbe", DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE),
-            stringExtra("rustyxr.brokerH264StereoPairingMode", DEFAULT_BROKER_H264_STEREO_PAIRING_MODE),
+                "rustyquest.makepad.brokerH264RightTargetScreenUvRect",
+                stringExtra("rustyquest.makepad.cameraRightTargetScreenUvRect", DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT)),
+            booleanExtra("rustyquest.makepad.brokerH264LiveDecode", DEFAULT_BROKER_H264_LIVE_DECODE),
+            booleanExtra("rustyquest.makepad.brokerH264ByteIdentityProbe", DEFAULT_BROKER_H264_BYTE_IDENTITY_PROBE),
+            stringExtra("rustyquest.makepad.brokerH264StereoPairingMode", DEFAULT_BROKER_H264_STEREO_PAIRING_MODE),
             Math.max(2, intExtra(
-                "rustyxr.brokerH264LivePairQueueLimit",
+                "rustyquest.makepad.brokerH264LivePairQueueLimit",
                 DEFAULT_BROKER_H264_LIVE_PAIR_QUEUE_LIMIT)),
-            stringExtra("rustyxr.brokerH264StereoPairId", DEFAULT_BROKER_H264_STEREO_PAIR_ID),
+            stringExtra("rustyquest.makepad.brokerH264StereoPairId", DEFAULT_BROKER_H264_STEREO_PAIR_ID),
             Math.max(0L, longExtra(
-                "rustyxr.brokerH264StereoPairMaxDeltaNs",
+                "rustyquest.makepad.brokerH264StereoPairMaxDeltaNs",
                 DEFAULT_BROKER_H264_STEREO_PAIR_MAX_DELTA_NS)),
-            stringExtra("rustyxr.brokerH264ProjectionMetadataJson", ""),
-            stringExtra("rustyxr.brokerH264LeftProjectionMetadataJson", ""),
-            stringExtra("rustyxr.brokerH264RightProjectionMetadataJson", ""),
-            stringExtra("rustyxr.brokerH264ProjectionMetadataBase64", ""),
-            stringExtra("rustyxr.brokerH264LeftProjectionMetadataBase64", ""),
-            stringExtra("rustyxr.brokerH264RightProjectionMetadataBase64", ""));
+            stringExtra("rustyquest.makepad.brokerH264ProjectionMetadataJson", ""),
+            stringExtra("rustyquest.makepad.brokerH264LeftProjectionMetadataJson", ""),
+            stringExtra("rustyquest.makepad.brokerH264RightProjectionMetadataJson", ""),
+            stringExtra("rustyquest.makepad.brokerH264ProjectionMetadataBase64", ""),
+            stringExtra("rustyquest.makepad.brokerH264LeftProjectionMetadataBase64", ""),
+            stringExtra("rustyquest.makepad.brokerH264RightProjectionMetadataBase64", ""));
         Log.i(TAG, "Starting broker H.264 consumer probe");
         sendNativeEvent("brokerH264ConsumerStarting");
         brokerH264ConsumerProbe = BrokerH264ConsumerProbe.start(
@@ -941,7 +941,7 @@ public final class CompositeLayerActivity extends NativeActivity {
     }
 
     private boolean shouldAutoSelectBrokerH264StereoCameraIds(String leftCameraId, String rightCameraId) {
-        if (!booleanExtra("rustyxr.brokerH264AutoStereoCameraIds", true)) {
+        if (!booleanExtra("rustyquest.makepad.brokerH264AutoStereoCameraIds", true)) {
             return false;
         }
         return leftCameraId == null ||
@@ -1197,11 +1197,11 @@ public final class CompositeLayerActivity extends NativeActivity {
         }
 
         float minScale = clampFloat(
-            floatExtra("rustyxr.projectionTargetBreathMinScale", DEFAULT_PROJECTION_TARGET_BREATH_MIN_SCALE),
+            floatExtra("rustyquest.makepad.projectionTargetBreathMinScale", DEFAULT_PROJECTION_TARGET_BREATH_MIN_SCALE),
             0.05f,
             1.5f);
         float maxScale = clampFloat(
-            floatExtra("rustyxr.projectionTargetBreathMaxScale", DEFAULT_PROJECTION_TARGET_BREATH_MAX_SCALE),
+            floatExtra("rustyquest.makepad.projectionTargetBreathMaxScale", DEFAULT_PROJECTION_TARGET_BREATH_MAX_SCALE),
             0.05f,
             1.5f);
         if (maxScale < minScale) {
@@ -1212,48 +1212,48 @@ public final class CompositeLayerActivity extends NativeActivity {
 
         BrokerBreathProjectionTargetController.Config config =
             new BrokerBreathProjectionTargetController.Config(
-                stringExtra("rustyxr.brokerHost", DEFAULT_BROKER_HOST),
-                Math.max(1, intExtra("rustyxr.brokerPort", DEFAULT_BROKER_PORT)),
-                stringExtra("rustyxr.projectionTargetBreathStream", DEFAULT_PROJECTION_TARGET_BREATH_STREAM),
+                stringExtra("rustyquest.makepad.brokerHost", DEFAULT_BROKER_HOST),
+                Math.max(1, intExtra("rustyquest.makepad.brokerPort", DEFAULT_BROKER_PORT)),
+                stringExtra("rustyquest.makepad.projectionTargetBreathStream", DEFAULT_PROJECTION_TARGET_BREATH_STREAM),
                 minScale,
                 maxScale,
                 clampFloat(
                     floatExtra(
-                        "rustyxr.projectionTargetBreathSmoothingAlpha",
+                        "rustyquest.makepad.projectionTargetBreathSmoothingAlpha",
                         DEFAULT_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA),
                     0.0f,
                     1.0f),
-                booleanExtra("rustyxr.projectionTargetBreathInvert", DEFAULT_PROJECTION_TARGET_BREATH_INVERT),
+                booleanExtra("rustyquest.makepad.projectionTargetBreathInvert", DEFAULT_PROJECTION_TARGET_BREATH_INVERT),
                 clampFloat(
                     floatExtra(
-                        "rustyxr.projectionTargetBreathMinQuality",
+                        "rustyquest.makepad.projectionTargetBreathMinQuality",
                         DEFAULT_PROJECTION_TARGET_BREATH_MIN_QUALITY),
                     0.0f,
                     1.0f),
                 Math.max(
                     100,
                     intExtra(
-                        "rustyxr.projectionTargetBreathReconnectDelayMs",
+                        "rustyquest.makepad.projectionTargetBreathReconnectDelayMs",
                         DEFAULT_PROJECTION_TARGET_BREATH_RECONNECT_DELAY_MS)),
                 Math.max(
                     500,
                     intExtra(
-                        "rustyxr.projectionTargetBreathSocketTimeoutMs",
+                        "rustyquest.makepad.projectionTargetBreathSocketTimeoutMs",
                         DEFAULT_PROJECTION_TARGET_BREATH_SOCKET_TIMEOUT_MS)),
                 Math.max(
                     16,
                     intExtra(
-                        "rustyxr.projectionTargetBreathUpdateIntervalMs",
+                        "rustyquest.makepad.projectionTargetBreathUpdateIntervalMs",
                         DEFAULT_PROJECTION_TARGET_BREATH_UPDATE_INTERVAL_MS)),
                 Math.max(
                     100,
                     intExtra(
-                        "rustyxr.projectionTargetBreathLogIntervalMs",
+                        "rustyquest.makepad.projectionTargetBreathLogIntervalMs",
                         DEFAULT_PROJECTION_TARGET_BREATH_LOG_INTERVAL_MS)),
                 Math.max(
                     1024,
                     intExtra(
-                        "rustyxr.projectionTargetBreathMaxFrameBytes",
+                        "rustyquest.makepad.projectionTargetBreathMaxFrameBytes",
                         DEFAULT_PROJECTION_TARGET_BREATH_MAX_FRAME_BYTES)));
 
         Log.i(TAG, "Starting broker breath projection-target controller");
@@ -1317,22 +1317,22 @@ public final class CompositeLayerActivity extends NativeActivity {
     private String nativeCameraConfigJson() {
         StringBuilder builder = new StringBuilder(256);
         builder.append('{');
-        builder.append("\"width\":").append(Math.max(1, intExtra("rustyxr.cameraWidth", DEFAULT_CAMERA_SIZE)));
-        builder.append(",\"height\":").append(Math.max(1, intExtra("rustyxr.cameraHeight", DEFAULT_CAMERA_SIZE)));
-        builder.append(",\"maxDimension\":").append(Math.max(1, intExtra("rustyxr.cameraMaxDimension", DEFAULT_CAMERA_MAX_DIMENSION)));
-        builder.append(",\"preferredSquare\":").append(Math.max(0, intExtra("rustyxr.cameraPreferredSquare", DEFAULT_CAMERA_SIZE)));
-        builder.append(",\"readerMaxImages\":").append(Math.max(2, intExtra("rustyxr.cameraStereoImageReaderMaxImages", 3)));
-        builder.append(",\"stereoPairMaxDeltaNs\":").append(Math.max(0L, longExtra("rustyxr.cameraStereoPairMaxDeltaNs", 5_000_000L)));
+        builder.append("\"width\":").append(Math.max(1, intExtra("rustyquest.makepad.cameraWidth", DEFAULT_CAMERA_SIZE)));
+        builder.append(",\"height\":").append(Math.max(1, intExtra("rustyquest.makepad.cameraHeight", DEFAULT_CAMERA_SIZE)));
+        builder.append(",\"maxDimension\":").append(Math.max(1, intExtra("rustyquest.makepad.cameraMaxDimension", DEFAULT_CAMERA_MAX_DIMENSION)));
+        builder.append(",\"preferredSquare\":").append(Math.max(0, intExtra("rustyquest.makepad.cameraPreferredSquare", DEFAULT_CAMERA_SIZE)));
+        builder.append(",\"readerMaxImages\":").append(Math.max(2, intExtra("rustyquest.makepad.cameraStereoImageReaderMaxImages", 3)));
+        builder.append(",\"stereoPairMaxDeltaNs\":").append(Math.max(0L, longExtra("rustyquest.makepad.cameraStereoPairMaxDeltaNs", 5_000_000L)));
         builder.append(',');
         appendJsonString(builder, "requestedTier", cameraTier());
         builder.append(',');
         appendJsonString(builder, "requestedStereoLayout", cameraStereoLayout());
         builder.append(',');
-        appendJsonString(builder, "sourceMode", stringExtra("rustyxr.nativeSourceMode", "auto"));
+        appendJsonString(builder, "sourceMode", stringExtra("rustyquest.makepad.nativeSourceMode", "auto"));
         builder.append(',');
-        appendJsonString(builder, "leftCameraId", stringExtra("rustyxr.nativeLeftCameraId", ""));
+        appendJsonString(builder, "leftCameraId", stringExtra("rustyquest.makepad.nativeLeftCameraId", ""));
         builder.append(',');
-        appendJsonString(builder, "rightCameraId", stringExtra("rustyxr.nativeRightCameraId", ""));
+        appendJsonString(builder, "rightCameraId", stringExtra("rustyquest.makepad.nativeRightCameraId", ""));
         builder.append('}');
         return builder.toString();
     }
@@ -1369,9 +1369,9 @@ public final class CompositeLayerActivity extends NativeActivity {
         serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_RESULT_CODE, resultCode);
         serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_RESULT_DATA, data);
         serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_HOST, "127.0.0.1");
-        serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_PORT, intExtra("rustyxr.mediaProjectionPort", 8787));
-        serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_WIDTH, intExtra("rustyxr.mediaProjectionWidth", 512));
-        serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_HEIGHT, intExtra("rustyxr.mediaProjectionHeight", 288));
+        serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_PORT, intExtra("rustyquest.makepad.mediaProjectionPort", 8787));
+        serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_WIDTH, intExtra("rustyquest.makepad.mediaProjectionWidth", 512));
+        serviceIntent.putExtra(MediaProjectionStreamService.EXTRA_HEIGHT, intExtra("rustyquest.makepad.mediaProjectionHeight", 288));
         startForegroundService(serviceIntent);
         sendNativeEvent("mediaProjectionGranted");
     }

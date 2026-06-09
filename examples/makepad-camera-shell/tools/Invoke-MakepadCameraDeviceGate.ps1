@@ -127,8 +127,8 @@ param(
     [ValidateSet("cpu-yuv", "hardware-buffer-external")]
     [string]$DirectCameraTexturePath = "hardware-buffer-external",
     [string[]]$PreLaunchForceStopPackages = @(
-        "com.example.rustyquest.makepad.composite",
-        "com.example.rustyquest.makepad.opengles"
+        "com.example.rustyxr.composite",
+        "com.example.rustyxr.opengles"
     ),
     [switch]$SkipPreLaunchForceStopPackages,
     [switch]$EnableNativePassthrough

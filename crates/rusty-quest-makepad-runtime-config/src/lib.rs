@@ -9,7 +9,7 @@
 //! serialize these public settings.
 //!
 //! ```
-//! use rusty_xr_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
+//! use rusty_quest_makepad_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 //!
 //! let mut config = RuntimeConfig::new();
 //! config

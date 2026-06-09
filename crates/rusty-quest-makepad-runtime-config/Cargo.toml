@@ -1,10 +1,10 @@
 [package]
-name = "rusty-xr-runtime-config"
+name = "rusty-quest-makepad-runtime-config"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Runtime configuration helpers for Rusty XR."
+description = "Runtime configuration helpers for the Rusty Quest Makepad lane."
 
 [features]
 default = []

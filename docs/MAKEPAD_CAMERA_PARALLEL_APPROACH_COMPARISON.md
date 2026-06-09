@@ -33,7 +33,7 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
   device behavior, dependency cost, and update cadence.
 - Treat the current custom APK lane as the diagnostic baseline and the Makepad
   lane as the ergonomic app-shell lane, not as two independent products.
-- Route Makepad lane profile values through `rusty-xr-runtime-config` first;
+- Route Makepad lane profile values through `rusty-quest-makepad-runtime-config` first;
   add camera metadata, stream framing, and scorecard contracts through core
   crates before adding Makepad-specific adapters.
 - Treat performance comparison as a controlled device-profile test. Current
@@ -81,7 +81,7 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
   either device idle or the current window-frame fence before suboptimal
   recreation stayed clean. The current local Makepad fork state promotes that
   frame-fence wait to a persistent source patch, the no-diagnostic Quest/Vulkan
-  counter run stayed clean, and the Rusty XR Makepad shell now passes launcher
+  counter run stayed clean, and the Rusty Quest Makepad shell now passes launcher
   plus generated-XR startup/liveness validation against that fork state,
   including Android NDK Camera2 metadata enumeration, bounded first `PRIVATE`
   buffer acquisition, and direct generated-XR paired Makepad `VideoExternal`
@@ -101,8 +101,8 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
 | Java shell | Rusty XR examples own Java activity/service code. | Makepad generates `MakepadActivity`, launcher activity, and XR activity. |
 | OpenXR loader | Explicit build input or local Android dependency. | Bundled by Makepad Quest variant into the APK. |
 | Quest permissions | Explicit source manifest permissions. | Quest variant generates OpenXR, passthrough, scene, anchor, and headset camera permissions. |
-| Runtime configuration | Intent extras and Rusty XR config code are directly controlled. | Startup marker values now pass through `rusty-xr-runtime-config`; Android intent extras still need a Makepad adapter. |
-| Shared core usage | Uses Rusty XR crates directly for config, diagnostics, camera, broker, and scorecard behavior. | First shared-core bridge uses `rusty-xr-runtime-config`; next bridges should add stream, camera, and scorecard contracts. |
+| Runtime configuration | Intent extras and Rusty Quest config code are directly controlled. | Startup marker values now pass through `rusty-quest-makepad-runtime-config`; Android intent extras still need a Makepad adapter. |
+| Shared core usage | Uses public Morphospace crates directly for config, diagnostics, camera, broker, and scorecard behavior. | First shared-core bridge uses `rusty-quest-makepad-runtime-config`; next bridges should add stream, camera, and scorecard contracts. |
 | UI/runtime | Minimal Android shell plus Rust examples. | Full Makepad UI, live/studio ecosystem, OpenXR render loop, and Quest shell. |
 | XR scene/root | Rusty XR example owns OpenXR/Vulkan setup directly. | `makepad-xr` provides `XrRoot`, scene nodes, XR permission flow, passthrough hooks, and Makepad draw abstractions. |
 | Camera affordance | Camera2 `PRIVATE`, MediaCodec, and projection probes are explicit in example code. | The Makepad shell now has a Rusty XR-owned Android NDK Camera2 metadata/acquisition probe and a direct generated-XR paired Makepad `VideoExternal` import/projection-mapping marker path. Q2Q transport remains a later gate. |
@@ -132,8 +132,8 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
 3. Android build: `cargo makepad android --variant=quest build` produces a Quest
    APK and bundles required native shared libraries.
 4. Launcher startup smoke: install/run on a selected Quest and confirm Java
-   activity, native bootstrap, `RUSTY_XR_MAKEPAD_CAMERA_STATUS`, and
-   `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` markers in a short log window.
+   activity, native bootstrap, `RUSTY_QUEST_MAKEPAD_CAMERA_STATUS`, and
+   `RUSTY_QUEST_MAKEPAD_STEREO_COMPARISON` markers in a short log window.
 5. Generated-XR startup smoke: launch the generated XR activity directly and
    confirm the same marker chain, focused immersive activity, and absence of
    native crashes.
@@ -161,8 +161,8 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
   Windows packaging fixes for generated wrapper paths and dependent Rust shared
   libraries.
 - The generated launcher activity starts and emits Java activity, native
-  bootstrap, `RUSTY_XR_MAKEPAD_CAMERA_STATUS`, and
-  `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` markers in a short startup capture.
+  bootstrap, `RUSTY_QUEST_MAKEPAD_CAMERA_STATUS`, and
+  `RUSTY_QUEST_MAKEPAD_STEREO_COMPARISON` markers in a short startup capture.
 - The generated XR activity can be launched directly, becomes the focused
   headset activity, emits the same marker chain, and reaches Vulkan ready /
   before main loop in a short startup capture.

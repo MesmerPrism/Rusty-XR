@@ -17,17 +17,17 @@ THREADTIME_RE = re.compile(
     r"(?P<pid>\d+)\s+(?P<tid>\d+)\s+(?P<level>[A-Z])\s+"
     r"(?P<tag>[^:]+?)\s*:\s*(?P<body>.*)$"
 )
-MAKEPAD_CADENCE_MARKER = "RUSTY_XR_MAKEPAD_CADENCE"
+MAKEPAD_CADENCE_MARKER = "RUSTY_QUEST_MAKEPAD_CADENCE"
 MAKEPAD_FRAME_FLOW_MARKERS = (
-    "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW",
-    "RUSTY_XR_MAKEPAD_FRAME_FLOW",
+    "RUSTY_QUEST_MAKEPAD_CAMERA_FRAME_FLOW",
+    "RUSTY_QUEST_MAKEPAD_FRAME_FLOW",
 )
 APP_MARKER_SUBSTRINGS = (
     "RustyXRMakepad",
     "RustyXrComposite",
     "Rusty XR OpenXR frame",
     "Rusty XR final projection status",
-    "RUSTY_XR_MAKEPAD_",
+    "RUSTY_QUEST_MAKEPAD_",
 )
 KV_RE = re.compile(r"([A-Za-z0-9_%&_]+)=([^,\s]+)")
 
@@ -321,7 +321,7 @@ def summarize_frame_flow(rows: list[dict[str, Any]]) -> dict[str, Any]:
             upload_to_submit_ms.append(submit_times[submit_index] - upload_ms)
 
     return {
-        "schema": "rusty.xr.makepad-camera-frame-flow-summary.v1",
+        "schema": "rusty.quest.makepad-camera-frame-flow-summary.v1",
         "rowCount": len(rows),
         "phaseCounts": count_by(rows, "phase"),
         "pathCounts": count_by(rows, "path"),
@@ -454,7 +454,7 @@ def _fixture_vrapi_line(index: int, stale: int, fps: str, app_ms: float, cpu_gpu
 def _fixture_cadence_line(index: int) -> str:
     return (
         f"05-26 15:12:{index:02d}.000 12345 12347 I RustyXRMakepad : "
-        "RUSTY_XR_MAKEPAD_CADENCE schema=rusty.xr.makepad-cadence.v1 "
+        "RUSTY_QUEST_MAKEPAD_CADENCE schema=rusty.quest.makepad-cadence.v1 "
         "phase=sample status=ok elapsedMs=10020 intervalMs=5014 "
         "appFrameRateHz=71.41 xrUpdateRateHz=71.41 pairedTextureUpdateRateHz=46.67 "
         "xrDisplayRefreshRateHz=90.00 xrEffectiveFrameRateHz=72.01"
@@ -464,7 +464,7 @@ def _fixture_cadence_line(index: int) -> str:
 def _fixture_frame_flow_line(index: int, body: str) -> str:
     return (
         f"05-26 15:13:{index:02d}.000 12345 12348 I RustyXRMakepad : "
-        f"RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 {body}"
+        f"RUSTY_QUEST_MAKEPAD_CAMERA_FRAME_FLOW schema=rusty.quest.makepad-camera-frame-flow.v1 {body}"
     )
 
 

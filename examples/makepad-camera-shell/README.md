@@ -1,4 +1,4 @@
-# Rusty Quest Makepad Camera Camera Shell
+# Rusty Quest Makepad Camera Shell
 
 This is a standalone Makepad-first Quest lane. It exists so Rusty Morphospace can compare
 the current custom Android APK workflow with Makepad's generated Android/OpenXR
@@ -22,7 +22,7 @@ fork-patch policy are documented in
 
 - Uses `cargo-makepad android --variant=quest`.
 - Uses the maintained Makepad fork branch
-  `rusty-xr/android-libstd-packaging`. The exact Makepad revision for this
+  `rusty-quest/android-libstd-packaging`. The exact Makepad revision for this
   example is pinned in `Cargo.lock`. Local evidence builds run the wrapper
   with `-MakepadSourceRoot <makepad-fork-checkout>` or
   `RUSTY_QUEST_MAKEPAD_SOURCE_ROOT` so the packager and app Makepad dependencies
@@ -32,7 +32,7 @@ fork-patch policy are documented in
 - Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
-- Reads its startup marker values through `rusty-xr-runtime-config`, so this
+- Reads its startup marker values through `rusty-quest-makepad-runtime-config`, so this
   shell is already attached to a framework-neutral Morphospace core crate.
 - Emits `RUSTY_QUEST_MAKEPAD_CAMERA_STATUS` and
   `RUSTY_QUEST_MAKEPAD_STEREO_COMPARISON` on startup.
@@ -117,7 +117,7 @@ Build the Quest APK from this example directory with a host-matched Android
 SDK:
 
 ```powershell
-cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty Quest Makepad Camera" build -p rusty-xr-makepad-camera-shell --release
+cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty Quest Makepad Camera" build -p rusty-quest-makepad-camera-shell --release
 ```
 
 For local evidence builds, prefer the wrapper because it preflights the selected
@@ -253,13 +253,13 @@ artifact-ingest and provenance route exists.
 Run on a selected Quest device:
 
 ```powershell
-cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty Quest Makepad Camera" run -p rusty-xr-makepad-camera-shell --release
+cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty Quest Makepad Camera" run -p rusty-quest-makepad-camera-shell --release
 ```
 
 This example is not a root-workspace member. Use
 `cargo check --manifest-path examples\makepad-camera-shell\Cargo.toml` from
 the repository root, or plain `cargo check` from this directory; do not use
-`cargo check -p rusty-xr-makepad-camera-shell` from the root workspace.
+`cargo check -p rusty-quest-makepad-camera-shell` from the root workspace.
 For source changes, run
 `cargo test --locked --manifest-path examples\makepad-camera-shell\Cargo.toml`
 as the host-side Rust validation gate for parser, metadata, projection math,
@@ -335,7 +335,7 @@ runtime grants, but it should report a blocked MediaProjection consent state
 instead of claiming it can bypass the headset prompt.
 
 The generated APK lands under
-`target/android/makepad-android-apk/rusty_xr_makepad_camera_shell/apk/`.
+`target/android/makepad-android-apk/rusty_quest_makepad_camera_shell/apk/`.
 
 The Makepad runner starts the generated launcher activity. Use the launcher or
 normal generated activity for active XR presentation; with `XrPermissionsFlow`
@@ -542,7 +542,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   projection-footprint keystone and bow controls are pre-homography diagnostics
   and reset to neutral.
 - The first shared-core bridge is deliberately small: resolved profile values
-  pass through `rusty-xr-runtime-config` before logging. Camera metadata,
+  pass through `rusty-quest-makepad-runtime-config` before logging. Camera metadata,
   stream framing, and scorecard models should be added the same way, through
   core crates first and Makepad adapters second.
 - The current lane uses synthetic status/stereo-comparison markers, a bounded

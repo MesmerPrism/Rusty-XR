@@ -698,7 +698,7 @@ disagree.
 Recommended loop:
 
 1. Start the broker shell helper with `--focus-guardian` so it can apply
-   whitelisted `debug.rustyxr.*` tuning properties and report foreground state.
+   whitelisted `debug.rustyquest.makepad.*` tuning properties and report foreground state.
 2. Keep the broker console foreground while editing one tuning variable at a
    time.
 3. Use `launch_target_guard` for unstable target builds. The helper launches

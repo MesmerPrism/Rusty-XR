@@ -21,7 +21,7 @@ rusty-xr-contracts = { path = "../../../crates/rusty-xr-contracts", features = [
 rusty-xr-debug-canvas = { path = "../../../crates/rusty-xr-debug-canvas", features = ["serde"] }
 rusty-xr-osc = { path = "../../../crates/rusty-xr-osc", features = ["serde"] }
 rusty-xr-particles = { path = "../../../crates/rusty-xr-particles" }
-rusty-xr-runtime-config = { path = "../../../crates/rusty-xr-runtime-config" }
+rusty-quest-makepad-runtime-config = { path = "../../../crates/rusty-quest-makepad-runtime-config" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

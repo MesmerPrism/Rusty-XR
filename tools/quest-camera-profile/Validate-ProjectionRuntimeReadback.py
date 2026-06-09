@@ -124,7 +124,7 @@ def repo_root() -> Path:
 
 
 def runtime_config_source_path() -> Path:
-    return repo_root() / "crates" / "rusty-xr-runtime-config" / "src" / "lib.rs"
+    return repo_root() / "crates" / "rusty-quest-makepad-runtime-config" / "src" / "lib.rs"
 
 
 def read_json(path: Path) -> Any:

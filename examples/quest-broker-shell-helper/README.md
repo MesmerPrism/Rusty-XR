@@ -48,7 +48,7 @@ headset has left the awake/display-on state. The helper never broadcasts
 normal wear-sensor behavior.
 With `--focus-guardian`, it runs a bounded focus-recovery loop. The helper polls
 the broker's `experiment.get_control` command, applies only whitelisted
-`debug.rustyxr.*` runtime properties from that control state, samples
+`debug.rustyquest.makepad.*` runtime properties from that control state, samples
 `dumpsys window windows`, and can reactively launch a target app or the broker
 console after Meta shell takes foreground. This mode is a recovery mechanism
 after focus loss, not a protected system-button interceptor.
