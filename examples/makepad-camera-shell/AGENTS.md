@@ -1,8 +1,9 @@
-# Rusty XR Makepad Camera Agent Notes
+# Rusty Quest Makepad Camera Agent Notes
 
-This example is the public Makepad-first Quest lane for Rusty XR. It compares
-Makepad's generated Android/OpenXR app shell against the existing custom Rusty
-XR Quest APK lane while keeping the Rusty XR core crates framework-neutral.
+This example is the public Makepad-first Quest lane for Rusty Morphospace. It
+compares Makepad's generated Android/OpenXR app shell against the existing
+custom Quest APK baseline while keeping the Morphospace core crates
+framework-neutral.
 
 ## Required Reading
 
@@ -17,12 +18,12 @@ Before editing this example, read:
 
 ## Boundaries
 
-- Keep Rusty XR core crates Makepad-independent.
+- Keep Morphospace core crates Makepad-independent.
 - Keep Makepad-specific code in this example or optional adapters.
 - Do not commit generated Android output, APKs, local SDK paths, logcat dumps,
   device serials, screenshots, captures, or private downstream behavior.
 - Use public profile names and public-safe log markers only.
-- Treat the custom Rusty XR Quest APK lane as the diagnostic baseline.
+- Treat the custom Rusty Morphospace Quest APK lane as the diagnostic baseline.
 
 ## Implementation Ladder
 
@@ -60,8 +61,8 @@ python tools\schema\check_android_build_manifest.py examples\makepad-camera-shel
 ```
 
 This example is intentionally standalone rather than a root-workspace member.
-Do not run `cargo check -p rusty-xr-makepad-camera-shell` from the Rusty XR
-workspace root; it does not select this package.
+Do not run `cargo check -p rusty-xr-makepad-camera-shell` from the workspace
+root; it does not select this package.
 
 For Android build validation, use `cargo-makepad` from the maintained Makepad
 fork and keep the generated `target/` output uncommitted.
@@ -75,7 +76,7 @@ Use `tools/Build-MakepadStereoAlignmentApk.ps1` as the Android/package gate for
 this example. Select the SDK for the host that will run `cargo-makepad`:
 Windows-host SDKs require `-UseWindowsHost`, while WSL/Linux-host builds must
 use a Linux-host Android SDK and NDK prebuilt. When `-MakepadSourceRoot` or
-`RUSTY_XR_MAKEPAD_SOURCE_ROOT` is set, the wrapper source-builds
+`RUSTY_QUEST_MAKEPAD_SOURCE_ROOT` is set, the wrapper source-builds
 `cargo-makepad` from that checkout and patches the app's Makepad dependency to
 the same checkout by default. Use `-NoPatchMakepadXrFromSource` only for an
 intentional upstream/pinned-dependency comparison. If a clean WSL/Linux-host
@@ -117,3 +118,4 @@ readiness, nonzero left/right texture-update cadence, zero decode errors, and
 the derived `surface_to_camera`, `screen_to_surface`, and `screen_to_camera`
 rows. `max_packets=0` means a live/unbounded broker stream and must not be
 clamped to a one-packet stream.
+

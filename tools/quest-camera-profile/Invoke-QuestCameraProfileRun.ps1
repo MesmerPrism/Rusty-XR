@@ -1526,7 +1526,7 @@ Invoke-ProfileTimedStep -Step "adb-devices" -Action {
     Write-Utf8TextFile -Path (Join-Path $dir "adb-devices.txt") -Value ((Invoke-Adb -Arguments @("devices")) -join [Environment]::NewLine)
 }
 $projectionPropertyHygieneSummary = Invoke-ProfileTimedStep -Step "projection-property-hygiene" -Action {
-    Invoke-RustyXrProjectionPropertyHygiene `
+    Invoke-RustyQuestMakepadProjectionPropertyHygiene `
         -Adb $Adb `
         -Serial $Serial `
         -Mode $ProjectionPropertyHygiene `
@@ -1728,3 +1728,4 @@ if ($metaPerfStaleGateFailures.Count -gt 0) {
     throw "meta performance stale gate failed: $($metaPerfStaleGateFailures -join '; ')"
 }
 Write-Output $dir
+

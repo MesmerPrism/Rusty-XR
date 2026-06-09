@@ -98,51 +98,48 @@ function Set-Prop {
 }
 
 $properties = [ordered]@{
-    Strength = "debug.rustyxr.makepad.horizontal.alignment.strength"
-    GlobalUv = "debug.rustyxr.makepad.horizontal.offset.uv"
-    LeftUv = "debug.rustyxr.makepad.horizontal.offset.left.uv"
-    RightUv = "debug.rustyxr.makepad.horizontal.offset.right.uv"
-    VerticalUv = "debug.rustyxr.makepad.vertical.offset.uv"
-    ContentScale = "debug.rustyxr.makepad.content.uv.scale"
-    ProjectionBorderOpacity = "debug.rustyxr.projection.border.opacity"
-    ProjectionBorderPolicy = "debug.rustyxr.projection.border.policy"
-    NativePassthroughEnabled = "debug.rustyxr.makepad.native.passthrough.enabled"
-    ProcessingLayer = "debug.rustyxr.processing.layer"
-    ProcessingLayerLegacy = "debug.rustyxr.makepad.processing.layer"
-    ProjectionSampleMode = "debug.rustyxr.makepad.projection.sample.mode"
-    BlurRadiusPx = "debug.rustyxr.camera.blur.radius.px"
-    BlurRadiusPxLegacy = "debug.rustyxr.makepad.blur.radius.px"
-    PeripheralStretchMode = "debug.rustyxr.peripheral.stretch.mode"
-    PeripheralStretchCoreScale = "debug.rustyxr.peripheral.stretch.core.scale"
-    PeripheralStretchEdgeInsetUv = "debug.rustyxr.peripheral.stretch.edge.inset.uv"
-    PeripheralStretchMaxInsetUv = "debug.rustyxr.peripheral.stretch.max.inset.uv"
-    PeripheralStretchCurve = "debug.rustyxr.peripheral.stretch.curve"
-    PeripheralStretchInnerBlendUv = "debug.rustyxr.peripheral.stretch.inner.blend.uv"
-    PeripheralStretchBlendCurve = "debug.rustyxr.peripheral.stretch.blend.curve"
-    PeripheralStretchBlendMode = "debug.rustyxr.peripheral.stretch.blend.mode"
-    PeripheralStretchCornerMode = "debug.rustyxr.peripheral.stretch.corner.mode"
-    PeripheralStretchDebug = "debug.rustyxr.peripheral.stretch.debug"
-    ProjectionDepthMeters = "debug.rustyxr.projection.depth.meters"
-    ProjectionAreaDiagnostic = "debug.rustyxr.makepad.projection.area.diagnostic"
-    ProjectionAreaLeftOffsetXUv = "debug.rustyxr.projection.area.left.offset.x.uv"
-    ProjectionAreaRightOffsetXUv = "debug.rustyxr.projection.area.right.offset.x.uv"
-    ProjectionAreaOffsetYUv = "debug.rustyxr.projection.area.offset.y.uv"
-    ProjectionAreaScaleX = "debug.rustyxr.projection.area.scale.x"
-    ProjectionAreaScaleY = "debug.rustyxr.projection.area.scale.y"
-    ProjectionTargetOffsetXUv = "debug.rustyxr.projection.target.offset.x.uv"
-    ProjectionTargetOffsetYUv = "debug.rustyxr.projection.target.offset.y.uv"
-    ProjectionTargetScale = "debug.rustyxr.projection.target.scale"
-    ProjectionTargetJoystickControls = "debug.rustyxr.projection.target.joystick.controls"
-    ProjectionTargetJoystickControlsLegacy = "debug.rustyxr.makepad.projection.target.joystick.controls"
-    ProjectionAreaRadiusXUv = "debug.rustyxr.projection.area.radius.x.uv"
-    ProjectionAreaRadiusYUv = "debug.rustyxr.projection.area.radius.y.uv"
-    ProjectionAreaCornerRadiusUv = "debug.rustyxr.projection.area.corner.radius.uv"
-    ProjectionAreaKeystoneX = "debug.rustyxr.makepad.projection.area.keystone.x"
-    ProjectionAreaBowX = "debug.rustyxr.makepad.projection.area.bow.x"
-    ProjectionAlphaMode = "debug.rustyxr.projection.alpha.mode"
-    ProjectionAlphaScale = "debug.rustyxr.projection.alpha.scale"
-    ProjectionAlphaBias = "debug.rustyxr.projection.alpha.bias"
-    ResolvedProjectionRuntime = "debug.rustyxr.makepad.projection.runtime.resolution.enabled"
+    Strength = "debug.rustyquest.makepad.horizontal.alignment.strength"
+    GlobalUv = "debug.rustyquest.makepad.horizontal.offset.uv"
+    LeftUv = "debug.rustyquest.makepad.horizontal.offset.left.uv"
+    RightUv = "debug.rustyquest.makepad.horizontal.offset.right.uv"
+    VerticalUv = "debug.rustyquest.makepad.vertical.offset.uv"
+    ContentScale = "debug.rustyquest.makepad.content.uv.scale"
+    ProjectionBorderOpacity = "debug.rustyquest.makepad.projection.border.opacity"
+    ProjectionBorderPolicy = "debug.rustyquest.makepad.projection.border.policy"
+    NativePassthroughEnabled = "debug.rustyquest.makepad.native.passthrough.enabled"
+    ProcessingLayer = "debug.rustyquest.makepad.processing.layer"
+    ProjectionSampleMode = "debug.rustyquest.makepad.projection.sample.mode"
+    BlurRadiusPx = "debug.rustyquest.makepad.camera.blur.radius.px"
+    PeripheralStretchMode = "debug.rustyquest.makepad.peripheral.stretch.mode"
+    PeripheralStretchCoreScale = "debug.rustyquest.makepad.peripheral.stretch.core.scale"
+    PeripheralStretchEdgeInsetUv = "debug.rustyquest.makepad.peripheral.stretch.edge.inset.uv"
+    PeripheralStretchMaxInsetUv = "debug.rustyquest.makepad.peripheral.stretch.max.inset.uv"
+    PeripheralStretchCurve = "debug.rustyquest.makepad.peripheral.stretch.curve"
+    PeripheralStretchInnerBlendUv = "debug.rustyquest.makepad.peripheral.stretch.inner.blend.uv"
+    PeripheralStretchBlendCurve = "debug.rustyquest.makepad.peripheral.stretch.blend.curve"
+    PeripheralStretchBlendMode = "debug.rustyquest.makepad.peripheral.stretch.blend.mode"
+    PeripheralStretchCornerMode = "debug.rustyquest.makepad.peripheral.stretch.corner.mode"
+    PeripheralStretchDebug = "debug.rustyquest.makepad.peripheral.stretch.debug"
+    ProjectionDepthMeters = "debug.rustyquest.makepad.projection.depth.meters"
+    ProjectionAreaDiagnostic = "debug.rustyquest.makepad.projection.area.diagnostic"
+    ProjectionAreaLeftOffsetXUv = "debug.rustyquest.makepad.projection.area.left.offset.x.uv"
+    ProjectionAreaRightOffsetXUv = "debug.rustyquest.makepad.projection.area.right.offset.x.uv"
+    ProjectionAreaOffsetYUv = "debug.rustyquest.makepad.projection.area.offset.y.uv"
+    ProjectionAreaScaleX = "debug.rustyquest.makepad.projection.area.scale.x"
+    ProjectionAreaScaleY = "debug.rustyquest.makepad.projection.area.scale.y"
+    ProjectionTargetOffsetXUv = "debug.rustyquest.makepad.projection.target.offset.x.uv"
+    ProjectionTargetOffsetYUv = "debug.rustyquest.makepad.projection.target.offset.y.uv"
+    ProjectionTargetScale = "debug.rustyquest.makepad.projection.target.scale"
+    ProjectionTargetJoystickControls = "debug.rustyquest.makepad.projection.target.joystick.controls"
+    ProjectionAreaRadiusXUv = "debug.rustyquest.makepad.projection.area.radius.x.uv"
+    ProjectionAreaRadiusYUv = "debug.rustyquest.makepad.projection.area.radius.y.uv"
+    ProjectionAreaCornerRadiusUv = "debug.rustyquest.makepad.projection.area.corner.radius.uv"
+    ProjectionAreaKeystoneX = "debug.rustyquest.makepad.projection.area.keystone.x"
+    ProjectionAreaBowX = "debug.rustyquest.makepad.projection.area.bow.x"
+    ProjectionAlphaMode = "debug.rustyquest.makepad.projection.alpha.mode"
+    ProjectionAlphaScale = "debug.rustyquest.makepad.projection.alpha.scale"
+    ProjectionAlphaBias = "debug.rustyquest.makepad.projection.alpha.bias"
+    ResolvedProjectionRuntime = "debug.rustyquest.makepad.projection.runtime.resolution.enabled"
 }
 
 if ($Reset) {
@@ -166,7 +163,7 @@ if ($Reset) {
     $PeripheralStretchBlendMode = "target-inner-band"
     $PeripheralStretchCornerMode = "target-footprint"
     $PeripheralStretchDebug = "off"
-    $ProjectionDepthMeters = 1.0
+    $ProjectionDepthMeters = 1.434085
     $ProjectionAreaDiagnostic = 0.0
     $ProjectionAreaLeftUv = 0.0
     $ProjectionAreaRightUv = 0.0
@@ -260,14 +257,12 @@ if ($ProjectionAlphaMode) {
 }
 if ($ProcessingLayer) {
     Invoke-Adb -Arguments @("shell", "setprop", $properties.ProcessingLayer, $ProcessingLayer)
-    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProcessingLayerLegacy, $ProcessingLayer)
 }
 if ($ProjectionSampleMode) {
     Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionSampleMode, $ProjectionSampleMode)
 }
 if (-not [double]::IsNaN($BlurRadiusPx)) {
     Set-Prop -Name $properties.BlurRadiusPx -Value $BlurRadiusPx
-    Set-Prop -Name $properties.BlurRadiusPxLegacy -Value $BlurRadiusPx
 }
 if ($PeripheralStretchMode) {
     Invoke-Adb -Arguments @("shell", "setprop", $properties.PeripheralStretchMode, $PeripheralStretchMode)
@@ -331,7 +326,6 @@ if (-not [double]::IsNaN($ProjectionTargetScale)) {
 }
 if ($ProjectionTargetJoystickControls) {
     Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionTargetJoystickControls, $ProjectionTargetJoystickControls)
-    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionTargetJoystickControlsLegacy, $ProjectionTargetJoystickControls)
 }
 if (-not [double]::IsNaN($ProjectionAreaRadiusXUv)) {
     Set-Prop -Name $properties.ProjectionAreaRadiusXUv -Value $ProjectionAreaRadiusXUv

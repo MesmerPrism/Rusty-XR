@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Apk,
 
-    [string]$PackageName = "io.github.mesmerprism.rustyxr.makepad.camera",
+    [string]$PackageName = "io.github.mesmerprism.rustyquest.makepad.camera",
     [string]$LauncherActivity = ("." + "Makepad" + "App"),
     [string]$XrActivity = ("." + "Makepad" + "App" + "Xr"),
     [string]$OutDir = "",
@@ -127,8 +127,8 @@ param(
     [ValidateSet("cpu-yuv", "hardware-buffer-external")]
     [string]$DirectCameraTexturePath = "hardware-buffer-external",
     [string[]]$PreLaunchForceStopPackages = @(
-        "com.example.rustyxr.composite",
-        "com.example.rustyxr.opengles"
+        "com.example.rustyquest.makepad.composite",
+        "com.example.rustyquest.makepad.opengles"
     ),
     [switch]$SkipPreLaunchForceStopPackages,
     [switch]$EnableNativePassthrough
@@ -277,7 +277,7 @@ function Receive-AdbFile {
         [string]$Remote,
         [string]$Local
     )
-    $tempPath = Join-Path ([System.IO.Path]::GetTempPath()) ("rustyxr-makepad-{0}.tmp" -f [guid]::NewGuid())
+    $tempPath = Join-Path ([System.IO.Path]::GetTempPath()) ("rustyquest-makepad-{0}.tmp" -f [guid]::NewGuid())
     try {
         Invoke-Adb -Arguments @("pull", $Remote, $tempPath) | Out-Null
         Move-Item -LiteralPath $tempPath -Destination (Convert-ToLongLiteralPath -Path $Local) -Force
@@ -410,7 +410,7 @@ function New-GateTimingSummary {
             }
     )
     return [ordered]@{
-        schemaVersion = "rusty.xr.makepad-camera-device-gate.timing.v1"
+        schemaVersion = "rusty.quest.makepad-camera-device-gate.timing.v1"
         totalElapsedMs = if ($script:gateStopwatch) { $script:gateStopwatch.ElapsedMilliseconds } else { 0 }
         timingJsonl = $script:gateTimingPath
         records = $records
@@ -464,7 +464,7 @@ function Get-ProjectionRuntimeNumericTypeIssues {
     )
     $issues = New-Object System.Collections.Generic.List[string]
     foreach ($line in $LogLines) {
-        if ($line -notmatch "RUSTY_XR_PROJECTION_RUNTIME_MANIFEST") {
+        if ($line -notmatch "RUSTY_QUEST_MAKEPAD_PROJECTION_RUNTIME_MANIFEST") {
             continue
         }
         foreach ($key in $numericKeys) {
@@ -490,7 +490,7 @@ function Invoke-ProjectionRuntimeReadbackValidation {
 
     if ($Mode -eq "skip") {
         $skipped = [ordered]@{
-            schemaVersion = "rusty.xr.projection-runtime-readback.v1"
+            schemaVersion = "rusty.quest.makepad.projection-runtime-readback.v1"
             status = "skipped"
             mode = $Mode
             report = $outPath
@@ -502,7 +502,7 @@ function Invoke-ProjectionRuntimeReadbackValidation {
 
     if (-not (Test-Path -LiteralPath $projectionRuntimeReadbackValidator)) {
         $missing = [ordered]@{
-            schemaVersion = "rusty.xr.projection-runtime-readback.v1"
+            schemaVersion = "rusty.quest.makepad.projection-runtime-readback.v1"
             status = "failed"
             mode = $Mode
             report = $outPath
@@ -524,7 +524,7 @@ function Invoke-ProjectionRuntimeReadbackValidation {
     }
     if ($logcatPaths.Count -eq 0) {
         $missingLogs = [ordered]@{
-            schemaVersion = "rusty.xr.projection-runtime-readback.v1"
+            schemaVersion = "rusty.quest.makepad.projection-runtime-readback.v1"
             status = "failed"
             mode = $Mode
             report = $outPath
@@ -577,7 +577,7 @@ function Invoke-ProjectionRuntimeReadbackValidation {
         }
     }
     return [ordered]@{
-        schemaVersion = "rusty.xr.projection-runtime-readback.v1"
+        schemaVersion = "rusty.quest.makepad.projection-runtime-readback.v1"
         status = "failed"
         mode = $Mode
         report = $outPath
@@ -695,33 +695,33 @@ function Set-MakepadBrokerH264Profile {
         $BrokerH264SyntheticProjectionProfile
     }
     $props = [ordered]@{
-        "debug.rustyxr.makepad.broker.h264.enabled" = if ($brokerRequested) { "true" } else { "false" }
-        "debug.rustyxr.makepad.broker.h264.host" = $BrokerH264Host
-        "debug.rustyxr.makepad.broker.h264.broker.port" = $BrokerH264BrokerPort
-        "debug.rustyxr.makepad.broker.h264.stream.port" = $BrokerH264LeftStreamPort
-        "debug.rustyxr.makepad.broker.h264.right.stream.port" = $BrokerH264RightStreamPort
-        "debug.rustyxr.makepad.broker.h264.source.mode" = $sourceMode
-        "debug.rustyxr.makepad.broker.h264.decode.output.mode" = $BrokerH264DecodeOutputMode
-        "debug.rustyxr.makepad.broker.h264.synthetic.pattern" = $BrokerH264SyntheticPattern
-        "debug.rustyxr.makepad.broker.h264.projection.geometry.profile" = $projectionGeometryProfile
-        "debug.rustyxr.makepad.broker.h264.source.sampling.mode" = $CameraSourceSamplingMode
-        "debug.rustyxr.makepad.broker.h264.synthetic.projection.profile" = $syntheticProjectionProfile
-        "debug.rustyxr.makepad.broker.h264.target.screen.uv.rect" = $CameraTargetScreenUvRect
-        "debug.rustyxr.makepad.broker.h264.left.target.screen.uv.rect" = $CameraLeftTargetScreenUvRect
-        "debug.rustyxr.makepad.broker.h264.right.target.screen.uv.rect" = $CameraRightTargetScreenUvRect
-        "debug.rustyxr.makepad.broker.h264.left.camera.id" = $BrokerH264LeftCameraId
-        "debug.rustyxr.makepad.broker.h264.right.camera.id" = $BrokerH264RightCameraId
-        "debug.rustyxr.makepad.broker.h264.width" = $BrokerH264Width
-        "debug.rustyxr.makepad.broker.h264.height" = $BrokerH264Height
-        "debug.rustyxr.makepad.broker.h264.capture.ms" = $BrokerH264CaptureMs
-        "debug.rustyxr.makepad.broker.h264.max.packets" = $BrokerH264MaxPackets
-        "debug.rustyxr.makepad.broker.h264.bitrate.bps" = $BrokerH264BitrateBps
-        "debug.rustyxr.makepad.broker.h264.frame.rate.hz" = $BrokerH264FrameRateHz
-        "debug.rustyxr.makepad.broker.h264.stereo.pair.id" = $BrokerH264StereoPairId
-        "debug.rustyxr.makepad.broker.h264.stereo.pair.max.delta.ns" = $BrokerH264StereoPairMaxDeltaNs
-        "debug.rustyxr.makepad.broker.h264.stream.timeout.ms" = $BrokerH264StreamTimeoutMs
-        "debug.rustyxr.makepad.broker.h264.decode.timeout.ms" = $BrokerH264DecodeTimeoutMs
-        "debug.rustyxr.makepad.broker.h264.live.stream" = if ($brokerRequested) { "true" } else { "false" }
+        "debug.rustyquest.makepad.broker.h264.enabled" = if ($brokerRequested) { "true" } else { "false" }
+        "debug.rustyquest.makepad.broker.h264.host" = $BrokerH264Host
+        "debug.rustyquest.makepad.broker.h264.broker.port" = $BrokerH264BrokerPort
+        "debug.rustyquest.makepad.broker.h264.stream.port" = $BrokerH264LeftStreamPort
+        "debug.rustyquest.makepad.broker.h264.right.stream.port" = $BrokerH264RightStreamPort
+        "debug.rustyquest.makepad.broker.h264.source.mode" = $sourceMode
+        "debug.rustyquest.makepad.broker.h264.decode.output.mode" = $BrokerH264DecodeOutputMode
+        "debug.rustyquest.makepad.broker.h264.synthetic.pattern" = $BrokerH264SyntheticPattern
+        "debug.rustyquest.makepad.broker.h264.projection.geometry.profile" = $projectionGeometryProfile
+        "debug.rustyquest.makepad.broker.h264.source.sampling.mode" = $CameraSourceSamplingMode
+        "debug.rustyquest.makepad.broker.h264.synthetic.projection.profile" = $syntheticProjectionProfile
+        "debug.rustyquest.makepad.broker.h264.target.screen.uv.rect" = $CameraTargetScreenUvRect
+        "debug.rustyquest.makepad.broker.h264.left.target.screen.uv.rect" = $CameraLeftTargetScreenUvRect
+        "debug.rustyquest.makepad.broker.h264.right.target.screen.uv.rect" = $CameraRightTargetScreenUvRect
+        "debug.rustyquest.makepad.broker.h264.left.camera.id" = $BrokerH264LeftCameraId
+        "debug.rustyquest.makepad.broker.h264.right.camera.id" = $BrokerH264RightCameraId
+        "debug.rustyquest.makepad.broker.h264.width" = $BrokerH264Width
+        "debug.rustyquest.makepad.broker.h264.height" = $BrokerH264Height
+        "debug.rustyquest.makepad.broker.h264.capture.ms" = $BrokerH264CaptureMs
+        "debug.rustyquest.makepad.broker.h264.max.packets" = $BrokerH264MaxPackets
+        "debug.rustyquest.makepad.broker.h264.bitrate.bps" = $BrokerH264BitrateBps
+        "debug.rustyquest.makepad.broker.h264.frame.rate.hz" = $BrokerH264FrameRateHz
+        "debug.rustyquest.makepad.broker.h264.stereo.pair.id" = $BrokerH264StereoPairId
+        "debug.rustyquest.makepad.broker.h264.stereo.pair.max.delta.ns" = $BrokerH264StereoPairMaxDeltaNs
+        "debug.rustyquest.makepad.broker.h264.stream.timeout.ms" = $BrokerH264StreamTimeoutMs
+        "debug.rustyquest.makepad.broker.h264.decode.timeout.ms" = $BrokerH264DecodeTimeoutMs
+        "debug.rustyquest.makepad.broker.h264.live.stream" = if ($brokerRequested) { "true" } else { "false" }
     }
 
     foreach ($entry in $props.GetEnumerator()) {
@@ -768,62 +768,54 @@ function Set-MakepadProjectionTargetProfile {
     $previewOffsetYMeters = if ([double]::IsNaN($CameraPreviewOffsetYMeters)) { 0.0 } else { $CameraPreviewOffsetYMeters }
     $rawOverlayOverscan = if ([double]::IsNaN($CameraRawOverlayOverscan)) { 1.06 } else { $CameraRawOverlayOverscan }
     $props = [ordered]@{
-        "debug.rustyxr.makepad.native.passthrough.enabled" = $nativePassthrough
-        "debug.rustyxr.makepad.projection.runtime.resolution.enabled" = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
-        "debug.rustyxr.processing.layer" = $ProcessingLayer
-        "debug.rustyxr.makepad.processing.layer" = $ProcessingLayer
-        "debug.rustyxr.makepad.projection.sample.mode" = $ProjectionSampleMode
-        "debug.rustyxr.camera.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
-        "debug.rustyxr.makepad.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
-        "debug.rustyxr.peripheral.stretch.mode" = $PeripheralStretchMode
-        "debug.rustyxr.peripheral.stretch.core.scale" = (Format-InvariantDouble -Value $PeripheralStretchCoreScale)
-        "debug.rustyxr.peripheral.stretch.edge.inset.uv" = (Format-InvariantDouble -Value $PeripheralStretchEdgeInsetUv)
-        "debug.rustyxr.peripheral.stretch.max.inset.uv" = (Format-InvariantDouble -Value $PeripheralStretchMaxInsetUv)
-        "debug.rustyxr.peripheral.stretch.curve" = (Format-InvariantDouble -Value $PeripheralStretchCurve)
-        "debug.rustyxr.peripheral.stretch.inner.blend.uv" = (Format-InvariantDouble -Value $PeripheralStretchInnerBlendUv)
-        "debug.rustyxr.peripheral.stretch.blend.curve" = (Format-InvariantDouble -Value $PeripheralStretchBlendCurve)
-        "debug.rustyxr.peripheral.stretch.blend.mode" = $PeripheralStretchBlendMode
-        "debug.rustyxr.peripheral.stretch.corner.mode" = $PeripheralStretchCornerMode
-        "debug.rustyxr.peripheral.stretch.debug" = $PeripheralStretchDebug
-        "debug.rustyxr.makepad.direct.camera.hardware.buffer.external" = $directHardwareBufferExternal
-        "debug.rustyxr.camera.projection.mode" = $CameraProjectionMode
-        "debug.rustyxr.camera.projection.geometry.profile" = $CameraProjectionGeometryProfile
-        "debug.rustyxr.makepad.camera.projection.geometry.profile" = $CameraProjectionGeometryProfile
-        "debug.rustyxr.camera.source.sampling.mode" = $CameraSourceSamplingMode
-        "debug.rustyxr.makepad.camera.source.sampling.mode" = $CameraSourceSamplingMode
-        "debug.rustyxr.camera.target.screen.uv.rect" = $CameraTargetScreenUvRect
-        "debug.rustyxr.camera.left.target.screen.uv.rect" = $CameraLeftTargetScreenUvRect
-        "debug.rustyxr.camera.right.target.screen.uv.rect" = $CameraRightTargetScreenUvRect
-        "debug.rustyxr.makepad.camera.target.screen.uv.rect" = $CameraTargetScreenUvRect
-        "debug.rustyxr.makepad.camera.left.target.screen.uv.rect" = $CameraLeftTargetScreenUvRect
-        "debug.rustyxr.makepad.camera.right.target.screen.uv.rect" = $CameraRightTargetScreenUvRect
-        "debug.rustyxr.projection.scale" = (Format-InvariantDouble -Value $ProjectionScale)
-        "debug.rustyxr.projection.depth.meters" = (Format-InvariantDouble -Value $ProjectionDepthMeters)
-        "debug.rustyxr.camera.preview.fov.y.degrees" = (Format-InvariantDouble -Value $previewFovYDegrees)
-        "debug.rustyxr.camera.preview.offset.y.meters" = (Format-InvariantDouble -Value $previewOffsetYMeters)
-        "debug.rustyxr.camera.raw.overlay.overscan" = (Format-InvariantDouble -Value $rawOverlayOverscan)
-        "debug.rustyxr.xr.render.scale" = (Format-InvariantDouble -Value $XrRenderScale)
-        "debug.rustyxr.xr.display.refresh.rate.hz" = (Format-InvariantDouble -Value $XrDisplayRefreshHz)
-        "debug.rustyxr.projection.area.left.offset.x.uv" = (Format-InvariantDouble -Value $canonicalOffsetLeftUv)
-        "debug.rustyxr.projection.area.right.offset.x.uv" = (Format-InvariantDouble -Value $canonicalOffsetRightUv)
-        "debug.rustyxr.projection.area.offset.y.uv" = (Format-InvariantDouble -Value $offsetVerticalUv)
-        "debug.rustyxr.projection.area.scale.x" = (Format-InvariantDouble -Value $ProjectionAreaScaleX)
-        "debug.rustyxr.projection.area.scale.y" = (Format-InvariantDouble -Value $ProjectionAreaScaleY)
-        "debug.rustyxr.projection.target.offset.x.uv" = (Format-InvariantDouble -Value $ProjectionTargetOffsetXUv)
-        "debug.rustyxr.projection.target.offset.y.uv" = (Format-InvariantDouble -Value $ProjectionTargetOffsetYUv)
-        "debug.rustyxr.projection.target.scale" = (Format-InvariantDouble -Value $ProjectionTargetScale)
-        "debug.rustyxr.projection.target.joystick.controls" = $ProjectionTargetJoystickControls
-        "debug.rustyxr.makepad.projection.target.joystick.controls" = $ProjectionTargetJoystickControls
-        "debug.rustyxr.projection.area.radius.x.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusXUv)
-        "debug.rustyxr.projection.area.radius.y.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusYUv)
-        "debug.rustyxr.projection.area.corner.radius.uv" = (Format-InvariantDouble -Value $ProjectionAreaCornerRadiusUv)
-        "debug.rustyxr.projection.area.opacity" = (Format-InvariantDouble -Value $ProjectionAreaOpacity)
-        "debug.rustyxr.projection.border.opacity" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
-        "debug.rustyxr.makepad.projection.area.diagnostic" = (Format-InvariantDouble -Value $ProjectionAreaDiagnostic)
-        "debug.rustyxr.projection.border.policy" = $ProjectionBorderPolicy
-        "debug.rustyxr.projection.alpha.mode" = $ProjectionAlphaMode
-        "debug.rustyxr.projection.alpha.scale" = (Format-InvariantDouble -Value $ProjectionAlphaScale)
-        "debug.rustyxr.projection.alpha.bias" = (Format-InvariantDouble -Value $ProjectionAlphaBias)
+        "debug.rustyquest.makepad.native.passthrough.enabled" = $nativePassthrough
+        "debug.rustyquest.makepad.projection.runtime.resolution.enabled" = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
+        "debug.rustyquest.makepad.processing.layer" = $ProcessingLayer
+        "debug.rustyquest.makepad.projection.sample.mode" = $ProjectionSampleMode
+        "debug.rustyquest.makepad.camera.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
+        "debug.rustyquest.makepad.peripheral.stretch.mode" = $PeripheralStretchMode
+        "debug.rustyquest.makepad.peripheral.stretch.core.scale" = (Format-InvariantDouble -Value $PeripheralStretchCoreScale)
+        "debug.rustyquest.makepad.peripheral.stretch.edge.inset.uv" = (Format-InvariantDouble -Value $PeripheralStretchEdgeInsetUv)
+        "debug.rustyquest.makepad.peripheral.stretch.max.inset.uv" = (Format-InvariantDouble -Value $PeripheralStretchMaxInsetUv)
+        "debug.rustyquest.makepad.peripheral.stretch.curve" = (Format-InvariantDouble -Value $PeripheralStretchCurve)
+        "debug.rustyquest.makepad.peripheral.stretch.inner.blend.uv" = (Format-InvariantDouble -Value $PeripheralStretchInnerBlendUv)
+        "debug.rustyquest.makepad.peripheral.stretch.blend.curve" = (Format-InvariantDouble -Value $PeripheralStretchBlendCurve)
+        "debug.rustyquest.makepad.peripheral.stretch.blend.mode" = $PeripheralStretchBlendMode
+        "debug.rustyquest.makepad.peripheral.stretch.corner.mode" = $PeripheralStretchCornerMode
+        "debug.rustyquest.makepad.peripheral.stretch.debug" = $PeripheralStretchDebug
+        "debug.rustyquest.makepad.direct.camera.hardware.buffer.external" = $directHardwareBufferExternal
+        "debug.rustyquest.makepad.camera.projection.mode" = $CameraProjectionMode
+        "debug.rustyquest.makepad.camera.projection.geometry.profile" = $CameraProjectionGeometryProfile
+        "debug.rustyquest.makepad.camera.source.sampling.mode" = $CameraSourceSamplingMode
+        "debug.rustyquest.makepad.camera.target.screen.uv.rect" = $CameraTargetScreenUvRect
+        "debug.rustyquest.makepad.camera.left.target.screen.uv.rect" = $CameraLeftTargetScreenUvRect
+        "debug.rustyquest.makepad.camera.right.target.screen.uv.rect" = $CameraRightTargetScreenUvRect
+        "debug.rustyquest.makepad.projection.scale" = (Format-InvariantDouble -Value $ProjectionScale)
+        "debug.rustyquest.makepad.projection.depth.meters" = (Format-InvariantDouble -Value $ProjectionDepthMeters)
+        "debug.rustyquest.makepad.camera.preview.fov.y.degrees" = (Format-InvariantDouble -Value $previewFovYDegrees)
+        "debug.rustyquest.makepad.camera.preview.offset.y.meters" = (Format-InvariantDouble -Value $previewOffsetYMeters)
+        "debug.rustyquest.makepad.camera.raw.overlay.overscan" = (Format-InvariantDouble -Value $rawOverlayOverscan)
+        "debug.rustyquest.makepad.xr.render.scale" = (Format-InvariantDouble -Value $XrRenderScale)
+        "debug.rustyquest.makepad.xr.display.refresh.rate.hz" = (Format-InvariantDouble -Value $XrDisplayRefreshHz)
+        "debug.rustyquest.makepad.projection.area.left.offset.x.uv" = (Format-InvariantDouble -Value $canonicalOffsetLeftUv)
+        "debug.rustyquest.makepad.projection.area.right.offset.x.uv" = (Format-InvariantDouble -Value $canonicalOffsetRightUv)
+        "debug.rustyquest.makepad.projection.area.offset.y.uv" = (Format-InvariantDouble -Value $offsetVerticalUv)
+        "debug.rustyquest.makepad.projection.area.scale.x" = (Format-InvariantDouble -Value $ProjectionAreaScaleX)
+        "debug.rustyquest.makepad.projection.area.scale.y" = (Format-InvariantDouble -Value $ProjectionAreaScaleY)
+        "debug.rustyquest.makepad.projection.target.offset.x.uv" = (Format-InvariantDouble -Value $ProjectionTargetOffsetXUv)
+        "debug.rustyquest.makepad.projection.target.offset.y.uv" = (Format-InvariantDouble -Value $ProjectionTargetOffsetYUv)
+        "debug.rustyquest.makepad.projection.target.scale" = (Format-InvariantDouble -Value $ProjectionTargetScale)
+        "debug.rustyquest.makepad.projection.target.joystick.controls" = $ProjectionTargetJoystickControls
+        "debug.rustyquest.makepad.projection.area.radius.x.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusXUv)
+        "debug.rustyquest.makepad.projection.area.radius.y.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusYUv)
+        "debug.rustyquest.makepad.projection.area.corner.radius.uv" = (Format-InvariantDouble -Value $ProjectionAreaCornerRadiusUv)
+        "debug.rustyquest.makepad.projection.area.opacity" = (Format-InvariantDouble -Value $ProjectionAreaOpacity)
+        "debug.rustyquest.makepad.projection.border.opacity" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
+        "debug.rustyquest.makepad.projection.area.diagnostic" = (Format-InvariantDouble -Value $ProjectionAreaDiagnostic)
+        "debug.rustyquest.makepad.projection.border.policy" = $ProjectionBorderPolicy
+        "debug.rustyquest.makepad.projection.alpha.mode" = $ProjectionAlphaMode
+        "debug.rustyquest.makepad.projection.alpha.scale" = (Format-InvariantDouble -Value $ProjectionAlphaScale)
+        "debug.rustyquest.makepad.projection.alpha.bias" = (Format-InvariantDouble -Value $ProjectionAlphaBias)
     }
 
     foreach ($entry in $props.GetEnumerator()) {
@@ -908,17 +900,17 @@ function Capture-LaunchState {
         $windowHasExpectedPackage -and
         $activityHasExpectedXrActivity -and
         $windowHasExpectedXrActivity
-    $openxrEndFrame = @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_OPENXR_END_FRAME").Count
-    $frameFlowEndFrame = @($log | Select-String -Pattern "RUSTY_XR_MAKEPAD_FRAME_FLOW.*phase=xr-end-frame.*status=submitted").Count
+    $openxrEndFrame = @($log | Select-String -SimpleMatch "RUSTY_QUEST_MAKEPAD_OPENXR_END_FRAME").Count
+    $frameFlowEndFrame = @($log | Select-String -Pattern "RUSTY_QUEST_MAKEPAD_FRAME_FLOW.*phase=xr-end-frame.*status=submitted").Count
     $endFrame = $openxrEndFrame + $frameFlowEndFrame
-    $frameAdoptionLines = @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_FRAME_ADOPTION" | ForEach-Object { $_.Line })
+    $frameAdoptionLines = @($log | Select-String -SimpleMatch "RUSTY_QUEST_MAKEPAD_FRAME_ADOPTION" | ForEach-Object { $_.Line })
     $frameAdoptionCount = @($frameAdoptionLines).Count
-    $frameAdoptionPoseMatchedCount = @($frameAdoptionLines | Select-String -SimpleMatch "poseSource=makepad-xr-update-predicted-display-pose").Count
+    $frameAdoptionPoseMatchedCount = @($frameAdoptionLines | Select-String -SimpleMatch "poseSource=makepad-quest-update-predicted-display-pose").Count
     $frameAdoptionCloseTimestampMatchCount = @($frameAdoptionLines | Select-String -SimpleMatch "closeTimestampMatch=true").Count
     $frameAdoptionTimingGapCount = @($frameAdoptionLines | Select-String -SimpleMatch "pairingStatus=latest-complete-with-timing-gap").Count
     $latestFrameAdoptionLine = @($frameAdoptionLines | Select-Object -Last 1)
     $visiblePanel = @($log | Select-String -SimpleMatch "visibleCameraProjectionReady=true").Count
-    $xrCadence = @($log | Select-String -Pattern "RUSTY_XR_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\\.00)").Count
+    $xrCadence = @($log | Select-String -Pattern "RUSTY_QUEST_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\\.00)").Count
     $loadingSignals = @($log | Select-String -Pattern "(?i)XrPermissionsFlow|preflight|loading").Count
     $brokerH264PrepareRequestCount = @($log | Select-String -SimpleMatch "phase=broker-h264-prepare-request status=sent").Count
     $brokerH264UnboundedHeaderCount = @($log | Select-String -SimpleMatch "packets=0 metadataBytes=").Count
@@ -935,7 +927,7 @@ function Capture-LaunchState {
     $brokerH264YuvTexturesReadyCount = @($log | Select-String -SimpleMatch "textureMode=cpu-yuv-decoded-broker-h264").Count
     $brokerH264YuvTextureUpdateCount = @($log | Select-String -Pattern "phase=texture-updated status=ok.*cpuUploadPath=broker-h264-mediacodec-cpu-yuv").Count
     $brokerH264HardwareBufferTextureUpdateCount = @($log | Select-String -Pattern "phase=texture-updated status=ok.*cameraTexturePath=broker-h264-mediacodec-hardware-buffer").Count
-    $brokerH264HardwareBufferFrameCount = @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_BROKER_H264_HARDWARE_BUFFER_FRAME").Count
+    $brokerH264HardwareBufferFrameCount = @($log | Select-String -SimpleMatch "RUSTY_QUEST_MAKEPAD_BROKER_H264_HARDWARE_BUFFER_FRAME").Count
     $brokerH264TextureUpdateCount = $brokerH264YuvTextureUpdateCount + $brokerH264HardwareBufferTextureUpdateCount
     $brokerH264DecodeErrorCount = @($log | Select-String -Pattern "event=decode-error|Broker H[.]264 playback failed").Count
     $brokerH264ProgressLines = @($log | Select-String -SimpleMatch "Broker H.264 playback progress" | ForEach-Object { $_.Line })
@@ -996,7 +988,7 @@ function Capture-LaunchState {
     $projectionMappingReadyCadenceCount = @($log | Select-String -SimpleMatch "projectionMappingReady=true").Count
     $leftTextureUpdateMax = 0
     $rightTextureUpdateMax = 0
-    foreach ($line in @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_CADENCE" | ForEach-Object { $_.Line })) {
+    foreach ($line in @($log | Select-String -SimpleMatch "RUSTY_QUEST_MAKEPAD_CADENCE" | ForEach-Object { $_.Line })) {
         if ($line -match "leftTextureUpdateCount=(\d+)") {
             $leftTextureUpdateMax = [Math]::Max($leftTextureUpdateMax, [int]$Matches[1])
         }
@@ -1004,7 +996,7 @@ function Capture-LaunchState {
             $rightTextureUpdateMax = [Math]::Max($rightTextureUpdateMax, [int]$Matches[1])
         }
     }
-    $projectionRuntimeManifestLines = @($log | Select-String -SimpleMatch "RUSTY_XR_PROJECTION_RUNTIME_MANIFEST" | ForEach-Object { $_.Line })
+    $projectionRuntimeManifestLines = @($log | Select-String -SimpleMatch "RUSTY_QUEST_MAKEPAD_PROJECTION_RUNTIME_MANIFEST" | ForEach-Object { $_.Line })
     $projectionRuntimeNumericTypeIssues = @(Get-ProjectionRuntimeNumericTypeIssues -LogLines $projectionRuntimeManifestLines)
     $broadGpuFaultSignalPattern = "(?i)page fault|gpu.*fault|kgsl|iommu|CP_SQE|faulting"
     $kernelGpuFaultPattern = "(?i)GPU PAGE FAULT|premature free|already freed|kgsl_iommu_print_fault|kgsl_mmu_pagefault_resume|CP_SQE|(?:read|write) translation fault"
@@ -1022,7 +1014,7 @@ function Capture-LaunchState {
         activityHasExpectedXrActivity = [bool]$activityHasExpectedXrActivity
         windowHasExpectedXrActivity = [bool]$windowHasExpectedXrActivity
         openxrEndFrameCount = $endFrame
-        legacyOpenxrEndFrameMarkerCount = $openxrEndFrame
+        openxrRuntimeEndFrameMarkerCount = $openxrEndFrame
         frameFlowEndFrameMarkerCount = $frameFlowEndFrame
         frameAdoptionMarkerCount = $frameAdoptionCount
         frameAdoptionPoseMatchedMarkerCount = $frameAdoptionPoseMatchedCount
@@ -1046,7 +1038,7 @@ function Capture-LaunchState {
         fatalCount = @($log | Select-String -Pattern "FATAL EXCEPTION|Fatal signal|signal 11|SIGSEGV|Abort message").Count
         hardwareBufferWarningCount = @($log | Select-String -Pattern "(?i)hardware.?buffer|AHardwareBuffer|GraphicBuffer\(w=4").Count
         projectionRuntimeManifestCount = $projectionRuntimeManifestLines.Count
-        resolvedProjectionRuntimeEnabledMarkerCount = @($log | Select-String -SimpleMatch "RUSTY_XR_MAKEPAD_PROJECTION_RUNTIME" | Select-String -SimpleMatch "resolvedManifestConsumptionEnabled=true").Count
+        resolvedProjectionRuntimeEnabledMarkerCount = @($log | Select-String -SimpleMatch "RUSTY_QUEST_MAKEPAD_PROJECTION_RUNTIME" | Select-String -SimpleMatch "resolvedManifestConsumptionEnabled=true").Count
         projectionRuntimeNumericTypeIssueCount = $projectionRuntimeNumericTypeIssues.Count
         projectionRuntimeNumericTypeIssues = $projectionRuntimeNumericTypeIssues
         s69bMarkerCount = @($log | Select-String -SimpleMatch "s69bHorizontalMirrorFix=true").Count
@@ -1153,7 +1145,7 @@ function Capture-LaunchState {
         staleS80PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s80-target-full-view-content-scale-panel-control").Count
         staleS79PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s79-target-source-eye-mapping-panel-control").Count
         staleS78PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s78-clipspace-surface-homography-panel-control").Count
-        staleS77PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s77-rusty-xr-invalid-uv-fallback-panel-control").Count
+        staleS77PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s77-rusty-quest-invalid-uv-fallback-panel-control").Count
         staleS76PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s76-direct-drawvars-homography-panel-control").Count
         staleS75PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s75-dynamic-homography-panel-control").Count
         staleS71PathMarkerCount = @($log | Select-String -SimpleMatch "makepad-s71-eye-centered-square-panel-control").Count
@@ -1202,11 +1194,11 @@ function Start-ActivityAndProbe {
     $launchArgs += @("-n", $component)
     if ($MediaProjection) {
         $launchArgs += @(
-            "--ez", "rustyxr.mediaProjection", "true",
-            "--ei", "rustyxr.mediaProjectionPort", $MediaProjectionPort.ToString(),
-            "--ei", "rustyxr.mediaProjectionWidth", $MediaProjectionWidth.ToString(),
-            "--ei", "rustyxr.mediaProjectionHeight", $MediaProjectionHeight.ToString(),
-            "--ei", "rustyxr.mediaProjectionDelayMs", $MediaProjectionDelayMs.ToString()
+            "--ez", "rustyquest.makepad.mediaProjection", "true",
+            "--ei", "rustyquest.makepad.mediaProjectionPort", $MediaProjectionPort.ToString(),
+            "--ei", "rustyquest.makepad.mediaProjectionWidth", $MediaProjectionWidth.ToString(),
+            "--ei", "rustyquest.makepad.mediaProjectionHeight", $MediaProjectionHeight.ToString(),
+            "--ei", "rustyquest.makepad.mediaProjectionDelayMs", $MediaProjectionDelayMs.ToString()
         )
     }
     Save-Adb -Arguments $launchArgs -Path (Join-Path $OutDir "$Label-start.txt") -TimeoutSeconds $StartupTimeoutSeconds
@@ -1229,7 +1221,7 @@ function Capture-FreshnessFrames {
     New-Item -ItemType Directory -Force -Path $shotDir | Out-Null
     $hashes = @()
     for ($i = 0; $i -lt $FreshnessFrames; $i++) {
-        $remote = "/sdcard/rusty_xr_makepad_${Label}_$i.png"
+        $remote = "/sdcard/rustyquest_makepad_${Label}_$i.png"
         $local = Join-Path $shotDir ("{0}-frame-{1:D2}.png" -f $Label, $i)
         Invoke-Adb -Arguments @("shell", "screencap", "-p", $remote) | Out-Null
         Receive-AdbFile -Remote $remote -Local $local
@@ -1351,7 +1343,7 @@ function Invoke-CameraTextureLaneContractAnalysis {
     }
     if (-not (Test-Path -LiteralPath $cameraTextureLaneContractBuilder)) {
         return [ordered]@{
-            schema = "rusty.xr.makepad-camera-device-gate.camera-texture-lane-analysis.v1"
+            schema = "rusty.quest.makepad-camera-device-gate.camera-texture-lane-analysis.v1"
             status = "skipped"
             reason = "builder-not-found"
             outDir = $analysisDir
@@ -1371,7 +1363,7 @@ function Invoke-CameraTextureLaneContractAnalysis {
         }
         $status = if ($toolExitCode -eq 0 -and $null -ne $summary) { "ok" } else { "tool-failed" }
         return [ordered]@{
-            schema = "rusty.xr.makepad-camera-device-gate.camera-texture-lane-analysis.v1"
+            schema = "rusty.quest.makepad-camera-device-gate.camera-texture-lane-analysis.v1"
             status = $status
             outDir = $analysisDir
             contractsJsonl = $contractsPath
@@ -1385,7 +1377,7 @@ function Invoke-CameraTextureLaneContractAnalysis {
         @("camera texture lane contract analysis failed", $_.Exception.Message) |
             Set-Content -Path $errorPath -Encoding UTF8
         return [ordered]@{
-            schema = "rusty.xr.makepad-camera-device-gate.camera-texture-lane-analysis.v1"
+            schema = "rusty.quest.makepad-camera-device-gate.camera-texture-lane-analysis.v1"
             status = "tool-failed"
             reason = $_.Exception.Message
             outDir = $analysisDir
@@ -1435,7 +1427,7 @@ Invoke-GateTimedStep -Step "adb-devices" -Action {
     Invoke-Adb -Arguments @("devices") | Set-Content -Path (Join-Path $OutDir "adb-devices.txt") -Encoding UTF8
 }
 $projectionPropertyHygieneSummary = Invoke-GateTimedStep -Step "projection-property-hygiene" -Action {
-    Invoke-RustyXrProjectionPropertyHygiene `
+    Invoke-RustyQuestMakepadProjectionPropertyHygiene `
         -Adb "adb" `
         -Serial $Serial `
         -Mode $ProjectionPropertyHygiene `
@@ -1790,7 +1782,7 @@ $gateTimingSummary = New-GateTimingSummary
 $gateTimingSummary | ConvertTo-Json -Depth 8 | Set-Content -Path $script:gateTimingSummaryPath -Encoding UTF8
 
 $summary = [ordered]@{
-    schema = "rusty.xr.makepad-camera-device-gate.v1"
+    schema = "rusty.quest.makepad-camera-device-gate.v1"
     capturedAt = (Get-Date).ToString("o")
     serial = $Serial
     packageName = $PackageName
@@ -1970,3 +1962,8 @@ if ($metaPerfStaleGateFailures.Count -gt 0) {
 if ($brokerH264StereoProjectionGateFailures.Count -gt 0) {
     throw "broker H.264 stereo projection gate failed: $($brokerH264StereoProjectionGateFailures -join '; ')"
 }
+
+
+
+
+

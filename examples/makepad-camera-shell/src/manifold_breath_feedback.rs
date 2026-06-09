@@ -81,7 +81,7 @@ pub(crate) fn build_breath_feedback_subscribe_command(
 ) -> JsonValue {
     json!({
         "type": "command",
-        "schema": "rusty.xr.broker.command.v1",
+        "schema": "rusty.manifold.command.envelope.v1",
         "request_id": "makepad-breath-feedback-subscribe",
         "command": "subscribe",
         "params": {
@@ -147,7 +147,7 @@ pub(crate) fn build_breath_feedback_receipt_command(
 ) -> JsonValue {
     json!({
         "type": "command",
-        "schema": "rusty.xr.broker.command.v1",
+        "schema": "rusty.manifold.command.envelope.v1",
         "request_id": format!("makepad-breath-feedback-receipt-{}", receipt_sequence_id),
         "command": BREATH_FEEDBACK_RECEIPT_COMMAND,
         "params": {
@@ -266,7 +266,7 @@ fn build_hello_message(config: &ManifoldBreathFeedbackConfig) -> JsonValue {
     json!({
         "type": "hello",
         "client_id": config.receiver_id,
-        "app_package": "rusty-xr-makepad-camera-shell",
+        "app_package": "rustyquest-makepad-camera-shell",
         "role": "makepad_breath_feedback_subscriber",
     })
 }
@@ -279,7 +279,7 @@ fn open_broker_websocket(config: &ManifoldBreathFeedbackConfig) -> Result<TcpStr
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
     let request = format!(
-        "GET /rustyxr/v1/events HTTP/1.1\r\n\
+        "GET /manifold/v1/events HTTP/1.1\r\n\
          Host: {}:{}\r\n\
          Upgrade: websocket\r\n\
          Connection: Upgrade\r\n\
@@ -482,3 +482,4 @@ mod tests {
         assert!(parse_breath_feedback_event(&event, BREATH_FEEDBACK_STREAM_ID).is_none());
     }
 }
+

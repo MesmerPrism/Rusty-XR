@@ -54,6 +54,26 @@ pub(crate) const DEFAULT_MANIFOLD_BREATH_FEEDBACK_STREAM: &str = "stream.breath.
 pub(crate) const DEFAULT_MANIFOLD_BREATH_FEEDBACK_RECEIVER: &str =
     "app.makepad_camera_shell.breath_feedback";
 pub(crate) const DEFAULT_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS: u32 = 250;
+pub(crate) const DEFAULT_MAKEPAD_MESH_REPLAY_ENABLED: bool = false;
+pub(crate) const DEFAULT_MAKEPAD_MESH_REPLAY_SOURCE: &str = "public-synthetic-hand-sequence";
+pub(crate) const DEFAULT_MAKEPAD_MESH_REPLAY_SPEED: f32 = 1.0;
+pub(crate) const DEFAULT_MAKEPAD_MESH_REPLAY_OPACITY: f32 = 0.84;
+pub(crate) const ANDROID_PROPERTY_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_ENABLED: &str =
+    "debug.rustyquest.makepad.mesh.replay.enabled";
+pub(crate) const ANDROID_PROPERTY_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_SOURCE: &str =
+    "debug.rustyquest.makepad.mesh.replay.source";
+pub(crate) const ANDROID_PROPERTY_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_SPEED: &str =
+    "debug.rustyquest.makepad.mesh.replay.speed";
+pub(crate) const ANDROID_PROPERTY_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_OPACITY: &str =
+    "debug.rustyquest.makepad.mesh.replay.opacity";
+pub(crate) const ENV_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_ENABLED: &str =
+    "RUSTY_QUEST_MAKEPAD_MESH_REPLAY_ENABLED";
+pub(crate) const ENV_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_SOURCE: &str =
+    "RUSTY_QUEST_MAKEPAD_MESH_REPLAY_SOURCE";
+pub(crate) const ENV_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_SPEED: &str =
+    "RUSTY_QUEST_MAKEPAD_MESH_REPLAY_SPEED";
+pub(crate) const ENV_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_OPACITY: &str =
+    "RUSTY_QUEST_MAKEPAD_MESH_REPLAY_OPACITY";
 pub(crate) const DEFAULT_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS: &str = "offset-scale";
 pub(crate) const SUPPRESS_LIVE_CAMERA_SAMPLING: bool = false;
 pub(crate) const FORCE_FULL_SURFACE_LIVE_CAMERA_UV: bool = false;
@@ -98,6 +118,8 @@ pub(crate) const IDENTITY_SURFACE_TO_CAMERA_HOMOGRAPHY: [[f32; 3]; 3] =
 pub(crate) const MAKEPAD_BRANCH: &str = "rusty-xr/android-libstd-packaging";
 pub(crate) const MAKEPAD_REV: &str = "f5b0c6f1b";
 pub(crate) const DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING: &str = "display-left-from-left-source";
+#[cfg(target_os = "android")]
+pub(crate) const MAKEPAD_ANDROID_PROPERTY_PREFIX: &str = "debug.rustyquest.makepad";
 pub(crate) const PAIRED_IMPORT_DELAY_SECONDS: f64 = 6.0;
 pub(crate) const PAIRED_IMPORT_RETRY_SECONDS: f64 = 1.0;
 pub(crate) const PAIRED_IMPORT_MAX_WAITS: usize = 10;
@@ -135,112 +157,99 @@ pub(crate) const KEY_CAMERA_RAW_OVERLAY_OVERSCAN: &str = "camera_raw_overlay_ove
 pub(crate) const KEY_XR_RENDER_SCALE: &str = "xr_render_scale";
 pub(crate) const KEY_RENDERER: &str = "renderer";
 pub(crate) const KEY_ANDROID_PACKAGER: &str = "android_packager";
-pub(crate) const KEY_MAKEPAD_REVISION: &str = "makepad_revision";
-pub(crate) const KEY_MAKEPAD_BRANCH: &str = "makepad_branch";
+pub(crate) const KEY_MAKEPAD_REVISION: &str = "revision";
+pub(crate) const KEY_MAKEPAD_BRANCH: &str = "branch";
 pub(crate) const KEY_STUDIO_HOST: &str = "studio_host";
 pub(crate) const KEY_MAKEPAD_HORIZONTAL_ALIGNMENT_STRENGTH: &str =
-    "makepad_horizontal_alignment_strength";
-pub(crate) const KEY_MAKEPAD_HORIZONTAL_OFFSET_UV: &str = "makepad_horizontal_offset_uv";
-pub(crate) const KEY_MAKEPAD_HORIZONTAL_OFFSET_LEFT_UV: &str = "makepad_horizontal_offset_left_uv";
+    "horizontal_alignment_strength";
+pub(crate) const KEY_MAKEPAD_HORIZONTAL_OFFSET_UV: &str = "horizontal_offset_uv";
+pub(crate) const KEY_MAKEPAD_HORIZONTAL_OFFSET_LEFT_UV: &str = "horizontal_offset_left_uv";
 pub(crate) const KEY_MAKEPAD_HORIZONTAL_OFFSET_RIGHT_UV: &str =
-    "makepad_horizontal_offset_right_uv";
-pub(crate) const KEY_MAKEPAD_VERTICAL_OFFSET_UV: &str = "makepad_vertical_offset_uv";
-pub(crate) const KEY_MAKEPAD_CONTENT_UV_SCALE: &str = "makepad_content_uv_scale";
-pub(crate) const KEY_MAKEPAD_PROJECTION_BORDER_OPACITY: &str = "makepad_projection_border_opacity";
+    "horizontal_offset_right_uv";
+pub(crate) const KEY_MAKEPAD_VERTICAL_OFFSET_UV: &str = "vertical_offset_uv";
+pub(crate) const KEY_MAKEPAD_CONTENT_UV_SCALE: &str = "content_uv_scale";
+pub(crate) const KEY_MAKEPAD_PROJECTION_BORDER_OPACITY: &str = "projection_border_opacity";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_DIAGNOSTIC: &str =
-    "makepad_projection_area_diagnostic";
+    "projection_area_diagnostic";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_OFFSET_LEFT_UV: &str =
-    "makepad_projection_area_offset_left_uv";
+    "projection_area_offset_left_uv";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_OFFSET_RIGHT_UV: &str =
-    "makepad_projection_area_offset_right_uv";
+    "projection_area_offset_right_uv";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_OFFSET_VERTICAL_UV: &str =
-    "makepad_projection_area_offset_vertical_uv";
-pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_SCALE_X: &str = "makepad_projection_area_scale_x";
-pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_SCALE_Y: &str = "makepad_projection_area_scale_y";
+    "projection_area_offset_vertical_uv";
+pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_SCALE_X: &str = "projection_area_scale_x";
+pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_SCALE_Y: &str = "projection_area_scale_y";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_RADIUS_X_UV: &str =
-    "makepad_projection_area_radius_x_uv";
+    "projection_area_radius_x_uv";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_RADIUS_Y_UV: &str =
-    "makepad_projection_area_radius_y_uv";
+    "projection_area_radius_y_uv";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_CORNER_RADIUS_UV: &str =
-    "makepad_projection_area_corner_radius_uv";
+    "projection_area_corner_radius_uv";
 pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_KEYSTONE_X: &str =
-    "makepad_projection_area_keystone_x";
-pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_BOW_X: &str = "makepad_projection_area_bow_x";
-pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_OPACITY: &str = "makepad_projection_area_opacity";
-pub(crate) const KEY_MAKEPAD_PROJECTION_ALPHA_MODE: &str = "makepad_projection_alpha_mode";
-pub(crate) const KEY_MAKEPAD_PROJECTION_ALPHA_SCALE: &str = "makepad_projection_alpha_scale";
-pub(crate) const KEY_MAKEPAD_PROJECTION_ALPHA_BIAS: &str = "makepad_projection_alpha_bias";
-pub(crate) const KEY_MAKEPAD_PROJECTION_BORDER_POLICY: &str = "makepad_projection_border_policy";
-pub(crate) const KEY_MAKEPAD_PROJECTION_SAMPLE_MODE: &str = "makepad_projection_sample_mode";
-pub(crate) const KEY_MAKEPAD_PROCESSING_LAYER: &str = "makepad_processing_layer";
-pub(crate) const KEY_MAKEPAD_BLUR_RADIUS_PX: &str = "makepad_blur_radius_px";
+    "projection_area_keystone_x";
+pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_BOW_X: &str = "projection_area_bow_x";
+pub(crate) const KEY_MAKEPAD_PROJECTION_AREA_OPACITY: &str = "projection_area_opacity";
+pub(crate) const KEY_MAKEPAD_PROJECTION_ALPHA_MODE: &str = "projection_alpha_mode";
+pub(crate) const KEY_MAKEPAD_PROJECTION_ALPHA_SCALE: &str = "projection_alpha_scale";
+pub(crate) const KEY_MAKEPAD_PROJECTION_ALPHA_BIAS: &str = "projection_alpha_bias";
+pub(crate) const KEY_MAKEPAD_PROJECTION_BORDER_POLICY: &str = "projection_border_policy";
+pub(crate) const KEY_MAKEPAD_PROJECTION_SAMPLE_MODE: &str = "projection_sample_mode";
 pub(crate) const KEY_MAKEPAD_PROJECTION_RUNTIME_RESOLUTION_ENABLED: &str =
-    "makepad_projection_runtime_resolution_enabled";
-pub(crate) const KEY_MAKEPAD_NATIVE_PASSTHROUGH_ENABLED: &str =
-    "makepad_native_passthrough_enabled";
+    "projection_runtime_resolution_enabled";
+pub(crate) const KEY_MAKEPAD_NATIVE_PASSTHROUGH_ENABLED: &str = "native_passthrough_enabled";
 pub(crate) const KEY_MAKEPAD_DIRECT_CAMERA_HARDWARE_BUFFER_EXTERNAL: &str =
-    "makepad_direct_camera_hardware_buffer_external";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_ENABLED: &str = "makepad_broker_h264_enabled";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_HOST: &str = "makepad_broker_h264_host";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_BROKER_PORT: &str = "makepad_broker_h264_broker_port";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_STREAM_PORT: &str = "makepad_broker_h264_stream_port";
+    "direct_camera_hardware_buffer_external";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_ENABLED: &str = "broker_h264_enabled";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_HOST: &str = "broker_h264_host";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_BROKER_PORT: &str = "broker_h264_broker_port";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_STREAM_PORT: &str = "broker_h264_stream_port";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_RIGHT_STREAM_PORT: &str =
-    "makepad_broker_h264_right_stream_port";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_SOURCE_MODE: &str = "makepad_broker_h264_source_mode";
+    "broker_h264_right_stream_port";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_SOURCE_MODE: &str = "broker_h264_source_mode";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_DECODE_OUTPUT_MODE: &str =
-    "makepad_broker_h264_decode_output_mode";
+    "broker_h264_decode_output_mode";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PATTERN: &str =
-    "makepad_broker_h264_synthetic_pattern";
+    "broker_h264_synthetic_pattern";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_PROJECTION_GEOMETRY_PROFILE: &str =
-    "makepad_broker_h264_projection_geometry_profile";
+    "broker_h264_projection_geometry_profile";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_SOURCE_SAMPLING_MODE: &str =
-    "makepad_broker_h264_source_sampling_mode";
+    "broker_h264_source_sampling_mode";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_SYNTHETIC_PROJECTION_PROFILE: &str =
-    "makepad_broker_h264_synthetic_projection_profile";
+    "broker_h264_synthetic_projection_profile";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_TARGET_SCREEN_UV_RECT: &str =
-    "makepad_broker_h264_target_screen_uv_rect";
+    "broker_h264_target_screen_uv_rect";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_LEFT_TARGET_SCREEN_UV_RECT: &str =
-    "makepad_broker_h264_left_target_screen_uv_rect";
+    "broker_h264_left_target_screen_uv_rect";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_RIGHT_TARGET_SCREEN_UV_RECT: &str =
-    "makepad_broker_h264_right_target_screen_uv_rect";
+    "broker_h264_right_target_screen_uv_rect";
 pub(crate) const KEY_CAMERA_PROJECTION_GEOMETRY_PROFILE: &str =
     "camera_projection_geometry_profile";
-pub(crate) const KEY_MAKEPAD_CAMERA_PROJECTION_GEOMETRY_PROFILE: &str =
-    "makepad_camera_projection_geometry_profile";
 pub(crate) const KEY_CAMERA_SOURCE_SAMPLING_MODE: &str = "camera_source_sampling_mode";
-pub(crate) const KEY_MAKEPAD_CAMERA_SOURCE_SAMPLING_MODE: &str =
-    "makepad_camera_source_sampling_mode";
 pub(crate) const KEY_CAMERA_TARGET_SCREEN_UV_RECT: &str = "camera_target_screen_uv_rect";
 pub(crate) const KEY_CAMERA_LEFT_TARGET_SCREEN_UV_RECT: &str = "camera_left_target_screen_uv_rect";
 pub(crate) const KEY_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT: &str =
     "camera_right_target_screen_uv_rect";
-pub(crate) const KEY_MAKEPAD_CAMERA_TARGET_SCREEN_UV_RECT: &str =
-    "makepad_camera_target_screen_uv_rect";
-pub(crate) const KEY_MAKEPAD_CAMERA_LEFT_TARGET_SCREEN_UV_RECT: &str =
-    "makepad_camera_left_target_screen_uv_rect";
-pub(crate) const KEY_MAKEPAD_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT: &str =
-    "makepad_camera_right_target_screen_uv_rect";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_LEFT_CAMERA_ID: &str =
-    "makepad_broker_h264_left_camera_id";
+    "broker_h264_left_camera_id";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_RIGHT_CAMERA_ID: &str =
-    "makepad_broker_h264_right_camera_id";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_WIDTH: &str = "makepad_broker_h264_width";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_HEIGHT: &str = "makepad_broker_h264_height";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_CAPTURE_MS: &str = "makepad_broker_h264_capture_ms";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_MAX_PACKETS: &str = "makepad_broker_h264_max_packets";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_BITRATE_BPS: &str = "makepad_broker_h264_bitrate_bps";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_FRAME_RATE_HZ: &str = "makepad_broker_h264_frame_rate_hz";
+    "broker_h264_right_camera_id";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_WIDTH: &str = "broker_h264_width";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_HEIGHT: &str = "broker_h264_height";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_CAPTURE_MS: &str = "broker_h264_capture_ms";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_MAX_PACKETS: &str = "broker_h264_max_packets";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_BITRATE_BPS: &str = "broker_h264_bitrate_bps";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_FRAME_RATE_HZ: &str = "broker_h264_frame_rate_hz";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_COMMAND_TIMEOUT_MS: &str =
-    "makepad_broker_h264_command_timeout_ms";
+    "broker_h264_command_timeout_ms";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_STREAM_TIMEOUT_MS: &str =
-    "makepad_broker_h264_stream_timeout_ms";
+    "broker_h264_stream_timeout_ms";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_DECODE_TIMEOUT_MS: &str =
-    "makepad_broker_h264_decode_timeout_ms";
-pub(crate) const KEY_MAKEPAD_BROKER_H264_LIVE_STREAM: &str = "makepad_broker_h264_live_stream";
+    "broker_h264_decode_timeout_ms";
+pub(crate) const KEY_MAKEPAD_BROKER_H264_LIVE_STREAM: &str = "broker_h264_live_stream";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_STEREO_PAIR_ID: &str =
-    "makepad_broker_h264_stereo_pair_id";
+    "broker_h264_stereo_pair_id";
 pub(crate) const KEY_MAKEPAD_BROKER_H264_STEREO_PAIR_MAX_DELTA_NS: &str =
-    "makepad_broker_h264_stereo_pair_max_delta_ns";
+    "broker_h264_stereo_pair_max_delta_ns";
 pub(crate) const KEY_MANIFOLD_POSE_PUBLISH_ENABLED: &str = "manifold_pose_publish_enabled";
 pub(crate) const KEY_MANIFOLD_POSE_STREAM: &str = "manifold_pose_stream";
 pub(crate) const KEY_MANIFOLD_POSE_SOURCE: &str = "manifold_pose_source";
@@ -255,56 +264,56 @@ pub(crate) const KEY_MANIFOLD_BREATH_FEEDBACK_STREAM: &str = "manifold_breath_fe
 pub(crate) const KEY_MANIFOLD_BREATH_FEEDBACK_RECEIVER: &str = "manifold_breath_feedback_receiver";
 pub(crate) const KEY_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS: &str =
     "manifold_breath_feedback_connect_timeout_ms";
-pub(crate) const KEY_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS: &str =
-    "makepad_projection_target_joystick_controls";
 
 pub(crate) fn makepad_runtime_config() -> RuntimeConfig {
     let mut config = RuntimeConfig::new();
     set_runtime_text(
         &mut config,
         KEY_RUNTIME_PROFILE,
-        std::env::var("RUSTY_XR_RUNTIME_PROFILE").unwrap_or_else(|_| DEFAULT_PROFILE.to_string()),
+        std::env::var("RUSTY_QUEST_MAKEPAD_RUNTIME_PROFILE")
+            .unwrap_or_else(|_| DEFAULT_PROFILE.to_string()),
         RuntimeConfigSource::Environment,
     );
     set_runtime_text(
         &mut config,
         KEY_TRANSPORT_PROFILE,
-        std::env::var("RUSTY_XR_TRANSPORT_PROFILE")
+        std::env::var("RUSTY_QUEST_MAKEPAD_TRANSPORT_PROFILE")
             .unwrap_or_else(|_| DEFAULT_TRANSPORT.to_string()),
         RuntimeConfigSource::Environment,
     );
     set_runtime_text(
         &mut config,
         KEY_CAMERA_TIER,
-        std::env::var("RUSTY_XR_CAMERA_TIER").unwrap_or_else(|_| DEFAULT_CAMERA_TIER.to_string()),
+        std::env::var("RUSTY_QUEST_MAKEPAD_CAMERA_TIER")
+            .unwrap_or_else(|_| DEFAULT_CAMERA_TIER.to_string()),
         RuntimeConfigSource::Environment,
     );
     set_runtime_text(
         &mut config,
         KEY_CAMERA_PROJECTION_MODE,
         runtime_property_value(KEY_CAMERA_PROJECTION_MODE)
-            .or_else(|| std::env::var("RUSTY_XR_CAMERA_PROJECTION_MODE").ok())
+            .or_else(|| std::env::var("RUSTY_QUEST_MAKEPAD_CAMERA_PROJECTION_MODE").ok())
             .unwrap_or_else(|| DEFAULT_CAMERA_PROJECTION_MODE.to_string()),
         RuntimeConfigSource::Environment,
     );
     set_runtime_text(
         &mut config,
         KEY_COMPARISON_BASELINE,
-        std::env::var("RUSTY_XR_COMPARISON_BASELINE")
+        std::env::var("RUSTY_QUEST_MAKEPAD_COMPARISON_BASELINE")
             .unwrap_or_else(|_| DEFAULT_COMPARISON_BASELINE.to_string()),
         RuntimeConfigSource::Environment,
     );
     set_runtime_text(
         &mut config,
         KEY_SYNTHETIC_SCENE,
-        std::env::var("RUSTY_XR_SYNTHETIC_SCENE")
+        std::env::var("RUSTY_QUEST_MAKEPAD_SYNTHETIC_SCENE")
             .unwrap_or_else(|_| DEFAULT_SYNTHETIC_SCENE.to_string()),
         RuntimeConfigSource::Environment,
     );
     set_runtime_text(
         &mut config,
         KEY_ACQUISITION_PROFILE,
-        std::env::var("RUSTY_XR_ACQUISITION_PROFILE")
+        std::env::var("RUSTY_QUEST_MAKEPAD_ACQUISITION_PROFILE")
             .unwrap_or_else(|_| DEFAULT_ACQUISITION_PROFILE.to_string()),
         RuntimeConfigSource::Environment,
     );
@@ -313,7 +322,7 @@ pub(crate) fn makepad_runtime_config() -> RuntimeConfig {
         KEY_PROJECTION_SCALE,
         startup_f64(
             KEY_PROJECTION_SCALE,
-            "RUSTY_XR_PROJECTION_SCALE",
+            "RUSTY_QUEST_MAKEPAD_PROJECTION_SCALE",
             DEFAULT_PROJECTION_SCALE,
         ),
         RuntimeConfigSource::Environment,
@@ -323,7 +332,7 @@ pub(crate) fn makepad_runtime_config() -> RuntimeConfig {
         KEY_PROJECTION_DEPTH_METERS,
         startup_f64(
             KEY_PROJECTION_DEPTH_METERS,
-            "RUSTY_XR_PROJECTION_DEPTH_METERS",
+            "RUSTY_QUEST_MAKEPAD_PROJECTION_DEPTH_METERS",
             DEFAULT_PROJECTION_DEPTH_METERS,
         ),
         RuntimeConfigSource::Environment,
@@ -333,7 +342,7 @@ pub(crate) fn makepad_runtime_config() -> RuntimeConfig {
         KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
         startup_f64(
             KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
-            "RUSTY_XR_CAMERA_PREVIEW_FOV_Y_DEGREES",
+            "RUSTY_QUEST_MAKEPAD_CAMERA_PREVIEW_FOV_Y_DEGREES",
             TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES as f64,
         ),
         RuntimeConfigSource::Environment,
@@ -343,7 +352,7 @@ pub(crate) fn makepad_runtime_config() -> RuntimeConfig {
         KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
         startup_signed_f64(
             KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
-            "RUSTY_XR_CAMERA_PREVIEW_OFFSET_Y_METERS",
+            "RUSTY_QUEST_MAKEPAD_CAMERA_PREVIEW_OFFSET_Y_METERS",
             TARGET_PROJECTION_PREVIEW_OFFSET_Y_METERS as f64,
         ),
         RuntimeConfigSource::Environment,
@@ -353,7 +362,7 @@ pub(crate) fn makepad_runtime_config() -> RuntimeConfig {
         KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
         startup_f64(
             KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
-            "RUSTY_XR_CAMERA_RAW_OVERLAY_OVERSCAN",
+            "RUSTY_QUEST_MAKEPAD_CAMERA_RAW_OVERLAY_OVERSCAN",
             TARGET_PROJECTION_RAW_OVERSCAN as f64,
         ),
         RuntimeConfigSource::Environment,
@@ -363,7 +372,7 @@ pub(crate) fn makepad_runtime_config() -> RuntimeConfig {
         KEY_XR_RENDER_SCALE,
         startup_f64(
             KEY_XR_RENDER_SCALE,
-            "RUSTY_XR_RENDER_SCALE",
+            "RUSTY_QUEST_MAKEPAD_RENDER_SCALE",
             DEFAULT_XR_RENDER_SCALE,
         ),
         RuntimeConfigSource::Environment,
@@ -463,18 +472,6 @@ pub(crate) fn hotload_f32(key: &'static str, default: f32, min: f32, max: f32) -
         .unwrap_or(default)
 }
 
-pub(crate) fn hotload_f32_any(keys: &[&'static str], default: f32, min: f32, max: f32) -> f32 {
-    keys.iter()
-        .find_map(|key| {
-            runtime_property_value(key)
-                .or_else(|| std::env::var(runtime_env_key(key)).ok())
-                .and_then(|value| value.parse::<f32>().ok())
-                .filter(|value| value.is_finite())
-        })
-        .map(|value| value.clamp(min, max))
-        .unwrap_or(default)
-}
-
 pub(crate) fn hotload_bool(key: &'static str, default: bool) -> bool {
     runtime_property_value(key)
         .or_else(|| std::env::var(runtime_env_key(key)).ok())
@@ -495,15 +492,52 @@ pub(crate) fn hotload_text(key: &'static str, default: &str) -> String {
         .unwrap_or_else(|| default.to_string())
 }
 
-pub(crate) fn hotload_text_any(keys: &[&'static str], default: &str) -> String {
-    keys.iter()
-        .find_map(|key| {
-            runtime_property_value(key)
-                .or_else(|| std::env::var(runtime_env_key(key)).ok())
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
+pub(crate) fn hotload_bool_explicit_property(
+    current_property: &'static str,
+    current_env: &'static str,
+    default: bool,
+) -> bool {
+    explicit_hotload_value(current_property, current_env)
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on" | "enabled"
+            )
         })
+        .unwrap_or(default)
+}
+
+pub(crate) fn hotload_f32_explicit_property(
+    current_property: &'static str,
+    current_env: &'static str,
+    default: f32,
+    min: f32,
+    max: f32,
+) -> f32 {
+    explicit_hotload_value(current_property, current_env)
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(min, max))
+        .unwrap_or(default)
+}
+
+pub(crate) fn hotload_text_explicit_property(
+    current_property: &'static str,
+    current_env: &'static str,
+    default: &str,
+) -> String {
+    explicit_hotload_value(current_property, current_env)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
         .unwrap_or_else(|| default.to_string())
+}
+
+fn explicit_hotload_value(
+    current_property: &'static str,
+    current_env: &'static str,
+) -> Option<String> {
+    android_system_property_value(current_property)
+        .or_else(|| std::env::var(current_env).ok())
 }
 
 pub(crate) fn hotload_u32(key: &'static str, default: u32, min: u32, max: u32) -> u32 {
@@ -520,16 +554,18 @@ pub(crate) fn hotload_u16(key: &'static str, default: u16, min: u16, max: u16) -
 
 fn runtime_env_key(key: &str) -> String {
     format!(
-        "RUSTY_XR_{}",
+        "RUSTY_QUEST_MAKEPAD_{}",
         key.replace(['-', '.'], "_").to_ascii_uppercase()
     )
 }
 
 #[cfg(target_os = "android")]
 fn runtime_property_name(key: &'static str) -> String {
+    let prefix = AndroidPropertyPrefix::new(MAKEPAD_ANDROID_PROPERTY_PREFIX)
+        .expect("Makepad property prefix should be valid");
     RuntimeKey::new(key)
         .expect("runtime config key should be valid")
-        .android_property(&AndroidPropertyPrefix::default())
+        .android_property(&prefix)
 }
 
 #[cfg(target_os = "android")]

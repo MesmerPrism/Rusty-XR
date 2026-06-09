@@ -1,4 +1,4 @@
-//! Camera metadata and projection helpers for Rusty XR.
+//! Camera metadata and projection helpers for Rusty Morphospace.
 //!
 //! This crate owns camera math that is public and app-neutral: intrinsics
 //! scaling, pinhole projection/back-projection, and timestamp matching.
@@ -34,14 +34,14 @@ pub use rusty_xr_contracts::{
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Versioned schema id for metadata-authored screen target footprints.
-pub const TARGET_SCREEN_FOOTPRINT_SCHEMA: &str = "rusty.xr.target_screen_footprint.v1";
+pub const TARGET_SCREEN_FOOTPRINT_SCHEMA: &str = "rusty.optics.target_screen_footprint.v1";
 
 /// Versioned schema id for diagnostic region colors used by projection lanes.
 pub const TARGET_FOOTPRINT_DEBUG_REGION_COLORS_SCHEMA: &str =
-    "rusty.xr.target_footprint_debug_region_colors.v1";
+    "rusty.optics.target_footprint_debug_region_colors.v1";
 
 /// Versioned schema id for the source-to-target sampling mode carried by stream metadata.
-pub const SOURCE_SAMPLING_MODE_SCHEMA: &str = "rusty.xr.source_sampling_mode.v1";
+pub const SOURCE_SAMPLING_MODE_SCHEMA: &str = "rusty.optics.source_sampling_mode.v1";
 
 /// Source raster is placed in the metadata-authored target footprint as local 0..1 UV.
 pub const SOURCE_SAMPLING_MODE_TARGET_LOCAL_RASTER: &str = "target-local-raster";
@@ -311,7 +311,7 @@ impl SourcePixelWindow {
 }
 
 /// Versioned schema id for renderer-neutral video projection geometry logs.
-pub const VIDEO_PROJECTION_GEOMETRY_SCHEMA: &str = "rusty.xr.video_projection_geometry.v1";
+pub const VIDEO_PROJECTION_GEOMETRY_SCHEMA: &str = "rusty.optics.video_projection_geometry.v1";
 
 /// Explicit source-to-surface mapping behavior requested by a video feed.
 ///

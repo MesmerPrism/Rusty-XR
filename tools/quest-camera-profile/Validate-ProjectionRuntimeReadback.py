@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = "rusty.xr.projection-runtime-readback.v1"
-RUNTIME_MANIFEST_MARKER = "RUSTY_XR_PROJECTION_RUNTIME_MANIFEST"
-RUNTIME_MANIFEST_SCHEMA = "rusty.xr.projection-runtime-manifest.v1"
+SCHEMA_VERSION = "rusty.quest.makepad.projection-runtime-readback.v1"
+RUNTIME_MANIFEST_MARKER = "RUSTY_QUEST_MAKEPAD_PROJECTION_RUNTIME_MANIFEST"
+RUNTIME_MANIFEST_SCHEMA = "rusty.quest.makepad.projection-runtime-manifest.v1"
 NUMERIC_TOLERANCE = 1.0e-5
 SOURCE_METADATA_SELECTOR_KEYS = {
     "projection_geometry_profile",
@@ -25,7 +25,7 @@ SOURCE_METADATA_SELECTOR_KEYS = {
 
 
 @dataclass
-class AliasRecord:
+class InputRecord:
     input_key: str
     canonical_key: str
     source: str
@@ -143,59 +143,59 @@ def sanitize_marker_token(value: str) -> str:
     )
 
 
-def load_projection_runtime_aliases(source_path: Path | None = None) -> dict[str, AliasRecord]:
+def load_projection_runtime_inputs(source_path: Path | None = None) -> dict[str, InputRecord]:
     source_path = source_path or runtime_config_source_path()
     text = source_path.read_text(encoding="utf-8")
     constants = {
         match.group(1): match.group(2)
         for match in re.finditer(r'pub const (KEY_[A-Z0-9_]+): &str = "([^"]+)";', text)
     }
-    aliases: dict[str, AliasRecord] = {}
+    inputs: dict[str, InputRecord] = {}
     for canonical_key in constants.values():
-        aliases[canonical_key] = AliasRecord(
+        inputs[canonical_key] = InputRecord(
             input_key=canonical_key,
             canonical_key=canonical_key,
             source="any",
             transform="identity",
         )
 
-    alias_re = re.compile(
-        r"(launch_alias|property_alias|env_alias)"
+    input_re = re.compile(
+        r"(launch_input|property_input|env_input)"
         r'\s*\(\s*"([^"]+)"\s*,\s*(KEY_[A-Z0-9_]+)'
-        r"(?:\s*,\s*RuntimeKeyAliasValueTransform::([A-Za-z0-9_]+))?\s*,?\s*\)",
+        r"(?:\s*,\s*RuntimeKeyInputValueTransform::([A-Za-z0-9_]+))?\s*,?\s*\)",
         re.S,
     )
     source_by_fn = {
-        "launch_alias": "command-line",
-        "property_alias": "android-property",
-        "env_alias": "environment",
+        "launch_input": "command-line",
+        "property_input": "android-property",
+        "env_input": "environment",
     }
     transform_by_name = {
         None: "identity",
         "Identity": "identity",
         "NegateNumber": "negate-number",
     }
-    for match in alias_re.finditer(text):
-        fn_name, alias, constant_name, transform_name = match.groups()
+    for match in input_re.finditer(text):
+        fn_name, input, constant_name, transform_name = match.groups()
         canonical_key = constants.get(constant_name)
         if canonical_key is None:
             continue
-        aliases[alias] = AliasRecord(
-            input_key=alias,
+        inputs[input] = InputRecord(
+            input_key=input,
             canonical_key=canonical_key,
             source=source_by_fn[fn_name],
             transform=transform_by_name.get(transform_name, "identity"),
         )
-    return aliases
+    return inputs
 
 
-def canonicalize_input_key(key: str, aliases: dict[str, AliasRecord]) -> AliasRecord | None:
+def canonicalize_input_key(key: str, inputs: dict[str, InputRecord]) -> InputRecord | None:
     key = str(key).strip()
-    if key in aliases:
-        return aliases[key]
-    if key.startswith("rustyxr."):
-        return aliases.get(key)
-    return aliases.get(key)
+    if key in inputs:
+        return inputs[key]
+    if key.startswith("rustyquest.makepad."):
+        return inputs.get(key)
+    return inputs.get(key)
 
 
 def apply_transform(raw_value: Any, transform: str) -> str:
@@ -231,7 +231,7 @@ def parse_override_fields(value: Any) -> list[tuple[str, str]]:
 
 def collect_run_manifest_expected(
     manifest_path: Path,
-    aliases: dict[str, AliasRecord],
+    inputs: dict[str, InputRecord],
     forced_source: str,
     state: ValidationState,
 ) -> None:
@@ -260,22 +260,22 @@ def collect_run_manifest_expected(
             pairs.append((key, value, f"{manifest_path}:overrides"))
 
     for key, raw_value, origin in pairs:
-        alias = canonicalize_input_key(key, aliases)
-        if alias is None or alias.source not in {"command-line", "any"}:
+        input = canonicalize_input_key(key, inputs)
+        if input is None or input.source not in {"command-line", "any"}:
             continue
-        if alias.canonical_key in SOURCE_METADATA_SELECTOR_KEYS:
+        if input.canonical_key in SOURCE_METADATA_SELECTOR_KEYS:
             continue
-        expected_source = forced_source if forced_source != "alias" else alias.source
-        if expected_source == "alias":
+        expected_source = forced_source if forced_source != "input" else input.source
+        if expected_source == "input":
             expected_source = "command-line"
         state.expected.append(
             ExpectedRuntimeValue(
-                canonical_key=alias.canonical_key,
-                expected_value=apply_transform(raw_value, alias.transform),
+                canonical_key=input.canonical_key,
+                expected_value=apply_transform(raw_value, input.transform),
                 expected_source=expected_source,
                 input_key=key,
                 origin=origin,
-                transform=alias.transform,
+                transform=input.transform,
             )
         )
 
@@ -299,7 +299,7 @@ def normalize_property_entries(value: Any) -> list[dict[str, Any]]:
 
 def collect_property_expected(
     property_path: Path,
-    aliases: dict[str, AliasRecord],
+    inputs: dict[str, InputRecord],
     forced_source: str,
     state: ValidationState,
 ) -> None:
@@ -336,10 +336,10 @@ def collect_property_expected(
                 actual=str(actual_raw).strip(),
                 path=f"{property_path}[{index}]",
             )
-        alias = canonicalize_input_key(key, aliases)
-        if alias is None or alias.source not in {"android-property", "any"}:
+        input = canonicalize_input_key(key, inputs)
+        if input is None or input.source not in {"android-property", "any"}:
             continue
-        if alias.canonical_key in SOURCE_METADATA_SELECTOR_KEYS:
+        if input.canonical_key in SOURCE_METADATA_SELECTOR_KEYS:
             continue
         if expected_raw is None:
             state.add_issue(
@@ -350,17 +350,17 @@ def collect_property_expected(
                 path=f"{property_path}[{index}]",
             )
             continue
-        expected_source = forced_source if forced_source != "alias" else alias.source
-        if expected_source == "alias":
+        expected_source = forced_source if forced_source != "input" else input.source
+        if expected_source == "input":
             expected_source = "android-property"
         state.expected.append(
             ExpectedRuntimeValue(
-                canonical_key=alias.canonical_key,
-                expected_value=apply_transform(expected_raw, alias.transform),
+                canonical_key=input.canonical_key,
+                expected_value=apply_transform(expected_raw, input.transform),
                 expected_source=expected_source,
                 input_key=key,
                 origin=f"{property_path}[{index}]",
-                transform=alias.transform,
+                transform=input.transform,
             )
         )
 
@@ -738,12 +738,12 @@ def validate_projection_runtime_readback(
     allow_missing_manifest: bool,
     runtime_config_source: Path | None = None,
 ) -> dict[str, Any]:
-    aliases = load_projection_runtime_aliases(runtime_config_source)
+    inputs = load_projection_runtime_inputs(runtime_config_source)
     state = ValidationState()
     if run_manifest is not None:
-        collect_run_manifest_expected(run_manifest, aliases, expected_source, state)
+        collect_run_manifest_expected(run_manifest, inputs, expected_source, state)
     for property_path in expected_properties:
-        collect_property_expected(property_path, aliases, expected_source, state)
+        collect_property_expected(property_path, inputs, expected_source, state)
     parse_logcat_manifests(logcat_paths, state)
     select_resolved_manifest_scope(
         state,
@@ -761,13 +761,13 @@ def write_self_test_fixture(root: Path) -> tuple[Path, Path, Path]:
     run_manifest.write_text(
         json.dumps(
             {
-                "schemaVersion": "rusty.xr.quest-camera-profile-run.v1",
+                "schemaVersion": "rusty.quest.makepad.profile-run.v1",
                 "values": {
-                    "rustyxr.projectionDepthMeters": "1.234",
-                    "rustyxr.projectionBorderPolicy": "solid-red",
-                    "rustyxr.cameraProjectionGeometryProfile": "full-frame-diagnostic",
+                    "rustyquest.makepad.projectionDepthMeters": "1.234",
+                    "rustyquest.makepad.projectionBorderPolicy": "solid-red",
+                    "rustyquest.makepad.cameraProjectionGeometryProfile": "full-frame-diagnostic",
                 },
-                "overrides": ["rustyxr.projectionAreaRadiusXUv=0.47"],
+                "overrides": ["rustyquest.makepad.projectionAreaRadiusXUv=0.47"],
             }
         ),
         encoding="utf-8",
@@ -776,7 +776,7 @@ def write_self_test_fixture(root: Path) -> tuple[Path, Path, Path]:
         json.dumps(
             [
                 {
-                    "property": "debug.rustyxr.projection.area.left.offset.x.uv",
+                    "property": "debug.rustyquest.makepad.projection.area.left.offset.x.uv",
                     "expected": "0.125",
                     "actual": "0.125",
                 }
@@ -787,8 +787,8 @@ def write_self_test_fixture(root: Path) -> tuple[Path, Path, Path]:
     logcat.write_text(
         "\n".join(
             [
-                "I/RustyXR: RUSTY_XR_PROJECTION_RUNTIME_MANIFEST schema=rusty.xr.projection-runtime-manifest.v1 backend=hwb phase=test part=1/2 section=fields fieldCount=4 aliasCount=0 aliases=none fields=projection_depth_meters[owner=hwb-launch-effective,resolved=float:1.234000,source=command-line,default=float:1.000000,candidates=10:hwb-launch-effective:command-line:float:1.234000];projection_border_policy[owner=hwb-launch-effective,resolved=text:solid-red,source=command-line,default=text:passthrough-underlay,candidates=10:hwb-launch-effective:command-line:text:solid-red]",
-                "I/RustyXR: RUSTY_XR_PROJECTION_RUNTIME_MANIFEST schema=rusty.xr.projection-runtime-manifest.v1 backend=hwb phase=test part=2/2 section=fields fieldCount=4 aliasCount=0 aliases=none fields=projection_area_radius_x_uv[owner=hwb-launch-effective,resolved=float:0.470000,source=command-line,default=float:0.500000,candidates=10:hwb-launch-effective:command-line:float:0.470000];projection_area_left_offset_x_uv[owner=makepad-android-properties,resolved=float:0.125000,source=android-property,default=float:0.000000,candidates=30:makepad-android-properties:android-property:float:0.125000]",
+                "I/RustyQuestMakepad: RUSTY_QUEST_MAKEPAD_PROJECTION_RUNTIME_MANIFEST schema=rusty.quest.makepad.projection-runtime-manifest.v1 backend=hwb phase=test part=1/2 section=fields fieldCount=4 inputCount=0 inputs=none fields=projection_depth_meters[owner=hwb-launch-effective,resolved=float:1.234000,source=command-line,default=float:1.000000,candidates=10:hwb-launch-effective:command-line:float:1.234000];projection_border_policy[owner=hwb-launch-effective,resolved=text:solid-red,source=command-line,default=text:passthrough-underlay,candidates=10:hwb-launch-effective:command-line:text:solid-red]",
+                "I/RustyQuestMakepad: RUSTY_QUEST_MAKEPAD_PROJECTION_RUNTIME_MANIFEST schema=rusty.quest.makepad.projection-runtime-manifest.v1 backend=hwb phase=test part=2/2 section=fields fieldCount=4 inputCount=0 inputs=none fields=projection_area_radius_x_uv[owner=hwb-launch-effective,resolved=float:0.470000,source=command-line,default=float:0.500000,candidates=10:hwb-launch-effective:command-line:float:0.470000];projection_area_left_offset_x_uv[owner=makepad-android-properties,resolved=float:0.125000,source=android-property,default=float:0.000000,candidates=30:makepad-android-properties:android-property:float:0.125000]",
             ]
         )
         + "\n",
@@ -803,9 +803,9 @@ def write_ambiguous_backend_fixture(root: Path) -> tuple[Path, Path]:
     run_manifest.write_text(
         json.dumps(
             {
-                "schemaVersion": "rusty.xr.quest-camera-profile-run.v1",
+                "schemaVersion": "rusty.quest.makepad.profile-run.v1",
                 "values": {
-                    "rustyxr.projectionDepthMeters": "1.234",
+                    "rustyquest.makepad.projectionDepthMeters": "1.234",
                 },
             }
         ),
@@ -814,8 +814,8 @@ def write_ambiguous_backend_fixture(root: Path) -> tuple[Path, Path]:
     logcat.write_text(
         "\n".join(
             [
-                "I/RustyXR: RUSTY_XR_PROJECTION_RUNTIME_MANIFEST schema=rusty.xr.projection-runtime-manifest.v1 backend=hwb phase=test part=1/1 section=fields fieldCount=1 aliasCount=0 aliases=none fields=projection_depth_meters[owner=hwb-launch-effective,resolved=float:1.234000,source=command-line,default=float:1.000000,candidates=10:hwb-launch-effective:command-line:float:1.234000]",
-                "I/RustyXR: RUSTY_XR_PROJECTION_RUNTIME_MANIFEST schema=rusty.xr.projection-runtime-manifest.v1 backend=oes phase=test part=1/1 section=fields fieldCount=1 aliasCount=0 aliases=none fields=projection_depth_meters[owner=oes-activity-effective,resolved=float:2.000000,source=command-line,default=float:1.000000,candidates=10:oes-activity-effective:command-line:float:2.000000]",
+                "I/RustyQuestMakepad: RUSTY_QUEST_MAKEPAD_PROJECTION_RUNTIME_MANIFEST schema=rusty.quest.makepad.projection-runtime-manifest.v1 backend=hwb phase=test part=1/1 section=fields fieldCount=1 inputCount=0 inputs=none fields=projection_depth_meters[owner=hwb-launch-effective,resolved=float:1.234000,source=command-line,default=float:1.000000,candidates=10:hwb-launch-effective:command-line:float:1.234000]",
+                "I/RustyQuestMakepad: RUSTY_QUEST_MAKEPAD_PROJECTION_RUNTIME_MANIFEST schema=rusty.quest.makepad.projection-runtime-manifest.v1 backend=oes phase=test part=1/1 section=fields fieldCount=1 inputCount=0 inputs=none fields=projection_depth_meters[owner=oes-activity-effective,resolved=float:2.000000,source=command-line,default=float:1.000000,candidates=10:oes-activity-effective:command-line:float:2.000000]",
             ]
         )
         + "\n",
@@ -893,9 +893,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--logcat", action="append", type=Path, default=[], help="Logcat text file containing runtime manifest markers.")
     parser.add_argument(
         "--expected-source",
-        choices=("alias", "command-line", "android-property", "environment", "file", "synthetic", "any"),
-        default="alias",
-        help="Expected source for compared values. 'alias' uses launch/property alias source.",
+        choices=("input", "command-line", "android-property", "environment", "file", "synthetic", "any"),
+        default="input",
+        help="Expected source for compared values. 'input' uses launch/property input source.",
     )
     parser.add_argument(
         "--expected-backend",
@@ -959,3 +959,7 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
+

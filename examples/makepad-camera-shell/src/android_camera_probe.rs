@@ -78,7 +78,7 @@ pub fn start_camera_probe_once() {
     }
 
     if let Err(error) = std::thread::Builder::new()
-        .name("rusty-xr-camera2-probe".to_string())
+        .name("rustyquest-camera2-probe".to_string())
         .spawn(run_camera_probe_thread)
     {
         emit_acquisition_marker(&format!(
@@ -201,21 +201,21 @@ unsafe fn run_camera_probe_with_manager(
 
 fn emit_metadata_marker(body: &str) {
     emit_marker_line(&format!(
-        "RUSTY_XR_MAKEPAD_CAMERA2_METADATA schema=rusty.xr.makepad-camera2.metadata.v1 {}",
+        "RUSTY_QUEST_MAKEPAD_CAMERA2_METADATA schema=rusty.quest.makepad-camera2.metadata.v1 {}",
         body
     ));
 }
 
 fn emit_acquisition_marker(body: &str) {
     emit_marker_line(&format!(
-        "RUSTY_XR_MAKEPAD_CAMERA2_ACQUISITION schema=rusty.xr.makepad-camera2.acquisition.v1 {}",
+        "RUSTY_QUEST_MAKEPAD_CAMERA2_ACQUISITION schema=rusty.quest.makepad-camera2.acquisition.v1 {}",
         body
     ));
 }
 
 fn emit_stereo_projection_marker(body: &str) {
     emit_marker_line(&format!(
-        "RUSTY_XR_MAKEPAD_STEREO_PROJECTION schema=rusty.xr.makepad-stereo-projection.v1 {}",
+        "RUSTY_QUEST_MAKEPAD_STEREO_PROJECTION schema=rusty.quest.makepad-stereo-projection.v1 {}",
         body
     ));
 }
@@ -1201,3 +1201,4 @@ fn marker_token(value: &str) -> String {
         })
         .collect()
 }
+

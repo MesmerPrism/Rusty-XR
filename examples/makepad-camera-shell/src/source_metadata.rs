@@ -7,14 +7,12 @@ use rusty_xr_camera_model::{
 use serde_json::Value as JsonValue;
 
 use super::{
-    hotload_text_any, marker_token, MakepadCameraPair, DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT,
+    hotload_text, marker_token, MakepadCameraPair, DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT,
     DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE, DEFAULT_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT,
     DEFAULT_CAMERA_SOURCE_SAMPLING_MODE, DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT,
     FRAME_RASTER_TOP_LEFT_Y_DOWN, KEY_CAMERA_LEFT_TARGET_SCREEN_UV_RECT,
     KEY_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT, KEY_CAMERA_SOURCE_SAMPLING_MODE,
-    KEY_CAMERA_TARGET_SCREEN_UV_RECT, KEY_MAKEPAD_CAMERA_LEFT_TARGET_SCREEN_UV_RECT,
-    KEY_MAKEPAD_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT, KEY_MAKEPAD_CAMERA_SOURCE_SAMPLING_MODE,
-    KEY_MAKEPAD_CAMERA_TARGET_SCREEN_UV_RECT,
+    KEY_CAMERA_TARGET_SCREEN_UV_RECT,
 };
 
 pub(crate) fn aspect_ratio_u32(width: u32, height: u32) -> f64 {
@@ -61,13 +59,7 @@ pub(crate) fn makepad_default_target_screen_uv_rect(left: bool) -> Rect2 {
 }
 
 pub(crate) fn makepad_runtime_target_screen_footprint_pair() -> MakepadTargetScreenFootprintPair {
-    let shared_text = hotload_text_any(
-        &[
-            KEY_CAMERA_TARGET_SCREEN_UV_RECT,
-            KEY_MAKEPAD_CAMERA_TARGET_SCREEN_UV_RECT,
-        ],
-        DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT,
-    );
+    let shared_text = hotload_text(KEY_CAMERA_TARGET_SCREEN_UV_RECT, DEFAULT_CAMERA_TARGET_SCREEN_UV_RECT);
     let left_default_text = if shared_text.is_empty() {
         DEFAULT_CAMERA_LEFT_TARGET_SCREEN_UV_RECT
     } else {
@@ -78,20 +70,8 @@ pub(crate) fn makepad_runtime_target_screen_footprint_pair() -> MakepadTargetScr
     } else {
         shared_text.as_str()
     };
-    let left_text = hotload_text_any(
-        &[
-            KEY_CAMERA_LEFT_TARGET_SCREEN_UV_RECT,
-            KEY_MAKEPAD_CAMERA_LEFT_TARGET_SCREEN_UV_RECT,
-        ],
-        left_default_text,
-    );
-    let right_text = hotload_text_any(
-        &[
-            KEY_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT,
-            KEY_MAKEPAD_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT,
-        ],
-        right_default_text,
-    );
+    let left_text = hotload_text(KEY_CAMERA_LEFT_TARGET_SCREEN_UV_RECT, left_default_text);
+    let right_text = hotload_text(KEY_CAMERA_RIGHT_TARGET_SCREEN_UV_RECT, right_default_text);
     let left_rect = parse_uv_rect_xywh_text(&left_text)
         .unwrap_or_else(|| makepad_default_target_screen_uv_rect(true));
     let right_rect = parse_uv_rect_xywh_text(&right_text)
@@ -107,11 +87,8 @@ pub(crate) fn makepad_runtime_target_screen_footprint_pair() -> MakepadTargetScr
 }
 
 pub(crate) fn makepad_runtime_camera_source_sampling_mode() -> SourceSamplingMode {
-    SourceSamplingMode::parse(&hotload_text_any(
-        &[
-            KEY_CAMERA_SOURCE_SAMPLING_MODE,
-            KEY_MAKEPAD_CAMERA_SOURCE_SAMPLING_MODE,
-        ],
+    SourceSamplingMode::parse(&hotload_text(
+        KEY_CAMERA_SOURCE_SAMPLING_MODE,
         DEFAULT_CAMERA_SOURCE_SAMPLING_MODE,
     ))
     .unwrap_or(SourceSamplingMode::TargetLocalRaster)
@@ -185,7 +162,7 @@ pub(crate) fn makepad_camera_status_marker_line(
     studio_host: &str,
 ) -> String {
     format!(
-        "RUSTY_XR_MAKEPAD_CAMERA_STATUS schema=rusty.xr.makepad-camera.status.v1 phase={} profile={} transport={} renderer=makepad android_packager=cargo-makepad makepad_rev={} studio_host={}",
+        "RUSTY_QUEST_MAKEPAD_CAMERA_STATUS schema=rusty.quest.makepad-camera.status.v1 phase={} profile={} transport={} renderer=makepad android_packager=cargo-makepad makepad_rev={} studio_host={}",
         phase,
         runtime_profile,
         transport_profile,
@@ -195,12 +172,12 @@ pub(crate) fn makepad_camera_status_marker_line(
 }
 
 pub(crate) fn makepad_camera2_acquisition_broker_h264_skipped_marker_line() -> &'static str {
-    "RUSTY_XR_MAKEPAD_CAMERA2_ACQUISITION schema=rusty.xr.makepad-camera2.acquisition.v1 phase=start status=skipped reason=broker-h264-enabled import=broker-h264"
+    "RUSTY_QUEST_MAKEPAD_CAMERA2_ACQUISITION schema=rusty.quest.makepad-camera2.acquisition.v1 phase=start status=skipped reason=broker-h264-enabled import=broker-h264"
 }
 
 pub(crate) fn makepad_hardware_buffer_import_marker_line(body: &str) -> String {
     format!(
-        "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 {}",
+        "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 {}",
         body
     )
 }
@@ -616,7 +593,7 @@ pub(crate) fn makepad_hardware_buffer_import_raw_video_event_marker_line(
     right_video_id: u64,
 ) -> String {
     format!(
-        "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=raw-video-event status=seen event={} side={} videoId={} leftVideoId={} rightVideoId={} depthClip=false environmentDepthClip=false importPlan=makepad-video-texture-event",
+        "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 phase=raw-video-event status=seen event={} side={} videoId={} leftVideoId={} rightVideoId={} depthClip=false environmentDepthClip=false importPlan=makepad-video-texture-event",
         event_name,
         side_label,
         video_id,
@@ -1706,7 +1683,7 @@ mod tests {
                 "185020114",
                 "studio.local"
             ),
-            "RUSTY_XR_MAKEPAD_CAMERA_STATUS schema=rusty.xr.makepad-camera.status.v1 phase=startup profile=fast-visual transport=direct-camera renderer=makepad android_packager=cargo-makepad makepad_rev=185020114 studio_host=studio.local"
+            "RUSTY_QUEST_MAKEPAD_CAMERA_STATUS schema=rusty.quest.makepad-camera.status.v1 phase=startup profile=fast-visual transport=direct-camera renderer=makepad android_packager=cargo-makepad makepad_rev=185020114 studio_host=studio.local"
         );
     }
 
@@ -1714,7 +1691,7 @@ mod tests {
     fn broker_h264_camera2_skip_marker_keeps_acquisition_shape() {
         assert_eq!(
             makepad_camera2_acquisition_broker_h264_skipped_marker_line(),
-            "RUSTY_XR_MAKEPAD_CAMERA2_ACQUISITION schema=rusty.xr.makepad-camera2.acquisition.v1 phase=start status=skipped reason=broker-h264-enabled import=broker-h264"
+            "RUSTY_QUEST_MAKEPAD_CAMERA2_ACQUISITION schema=rusty.quest.makepad-camera2.acquisition.v1 phase=start status=skipped reason=broker-h264-enabled import=broker-h264"
         );
     }
 
@@ -1722,7 +1699,7 @@ mod tests {
     fn hardware_buffer_import_marker_line_keeps_prefix_shape() {
         assert_eq!(
             makepad_hardware_buffer_import_marker_line("phase=complete status=ok"),
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=complete status=ok"
+            "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 phase=complete status=ok"
         );
     }
 
@@ -1741,7 +1718,7 @@ mod tests {
         assert!(
             fields.contains("leftSourceSamplingMode=target-local-raster rightSourceSamplingMode=target-local-raster")
         );
-        assert!(fields.contains("targetFootprintSchema=rusty.xr.target_screen_footprint.v1"));
+        assert!(fields.contains("targetFootprintSchema=rusty.optics.target_screen_footprint.v1"));
         assert!(fields.contains("leftTargetScreenUvRect=0.171875,0.218750,0.750000,0.656250"));
         assert!(fields.contains("rightTargetScreenUvRect=0.078125,0.218750,0.750000,0.671875"));
     }
@@ -2198,7 +2175,8 @@ mod tests {
                 100,
                 101,
             ),
-            "RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.xr.makepad-hardware-buffer-import.v1 phase=raw-video-event status=seen event=texture-updated side=left videoId=100 leftVideoId=100 rightVideoId=101 depthClip=false environmentDepthClip=false importPlan=makepad-video-texture-event"
+            "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 phase=raw-video-event status=seen event=texture-updated side=left videoId=100 leftVideoId=100 rightVideoId=101 depthClip=false environmentDepthClip=false importPlan=makepad-video-texture-event"
         );
     }
 }
+

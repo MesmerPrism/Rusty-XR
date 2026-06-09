@@ -7,6 +7,7 @@ mod android_camera_probe;
 mod camera_texture_path;
 mod manifold_breath_feedback;
 mod manifold_pose_publisher;
+mod mesh_replay;
 mod projection_geometry;
 mod projection_runtime;
 mod projection_settings;
@@ -86,6 +87,7 @@ use manifold_breath_feedback::{ManifoldBreathFeedbackConfig, ManifoldBreathFeedb
 use manifold_pose_publisher::{
     ManifoldPosePublisher, ManifoldPosePublisherConfig, ManifoldPoseSample,
 };
+use mesh_replay::{MeshReplayConfig, MeshReplayRuntime, MeshReplayUniforms};
 use rusty_xr_camera_model::{Rect2, SourceSamplingMode, Vec2};
 use rusty_xr_runtime_config::RuntimeConfig;
 use source_sampling::{
@@ -254,6 +256,14 @@ script_mod! {
         yuv_mode: uniform(1.0)
         yuv_matrix: uniform(1.0)
         yuv_biplanar: uniform(0.0)
+        mesh_replay_enabled: uniform(0.0)
+        mesh_replay_phase: uniform(0.0)
+        mesh_replay_frame01: uniform(0.0)
+        mesh_replay_opacity: uniform(0.0)
+        mesh_replay_line0: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        mesh_replay_line1: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        mesh_replay_line2: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        mesh_replay_line3: uniform(vec4(0.0, 0.0, 0.0, 0.0))
         v_uv: varying(vec2f)
 
         cube_size: uniform(vec3(1.0, 1.0, 1.0))
@@ -693,6 +703,50 @@ script_mod! {
             return self.sample_processed_camera_rgb(coord, eye_selector);
         }
 
+        mesh_replay_segment_mask: fn(coord: vec2f, segment: vec4f, width: float) -> float {
+            let start = segment.xy;
+            let end = segment.zw;
+            let delta = end - start;
+            let denom = max(dot(delta, delta), 0.00001);
+            let t = clamp(dot(coord - start, delta) / denom, 0.0, 1.0);
+            let closest = start + delta * t;
+            let distance = length(coord - closest);
+            return 1.0 - smoothstep(width, width * 1.85, distance);
+        }
+
+        mesh_replay_overlay_rgb: fn(
+            rgb: vec3f,
+            coord: vec2f,
+            display_eye_selector: float,
+            projection_valid: float
+        ) -> vec3f {
+            let enabled = step(0.5, self.mesh_replay_enabled);
+            if enabled <= 0.0 {
+                return rgb;
+            }
+            let valid = enabled * clamp(projection_valid, 0.0, 1.0);
+            let pulse =
+                0.55 +
+                0.45 * sin((self.mesh_replay_phase + self.mesh_replay_frame01) * 6.283185307);
+            let line_width = 0.0045 + 0.0025 * pulse;
+            let mask = clamp(max(
+                max(
+                    self.mesh_replay_segment_mask(coord, self.mesh_replay_line0, line_width),
+                    self.mesh_replay_segment_mask(coord, self.mesh_replay_line1, line_width)
+                ),
+                max(
+                    self.mesh_replay_segment_mask(coord, self.mesh_replay_line2, line_width),
+                    self.mesh_replay_segment_mask(coord, self.mesh_replay_line3, line_width)
+                )
+            ) * valid, 0.0, 1.0);
+            let left_color = vec3(0.04, 0.95, 1.0);
+            let right_color = vec3(1.0, 0.68, 0.10);
+            let frame_tint = vec3(0.36 + 0.44 * self.mesh_replay_frame01, 0.95, 0.78);
+            let eye_color = mix(left_color, right_color, display_eye_selector);
+            let replay_color = mix(eye_color, frame_tint, 0.28);
+            return mix(rgb, replay_color, mask * clamp(self.mesh_replay_opacity, 0.0, 1.0));
+        }
+
         projection_alpha_transform: fn(mask: float) -> float {
             return clamp(
                 mask * max(self.projection_alpha_scale, 0.0) + self.projection_alpha_bias,
@@ -1103,12 +1157,16 @@ script_mod! {
             if self.camera_ready <= 0.5 {
                 let waiting = vec3(0.015, 0.020, 0.024);
                 let guided_waiting = mix(waiting, vec3(1.0, 0.98, 0.84), proof_guide);
-                return vec4(guided_waiting.x, guided_waiting.y, guided_waiting.z, 1.0);
+                let replay_waiting =
+                    self.mesh_replay_overlay_rgb(guided_waiting, full_view_uv, display_eye_selector, 1.0);
+                return vec4(replay_waiting.x, replay_waiting.y, replay_waiting.z, 1.0);
             }
             if self.suppress_live_camera_sampling > 0.5 {
                 let armed = vec3(0.015, 0.18, 0.08);
                 let guided_armed = mix(armed, vec3(1.0, 0.98, 0.84), proof_guide);
-                return vec4(guided_armed.x, guided_armed.y, guided_armed.z, 1.0);
+                let replay_armed =
+                    self.mesh_replay_overlay_rgb(guided_armed, full_view_uv, display_eye_selector, 1.0);
+                return vec4(replay_armed.x, replay_armed.y, replay_armed.z, 1.0);
             }
             if self.projection_area_diagnostic > 0.5 {
                 let diagnostic_rgb = self.projection_area_diagnostic_color(
@@ -1118,7 +1176,14 @@ script_mod! {
                     projection_valid
                 );
                 let guided_diagnostic = mix(diagnostic_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
-                return vec4(guided_diagnostic.x, guided_diagnostic.y, guided_diagnostic.z, 1.0);
+                let replay_diagnostic =
+                    self.mesh_replay_overlay_rgb(
+                        guided_diagnostic,
+                        projection_area_content_uv,
+                        display_eye_selector,
+                        projection_valid
+                    );
+                return vec4(replay_diagnostic.x, replay_diagnostic.y, replay_diagnostic.z, 1.0);
             }
             if self.force_in_surface_camera_window > 0.5 {
                 let camera_window_uv = clamp(mapped_source_uv, vec2(0.0, 0.0), vec2(1.0, 1.0));
@@ -1166,10 +1231,17 @@ script_mod! {
                     mix(camera_rgb, region_rgb, region_debug * camera_window_valid);
                 let window_rgb = mix(matte, debug_camera_rgb, camera_window_valid);
                 let guided_window = mix(window_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
+                let replay_window =
+                    self.mesh_replay_overlay_rgb(
+                        guided_window,
+                        projection_area_content_uv,
+                        display_eye_selector,
+                        camera_window_valid
+                    );
                 let border_alpha = projection_border_opacity * (1.0 - passthrough_border_policy);
                 let area_alpha = projection_area_opacity * self.projection_color_alpha(debug_camera_rgb);
                 let alpha = mix(border_alpha, area_alpha, camera_window_valid);
-                let premultiplied_window = guided_window * alpha;
+                let premultiplied_window = replay_window * alpha;
                 return vec4(
                     premultiplied_window.x,
                     premultiplied_window.y,
@@ -1180,7 +1252,14 @@ script_mod! {
             let direct_rgb =
                 self.sample_or_solid_camera_rgb(live_sample_uv, eye_selector) * mix(0.12, 1.0, live_projection_valid);
             let guided_direct = mix(direct_rgb, vec3(1.0, 0.98, 0.84), proof_guide);
-            return vec4(guided_direct.x, guided_direct.y, guided_direct.z, 1.0);
+            let replay_direct =
+                self.mesh_replay_overlay_rgb(
+                    guided_direct,
+                    projection_area_content_uv,
+                    display_eye_selector,
+                    live_projection_valid
+                );
+            return vec4(replay_direct.x, replay_direct.y, replay_direct.z, 1.0);
         }
 
         fragment: fn() {
@@ -1440,6 +1519,8 @@ pub struct App {
     #[rust]
     manifold_breath_feedback_config_marker: Option<String>,
     #[rust]
+    mesh_replay: MeshReplayRuntime,
+    #[rust]
     projection_target_joystick_scale_ready: bool,
     #[rust]
     projection_target_joystick_offset_x_uv: f32,
@@ -1512,6 +1593,22 @@ pub struct DrawMakepadStereoCameraPanel {
     pub yuv_matrix: f32,
     #[rust(0.0_f32)]
     pub yuv_biplanar: f32,
+    #[rust(0.0_f32)]
+    pub mesh_replay_enabled: f32,
+    #[rust(0.0_f32)]
+    pub mesh_replay_phase: f32,
+    #[rust(0.0_f32)]
+    pub mesh_replay_frame01: f32,
+    #[rust(0.0_f32)]
+    pub mesh_replay_opacity: f32,
+    #[rust(vec4(0.0, 0.0, 0.0, 0.0))]
+    pub mesh_replay_line0: Vec4f,
+    #[rust(vec4(0.0, 0.0, 0.0, 0.0))]
+    pub mesh_replay_line1: Vec4f,
+    #[rust(vec4(0.0, 0.0, 0.0, 0.0))]
+    pub mesh_replay_line2: Vec4f,
+    #[rust(vec4(0.0, 0.0, 0.0, 0.0))]
+    pub mesh_replay_line3: Vec4f,
     #[rust(2.0_f32)]
     pub texture_probe_mode: f32,
     #[rust(0.0_f32)]
@@ -1912,6 +2009,59 @@ impl MakepadStereoCameraPanel {
         self.draw_panel
             .draw_vars
             .set_uniform_on_area(cx, id, &values);
+    }
+
+    fn set_mesh_replay_uniforms(&mut self, cx: &mut Cx, uniforms: MeshReplayUniforms) {
+        self.draw_panel.mesh_replay_enabled = uniforms.enabled;
+        self.draw_panel.mesh_replay_phase = uniforms.phase;
+        self.draw_panel.mesh_replay_frame01 = uniforms.frame01;
+        self.draw_panel.mesh_replay_opacity = uniforms.opacity;
+        self.draw_panel.mesh_replay_line0 = mesh_replay_segment_vec4(uniforms.segments[0]);
+        self.draw_panel.mesh_replay_line1 = mesh_replay_segment_vec4(uniforms.segments[1]);
+        self.draw_panel.mesh_replay_line2 = mesh_replay_segment_vec4(uniforms.segments[2]);
+        self.draw_panel.mesh_replay_line3 = mesh_replay_segment_vec4(uniforms.segments[3]);
+
+        for (id, value) in [
+            (
+                live_id!(mesh_replay_enabled),
+                self.draw_panel.mesh_replay_enabled,
+            ),
+            (
+                live_id!(mesh_replay_phase),
+                self.draw_panel.mesh_replay_phase,
+            ),
+            (
+                live_id!(mesh_replay_frame01),
+                self.draw_panel.mesh_replay_frame01,
+            ),
+            (
+                live_id!(mesh_replay_opacity),
+                self.draw_panel.mesh_replay_opacity,
+            ),
+        ] {
+            self.set_panel_uniform_f32(cx, id, value);
+        }
+        for (id, value) in [
+            (
+                live_id!(mesh_replay_line0),
+                self.draw_panel.mesh_replay_line0,
+            ),
+            (
+                live_id!(mesh_replay_line1),
+                self.draw_panel.mesh_replay_line1,
+            ),
+            (
+                live_id!(mesh_replay_line2),
+                self.draw_panel.mesh_replay_line2,
+            ),
+            (
+                live_id!(mesh_replay_line3),
+                self.draw_panel.mesh_replay_line3,
+            ),
+        ] {
+            self.set_panel_uniform_vec4f(cx, id, value);
+        }
+        self.draw_panel.draw_vars.redraw(cx);
     }
 
     fn synthetic_luma_probe_texture(&mut self, cx: &mut Cx) -> Texture {
@@ -2852,8 +3002,67 @@ impl App {
         makepad_runtime_config()
     }
 
+    fn mesh_replay_config() -> MeshReplayConfig {
+        MeshReplayConfig::normalized(
+            hotload_bool_explicit_property(
+                ANDROID_PROPERTY_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_ENABLED,
+                ENV_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_ENABLED,
+                DEFAULT_MAKEPAD_MESH_REPLAY_ENABLED,
+            ),
+            hotload_text_explicit_property(
+                ANDROID_PROPERTY_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_SOURCE,
+                ENV_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_SOURCE,
+                DEFAULT_MAKEPAD_MESH_REPLAY_SOURCE,
+            ),
+            hotload_f32_explicit_property(
+                ANDROID_PROPERTY_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_SPEED,
+                ENV_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_SPEED,
+                DEFAULT_MAKEPAD_MESH_REPLAY_SPEED,
+                0.0,
+                8.0,
+            ),
+            hotload_f32_explicit_property(
+                ANDROID_PROPERTY_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_OPACITY,
+                ENV_RUSTY_QUEST_MAKEPAD_MESH_REPLAY_OPACITY,
+                DEFAULT_MAKEPAD_MESH_REPLAY_OPACITY,
+                0.0,
+                1.0,
+            ),
+        )
+    }
+
+    fn configure_mesh_replay(&mut self, cx: &mut Cx, phase: &str) {
+        self.mesh_replay.configure(Self::mesh_replay_config());
+        if self.mesh_replay.should_emit_config_marker() {
+            emit_marker_line(&self.mesh_replay.config_marker_line(phase));
+        }
+        self.apply_mesh_replay_to_panel(cx);
+    }
+
+    fn handle_mesh_replay_update(&mut self, cx: &mut Cx, update: &XrUpdateEvent) {
+        self.mesh_replay.configure(Self::mesh_replay_config());
+        if self.mesh_replay.should_emit_config_marker() {
+            emit_marker_line(&self.mesh_replay.config_marker_line("xr-update"));
+        }
+        let state = update.state.as_ref();
+        let step = self.mesh_replay.step(state.time);
+        self.apply_mesh_replay_to_panel(cx);
+        if step.changed_frame && self.mesh_replay.should_emit_frame_marker() {
+            emit_marker_line(&self.mesh_replay.frame_marker_line("xr-update"));
+        }
+    }
+
+    fn apply_mesh_replay_to_panel(&mut self, cx: &mut Cx) -> bool {
+        let panel_ref = self.ui.widget(cx, ids!(camera_projection_panel));
+        let Some(mut panel) = panel_ref.borrow_mut::<MakepadStereoCameraPanel>() else {
+            return false;
+        };
+        panel.set_mesh_replay_uniforms(cx, self.mesh_replay.uniforms());
+        true
+    }
+
     fn broker_h264_enabled() -> bool {
-        let transport_requests_broker = std::env::var("RUSTY_XR_TRANSPORT_PROFILE")
+        let transport_requests_broker = std::env::var("RUSTY_QUEST_MAKEPAD_TRANSPORT_PROFILE")
             .map(|value| value.to_ascii_lowercase().contains("broker-h264"))
             .unwrap_or(false);
         hotload_bool(
@@ -2896,11 +3105,8 @@ impl App {
     }
 
     fn direct_camera_projection_geometry_profile() -> String {
-        normalize_direct_camera_projection_geometry_profile(&hotload_text_any(
-            &[
-                KEY_CAMERA_PROJECTION_GEOMETRY_PROFILE,
-                KEY_MAKEPAD_CAMERA_PROJECTION_GEOMETRY_PROFILE,
-            ],
+        normalize_direct_camera_projection_geometry_profile(&hotload_text(
+            KEY_CAMERA_PROJECTION_GEOMETRY_PROFILE,
             DEFAULT_CAMERA_PROJECTION_GEOMETRY_PROFILE,
         ))
     }
@@ -3155,7 +3361,7 @@ impl App {
             "disabled"
         };
         format!(
-            "RUSTY_XR_MAKEPAD_BREATH_FEEDBACK_CONFIG schema=rusty.xr.makepad-breath-feedback-config.v1 phase=hotload status={} enabled={} enabledRaw={} stream={} streamRaw={} receiver={} receiverRaw={} brokerHost={} brokerHostRaw={} brokerPort={} brokerPortRaw={} connectTimeoutMs={} connectTimeoutRaw={} flagsOwner=hostessctl.record_values",
+            "RUSTY_QUEST_MAKEPAD_BREATH_FEEDBACK_CONFIG schema=rusty.quest.makepad-breath-feedback-config.v1 phase=hotload status={} enabled={} enabledRaw={} stream={} streamRaw={} receiver={} receiverRaw={} brokerHost={} brokerHostRaw={} brokerPort={} brokerPortRaw={} connectTimeoutMs={} connectTimeoutRaw={} flagsOwner=hostessctl.record_values",
             status,
             config.enabled,
             marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_ENABLED)),
@@ -3195,11 +3401,8 @@ impl App {
     }
 
     fn projection_target_joystick_controls_enabled() -> bool {
-        makepad_projection_target_joystick_controls_enabled_from_value(&hotload_text_any(
-            &[
-                rxrc::KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
-                KEY_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS,
-            ],
+        makepad_projection_target_joystick_controls_enabled_from_value(&hotload_text(
+            rxrc::KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
             DEFAULT_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS,
         ))
     }
@@ -3225,7 +3428,7 @@ impl App {
             self.projection_target_joystick_scale_ready = true;
             self.projection_target_joystick_last_time = now_seconds;
             Self::emit_stereo_projection_marker(&format!(
-                "phase=projection-target-controller status=active source=makepad-xr-actions referenceSource=quest-composite-layer-apk projectionTargetJoystickControls=offset-scale controls=leftStick:projectionTargetOffsetUv,rightStickY:projectionTargetScale,rightA:resetOffsetAndProjectionTargetScale coordinateSpace=display-eye-screen-uv yConvention=stickUpMovesTargetUp projectionAreaScaleControlRole=diagnostic-canvas-scale-runtime-property projectionAreaScaleMin={:.4} projectionAreaScaleMax={:.4} projectionTargetScaleControlRole=reference-target-footprint-runtime-adjustment projectionTargetScaleMin={:.4} projectionTargetScaleMax={:.4} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4}",
+                "phase=projection-target-controller status=active source=makepad-quest-actions referenceSource=quest-composite-layer-apk projectionTargetJoystickControls=offset-scale controls=leftStick:projectionTargetOffsetUv,rightStickY:projectionTargetScale,rightA:resetOffsetAndProjectionTargetScale coordinateSpace=display-eye-screen-uv yConvention=stickUpMovesTargetUp projectionAreaScaleControlRole=diagnostic-canvas-scale-runtime-property projectionAreaScaleMin={:.4} projectionAreaScaleMax={:.4} projectionTargetScaleControlRole=reference-target-footprint-runtime-adjustment projectionTargetScaleMin={:.4} projectionTargetScaleMax={:.4} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4}",
                 PROJECTION_AREA_MIN_SCALE,
                 PROJECTION_AREA_MAX_SCALE,
                 PROJECTION_TARGET_MIN_SCALE,
@@ -3374,7 +3577,7 @@ impl App {
             .is_none_or(|subscriber| subscriber.config() != &config)
         {
             emit_marker_line(&format!(
-                "RUSTY_XR_MAKEPAD_BREATH_FEEDBACK_SUBSCRIBER schema=rusty.xr.makepad-breath-feedback-subscriber.v1 phase=subscribe status=ready stream={} receiver={} brokerHost={} brokerPort={} subscribeCommand=subscribe receiptCommand=breath_feedback.received receiptSchema=rusty.manifold.breath.feedback_receipt.v1",
+                "RUSTY_QUEST_MAKEPAD_BREATH_FEEDBACK_SUBSCRIBER schema=rusty.quest.makepad-breath-feedback-subscriber.v1 phase=subscribe status=ready stream={} receiver={} brokerHost={} brokerPort={} subscribeCommand=subscribe receiptCommand=breath_feedback.received receiptSchema=rusty.manifold.breath.feedback_receipt.v1",
                 marker_token(&config.stream_id),
                 marker_token(&config.receiver_id),
                 marker_token(&config.broker_host),
@@ -3407,7 +3610,7 @@ impl App {
             .is_none_or(|publisher| publisher.config() != &config)
         {
             emit_marker_line(&format!(
-                "RUSTY_XR_MAKEPAD_CONTROLLER_POSE_PROVIDER schema=rusty.xr.makepad-controller-pose-provider.v1 phase=configure status=ready stream={} source={} controller={} poseKind={} brokerHost={} brokerPort={} sampleHz={:.3} providerBoundary=stream.motion.object_pose sourceAgnostic=true controllerSpecificEstimator=false",
+                "RUSTY_QUEST_MAKEPAD_CONTROLLER_POSE_PROVIDER schema=rusty.quest.makepad-controller-pose-provider.v1 phase=configure status=ready stream={} source={} controller={} poseKind={} brokerHost={} brokerPort={} sampleHz={:.3} providerBoundary=stream.motion.object_pose sourceAgnostic=true controllerSpecificEstimator=false",
                 marker_token(&config.stream_id),
                 marker_token(&config.source_id),
                 marker_token(&config.controller),
@@ -3469,7 +3672,7 @@ impl App {
             || self.manifold_pose_published_count % 120 == 0
         {
             emit_marker_line(&format!(
-                "RUSTY_XR_MAKEPAD_CONTROLLER_POSE_PROVIDER schema=rusty.xr.makepad-controller-pose-provider.v1 phase=sample status={} stream={} sequenceId={} controller={} poseKind={} active={} tracked={} queued={} published={} dropped={} positionM={:.5},{:.5},{:.5}",
+                "RUSTY_QUEST_MAKEPAD_CONTROLLER_POSE_PROVIDER schema=rusty.quest.makepad-controller-pose-provider.v1 phase=sample status={} stream={} sequenceId={} controller={} poseKind={} active={} tracked={} queued={} published={} dropped={} positionM={:.5},{:.5},{:.5}",
                 if queued { "queued" } else { "dropped" },
                 marker_token(&config.stream_id),
                 sequence_id,
@@ -3700,17 +3903,17 @@ impl App {
     }
 
     fn horizontal_alignment_tuning() -> HorizontalAlignmentTuning {
-        let legacy = Self::legacy_horizontal_alignment_tuning();
+        let direct = Self::direct_hotload_horizontal_alignment_tuning();
         if !makepad_projection_runtime_resolution_enabled() {
-            return legacy;
+            return direct;
         }
 
         let config = Self::runtime_config();
-        let runtime = makepad_projection_runtime_resolution(&config, legacy);
-        makepad_horizontal_alignment_tuning_from_resolution(legacy, &runtime.resolution)
+        let runtime = makepad_projection_runtime_resolution(&config, direct);
+        makepad_horizontal_alignment_tuning_from_resolution(direct, &runtime.resolution)
     }
 
-    fn legacy_horizontal_alignment_tuning() -> HorizontalAlignmentTuning {
+    fn direct_hotload_horizontal_alignment_tuning() -> HorizontalAlignmentTuning {
         let strength = hotload_f32(
             KEY_MAKEPAD_HORIZONTAL_ALIGNMENT_STRENGTH,
             TARGET_HORIZONTAL_ALIGNMENT_STRENGTH,
@@ -4053,6 +4256,7 @@ impl App {
                 self.handle_manifold_breath_feedback_subscription();
                 self.handle_manifold_pose_publish(_update);
                 self.handle_projection_target_joystick(cx, _update);
+                self.handle_mesh_replay_update(cx, _update);
                 #[cfg(target_os = "android")]
                 self.update_runtime_xr_projection(_update);
                 let adopted = self.try_adopt_pending_stereo_camera_frame("xr-update");
@@ -4222,12 +4426,12 @@ impl App {
             .map(|pose| pose.right_valid.to_string())
             .unwrap_or_else(|| "false".to_string());
         let pose_source = if adopted.pose.is_some() {
-            "makepad-xr-update-predicted-display-pose"
+            "makepad-quest-update-predicted-display-pose"
         } else {
             "missing-xr-update-pose"
         };
         emit_marker_line(&format!(
-            "RUSTY_XR_MAKEPAD_FRAME_ADOPTION schema=rusty.xr.makepad-stereo-frame-adoption.v1 phase=adopt status=ok reason={} adoptionId={} leftSide={} rightSide={} leftTextureUpdateCount={} rightTextureUpdateCount={} leftPositionMs={} rightPositionMs={} leftCameraFrameSeq={} rightCameraFrameSeq={} frameSequenceDelta={} leftCameraTimestampNs={} rightCameraTimestampNs={} timestampDeltaNs={} closeTimestampMatch={} pairingStatus={} texturePath={} poseSource={} poseUpdateCount={} predictedDisplayTimeNs={} leftPoseValid={} rightPoseValid={} leftPosePosition={} rightPosePosition={} leftPoseOrientation={} rightPoseOrientation={} adoptionPolicy=latest-complete-stereo-pair panelUpdatePolicy=adopted-pair-xr-update-only",
+            "RUSTY_QUEST_MAKEPAD_FRAME_ADOPTION schema=rusty.quest.makepad-stereo-frame-adoption.v1 phase=adopt status=ok reason={} adoptionId={} leftSide={} rightSide={} leftTextureUpdateCount={} rightTextureUpdateCount={} leftPositionMs={} rightPositionMs={} leftCameraFrameSeq={} rightCameraFrameSeq={} frameSequenceDelta={} leftCameraTimestampNs={} rightCameraTimestampNs={} timestampDeltaNs={} closeTimestampMatch={} pairingStatus={} texturePath={} poseSource={} poseUpdateCount={} predictedDisplayTimeNs={} leftPoseValid={} rightPoseValid={} leftPosePosition={} rightPosePosition={} leftPoseOrientation={} rightPoseOrientation={} adoptionPolicy=latest-complete-stereo-pair panelUpdatePolicy=adopted-pair-xr-update-only",
             marker_value(reason),
             adopted.adoption_id,
             adopted.left.side.label(),
@@ -6798,7 +7002,7 @@ mod tests {
 
         let marker = App::manifold_breath_feedback_config_marker_line(&config);
 
-        assert!(marker.contains("RUSTY_XR_MAKEPAD_BREATH_FEEDBACK_CONFIG"));
+        assert!(marker.contains("RUSTY_QUEST_MAKEPAD_BREATH_FEEDBACK_CONFIG"));
         assert!(marker.contains("status=enabled"));
         assert!(marker.contains("enabled=true"));
         assert!(marker.contains("enabledRaw=default"));
@@ -6883,7 +7087,7 @@ mod tests {
     }
 
     #[test]
-    fn broker_camera_metadata_maps_legacy_physical_profile_to_camera_projection() {
+    fn broker_camera_metadata_maps_physical_profile_to_camera_projection() {
         let metadata = BrokerH264ProjectionMetadata::parse(
             r#"{
                 "source": "broker_app.camera2_h264_stream",
@@ -6999,7 +7203,7 @@ mod tests {
                 "deliveredHeight": 1280,
                 "orientationKind": "camera-frame",
                 "rasterOrientation": "top-left-origin-y-down",
-                "orientationMetadataSource": "legacy-stream-field",
+                "orientationMetadataSource": "stream-field",
                 "orientationDefault": false,
                 "stimulusRasterOrientation": "bottom-left-origin-y-up",
                 "stimulusUprightMarker": "camera-native-upright",
@@ -7030,7 +7234,7 @@ mod tests {
 
     #[test]
     fn compile_time_source_eye_mapping_is_sanitized() {
-        let expected = match option_env!("RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING") {
+        let expected = match option_env!("RUSTY_QUEST_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING") {
             Some("display-left-from-left-source") => "display-left-from-left-source",
             Some("display-left-from-right-source") => "display-left-from-right-source",
             _ => DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING,
@@ -7048,7 +7252,7 @@ mod tests {
 }
 
 fn makepad_display_source_eye_mapping() -> &'static str {
-    match option_env!("RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING") {
+    match option_env!("RUSTY_QUEST_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING") {
         Some("display-left-from-left-source") => "display-left-from-left-source",
         Some("display-left-from-right-source") => "display-left-from-right-source",
         _ => DEFAULT_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING,
@@ -7244,11 +7448,11 @@ fn texture_updated_label(updated: &TextureUpdated) -> &'static str {
 }
 
 fn marker_line_with_runtime_projection_target_fields(line: &str) -> std::borrow::Cow<'_, str> {
-    const LEGACY_TARGET_FIELDS: &str =
+    const STATIC_TARGET_FIELDS: &str =
         "panelTargetPreviewFovYDegrees=60 panelTargetRawOverscan=1.06";
-    if line.contains(LEGACY_TARGET_FIELDS) {
+    if line.contains(STATIC_TARGET_FIELDS) {
         std::borrow::Cow::Owned(line.replace(
-            LEGACY_TARGET_FIELDS,
+            STATIC_TARGET_FIELDS,
             &makepad_projection_target_marker_fields(),
         ))
     } else {
@@ -7269,7 +7473,7 @@ fn emit_marker_line(line: &str) {
     }
 
     let line = marker_line_with_runtime_projection_target_fields(line);
-    let tag = CString::new("RustyXRMakepad");
+    let tag = CString::new("RustyQuestMakepadMakepad");
     let msg = CString::new(line.as_ref());
     if let (Ok(tag), Ok(msg)) = (tag, msg) {
         unsafe {
@@ -7290,6 +7494,7 @@ impl MatchEvent for App {
         let config = Self::runtime_config();
         cx.xr_set_native_passthrough(makepad_native_passthrough_enabled());
         cx.xr_set_render_scale(runtime_float(&config, KEY_XR_RENDER_SCALE) as f32);
+        self.configure_mesh_replay(cx, "startup");
     }
 
     fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions) {
@@ -7330,19 +7535,17 @@ fn rate_hz(count: u64, seconds: f64) -> f64 {
     }
 }
 
+fn mesh_replay_segment_vec4(segment: [f32; 4]) -> Vec4f {
+    Vec4f {
+        x: segment[0],
+        y: segment[1],
+        z: segment[2],
+        w: segment[3],
+    }
+}
+
 fn makepad_projection_target_joystick_controls_enabled_from_value(value: &str) -> bool {
-    matches!(
-        value.trim().to_ascii_lowercase().replace('_', "-").as_str(),
-        "offset-scale"
-            | "target-offset-scale"
-            | "projection-target"
-            | "target-footprint"
-            | "joystick-offset-scale"
-            | "on"
-            | "true"
-            | "1"
-            | "enabled"
-    )
+    value.trim().eq_ignore_ascii_case("offset-scale")
 }
 
 fn makepad_projection_target_scale() -> f32 {
@@ -7417,11 +7620,9 @@ mod projection_target_joystick_tests {
     use super::*;
 
     #[test]
-    fn joystick_controls_parse_hwb_offset_scale_aliases() {
+    fn joystick_controls_parse_canonical_offset_scale() {
         assert!(makepad_projection_target_joystick_controls_enabled_from_value("offset-scale"));
-        assert!(
-            makepad_projection_target_joystick_controls_enabled_from_value("joystick_offset_scale")
-        );
+        assert!(!makepad_projection_target_joystick_controls_enabled_from_value("joystick_offset_scale"));
         assert!(!makepad_projection_target_joystick_controls_enabled_from_value("off"));
     }
 
@@ -7467,3 +7668,4 @@ mod projection_target_joystick_tests {
         assert_eq!(next, PROJECTION_TARGET_MAX_SCALE);
     }
 }
+

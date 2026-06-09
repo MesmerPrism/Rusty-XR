@@ -1,11 +1,11 @@
-# Rusty XR Makepad Camera Camera Shell
+# Rusty Quest Makepad Camera Camera Shell
 
-This is a standalone Makepad-first Quest lane. It exists so Rusty XR can compare
+This is a standalone Makepad-first Quest lane. It exists so Rusty Morphospace can compare
 the current custom Android APK workflow with Makepad's generated Android/OpenXR
 packaging without replacing either path too early.
 
 The first pass was intentionally a synthetic OpenXR smoke app. It proved the
-Makepad Quest APK path, emitted Rusty XR log markers, exercised Makepad's XR
+Makepad Quest APK path, emitted Rusty Quest Makepad log markers, exercised Makepad's XR
 root, and documented the integration gaps before adding camera transport,
 stream, or broker behavior. The current source now keeps that synthetic stereo
 comparison scene and adds a bounded Android NDK Camera2 metadata/acquisition
@@ -14,7 +14,7 @@ renderer smoke runs can be lined up against the custom APK camera-stereo
 baseline before performance parity is measured.
 
 This example consumes the maintained Makepad fork branch as an app-shell
-dependency only. Rusty XR core stays Makepad-independent; the relationship and
+dependency only. Morphospace core stays Makepad-independent; the relationship and
 fork-patch policy are documented in
 [../../docs/MAKEPAD_FORK_RELATIONSHIP.md](../../docs/MAKEPAD_FORK_RELATIONSHIP.md).
 
@@ -25,7 +25,7 @@ fork-patch policy are documented in
   `rusty-xr/android-libstd-packaging`. The exact Makepad revision for this
   example is pinned in `Cargo.lock`. Local evidence builds run the wrapper
   with `-MakepadSourceRoot <makepad-fork-checkout>` or
-  `RUSTY_XR_MAKEPAD_SOURCE_ROOT` so the packager and app Makepad dependencies
+  `RUSTY_QUEST_MAKEPAD_SOURCE_ROOT` so the packager and app Makepad dependencies
   both come from the maintained fork checkout. The wrapper requires that source
   root by default. Use `-NoPatchMakepadXrFromSource` only for an intentional
   upstream or pinned dependency comparison.
@@ -33,24 +33,24 @@ fork-patch policy are documented in
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
 - Reads its startup marker values through `rusty-xr-runtime-config`, so this
-  shell is already attached to a framework-neutral Rusty XR core crate.
-- Emits `RUSTY_XR_MAKEPAD_CAMERA_STATUS` and
-  `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` on startup.
+  shell is already attached to a framework-neutral Morphospace core crate.
+- Emits `RUSTY_QUEST_MAKEPAD_CAMERA_STATUS` and
+  `RUSTY_QUEST_MAKEPAD_STEREO_COMPARISON` on startup.
 - On Android, emits those startup markers directly through logcat under a
-  Rusty XR tag so device smoke tests have a reliable startup signal.
+  Rusty Quest Makepad tag so device smoke tests have a reliable startup signal.
 - On Android, starts one bounded NDK Camera2 diagnostic pass that emits
-  `RUSTY_XR_MAKEPAD_CAMERA2_METADATA` after enumeration and
-  `RUSTY_XR_MAKEPAD_CAMERA2_ACQUISITION` during setup, first-frame, and
+  `RUSTY_QUEST_MAKEPAD_CAMERA2_METADATA` after enumeration and
+  `RUSTY_QUEST_MAKEPAD_CAMERA2_ACQUISITION` during setup, first-frame, and
   completion. The pass opens one selected `PRIVATE` `AImageReader` source and
   records the first hardware-buffer descriptor.
 - On Android, after that bounded acquisition window, selects a left/right source
   pair, starts two Makepad-owned camera playbacks with distinct
   `VideoExternal` textures, and emits
-  `RUSTY_XR_MAKEPAD_HARDWARE_BUFFER_IMPORT` plus
-  `RUSTY_XR_MAKEPAD_STEREO_PROJECTION` as Makepad's Android/Vulkan video
+  `RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT` plus
+  `RUSTY_QUEST_MAKEPAD_STEREO_PROJECTION` as Makepad's Android/Vulkan video
   texture path enumerates, starts, prepares, and accepts both camera hardware
   buffers.
-- Emits `RUSTY_XR_MAKEPAD_CADENCE` samples every five seconds, using Makepad
+- Emits `RUSTY_QUEST_MAKEPAD_CADENCE` samples every five seconds, using Makepad
   `NextFrame` events for callback cadence and left/right
   `VideoTextureUpdated` events for Makepad camera texture progression. The
   marker also carries Makepad `XrUpdate` and draw-event rates so a low camera
@@ -85,6 +85,14 @@ fork-patch policy are documented in
   breath estimation outside the XR app; the app only samples controller
   `grip_pose` or `aim_pose` and publishes object-pose payloads to the local
   broker/Manifold command route.
+- The current source has an opt-in mesh replay overlay for VR smoke checks. It
+  consumes a public synthetic
+  `rusty.matter.tools.glb_mesh_surface_sequence.v1` fixture, advances it on
+  Makepad `XrUpdate`, and draws four representative moving mesh edges on the
+  existing XR projection panel. This is the first headset-facing replay
+  adapter for the same browser sequence shape; Matter still owns mesh/SDF,
+  collision, and particle algorithms, and the Makepad shell only owns the VR
+  overlay adapter.
 - The Makepad projection shell mirrors the direct HWB composite profile's
   target-footprint joystick behavior: `offset-scale` maps right stick Y to the
   projection-area scale, with stick up growing the footprint and stick down
@@ -109,7 +117,7 @@ Build the Quest APK from this example directory with a host-matched Android
 SDK:
 
 ```powershell
-cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Camera" build -p rusty-xr-makepad-camera-shell --release
+cargo makepad android --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty Quest Makepad Camera" build -p rusty-xr-makepad-camera-shell --release
 ```
 
 For local evidence builds, prefer the wrapper because it preflights the selected
@@ -149,7 +157,7 @@ lockfile churn and no dependency `Compiling ...` lines; inspect
 `MAKEPAD_ANDROID_TIMING` markers when the remaining APK packaging steps still
 take longer than expected.
 
-For repeatable Rusty XR evidence builds, record which host lane built the APK.
+For repeatable Morphospace evidence builds, record which host lane built the APK.
 If a clean WSL/Linux-host rerun still fails while Makepad removes a missing
 bundled font asset, treat that as a Makepad packager-route failure rather than
 ordinary stale staging. After cleaning
@@ -174,11 +182,11 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\B
 ```
 
 Enable the synthetic footprint target before the alignment launch when the goal
-is to compare the Makepad `screen_to_camera` footprint against the Rusty XR
+is to compare the Makepad `screen_to_camera` footprint against the Quest baseline
 diagnostic profile without live camera pixels:
 
 ```powershell
-adb shell setprop debug.rustyxr.makepad.projection.area.diagnostic 1
+adb shell setprop debug.rustyquest.makepad.projection.area.diagnostic 1
 ```
 
 Set the diagnostic to `2` for footprint-only comparison. This keeps the
@@ -191,7 +199,7 @@ with the projection-area offsets, scales, X keystone, and midpoint bow. These
 controls adjust the screen-space UVs before the Makepad `screen_to_camera` and
 `screen_to_surface` homographies are evaluated, so they affect the footprint
 target rather than the camera-content window. Treat them as diagnostic probes:
-the reset/default state keeps keystone and bow neutral because the Rusty XR
+the reset/default state keeps keystone and bow neutral because the Quest baseline
 reference path does not apply an equivalent pre-homography screen-domain warp.
 
 ```powershell
@@ -210,7 +218,7 @@ For live-camera review, the app-owned red border is a projection-footprint
 witness only when logs also identify `liveCameraWindowDomain=projected_camera_uv`
 and `s118ProjectedFootprintLiveWindow=true`. Earlier red-border slices could
 draw the marker around a centered in-surface camera window, which made the
-marked images appear farther apart than the Rusty XR projected footprint even
+marked images appear farther apart than the Quest baseline projected footprint even
 when the homography matrices were nearly identical.
 
 For final screenshot comparison, disable the red border after reset so visual
@@ -221,10 +229,31 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\S
   -ProjectionBorderOpacity 0
 ```
 
+For a source-only VR mesh replay smoke, enable the panel overlay before launch:
+
+```powershell
+adb shell setprop debug.rustyquest.makepad.mesh.replay.enabled 1
+adb shell setprop debug.rustyquest.makepad.mesh.replay.speed 1.0
+adb shell setprop debug.rustyquest.makepad.mesh.replay.opacity 0.84
+```
+
+On desktop/host checks, use the matching environment keys:
+
+```powershell
+$env:RUSTY_QUEST_MAKEPAD_MESH_REPLAY_ENABLED = '1'
+$env:RUSTY_QUEST_MAKEPAD_MESH_REPLAY_SPEED = '1.0'
+$env:RUSTY_QUEST_MAKEPAD_MESH_REPLAY_OPACITY = '0.84'
+```
+
+The bundled fixture is
+`examples/makepad-camera-shell/fixtures/mesh-replay/synthetic-hand-mesh-sequence.json`.
+External hand-mesh recordings stay out of this public repo until a scoped
+artifact-ingest and provenance route exists.
+
 Run on a selected Quest device:
 
 ```powershell
-cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty XR Makepad Camera" run -p rusty-xr-makepad-camera-shell --release
+cargo makepad android --devices=<quest-serial> --abi=aarch64 --variant=quest --no-icon --sdk-path=<local-makepad-android-sdk> --package-name=<public-example-package> --app-label="Rusty Quest Makepad Camera" run -p rusty-xr-makepad-camera-shell --release
 ```
 
 This example is not a root-workspace member. Use
@@ -239,7 +268,7 @@ and committed lockfile resolution. Do not use a plain
 this Makepad lane; it only compiles the Rust target and does not exercise the
 actual packager. Android acceptance is a successful wrapper build through
 `Build-MakepadStereoAlignmentApk.ps1` with `-MakepadSourceRoot
-<makepad-fork-checkout>` or `RUSTY_XR_MAKEPAD_SOURCE_ROOT` when Makepad-side
+<makepad-fork-checkout>` or `RUSTY_QUEST_MAKEPAD_SOURCE_ROOT` when Makepad-side
 packaging or bridge code matters. That source root is required by default and
 patches app Makepad dependencies by default; use `-NoPatchMakepadXrFromSource`
 only for a deliberate pinned-dependency comparison.
@@ -283,18 +312,18 @@ on `127.0.0.1:8765`, publishing `stream.motion.object_pose` at 20 Hz from the
 right controller grip pose:
 
 ```powershell
-adb -s <quest-serial> shell setprop debug.rustyxr.manifold.pose.publish.enabled true
-adb -s <quest-serial> shell setprop debug.rustyxr.manifold.pose.stream stream.motion.object_pose
-adb -s <quest-serial> shell setprop debug.rustyxr.manifold.pose.controller right
-adb -s <quest-serial> shell setprop debug.rustyxr.manifold.pose.kind grip
-adb -s <quest-serial> shell setprop debug.rustyxr.manifold.pose.sample.hz 20
+adb -s <quest-serial> shell setprop debug.rustyquest.makepad.manifold.pose.publish.enabled true
+adb -s <quest-serial> shell setprop debug.rustyquest.makepad.manifold.pose.stream stream.motion.object_pose
+adb -s <quest-serial> shell setprop debug.rustyquest.makepad.manifold.pose.controller right
+adb -s <quest-serial> shell setprop debug.rustyquest.makepad.manifold.pose.kind grip
+adb -s <quest-serial> shell setprop debug.rustyquest.makepad.manifold.pose.sample.hz 20
 ```
 
 The projection-target joystick scale control is on by default for the current
 calibration profile and can be made explicit with:
 
 ```powershell
-adb -s <quest-serial> shell setprop debug.rustyxr.makepad.projection.target.joystick.controls offset-scale
+adb -s <quest-serial> shell setprop debug.rustyquest.makepad.projection.target.joystick.controls offset-scale
 ```
 
 Use `off` for comparison captures where controller input must not affect the
@@ -420,9 +449,9 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\I
 
 The same `-ProjectionBorderPolicy` switch can be combined with
 `-UseBrokerH264Camera` or `-UseBrokerH264Synthetic`. It sets
-`debug.rustyxr.makepad.projection.border.policy` and pairs
+`debug.rustyquest.makepad.projection.border.policy` and pairs
 `passthrough-underlay` with
-`debug.rustyxr.makepad.native.passthrough.enabled=true`. The app writes alpha
+`debug.rustyquest.makepad.native.passthrough.enabled=true`. The app writes alpha
 zero outside the projected camera region for the underlay policy and keeps the
 camera projection in the same full submitted render surface. Use the solid-red
 policy when the actual projected camera footprint needs an unmistakable marker;
@@ -435,7 +464,7 @@ fades only valid projected camera pixels; the border opacity fades the
 non-projection matte/border independently.
 Add `-ProjectionDepthMeters <meters>` to set the head-anchored projection
 surface depth explicitly. The guarded launcher writes
-`debug.rustyxr.projection.depth.meters`, defaults to `1.0`, and logs the value
+`debug.rustyquest.makepad.projection.depth.meters`, defaults to `1.0`, and logs the value
 as `projectionDepthMeters` / `panelTargetDepthMeters` so Makepad depth remains
 visible beside HWB and GL/OES. For canvas/custom parity runs, pass
 `-CameraProjectionMode world-canvas -CameraProjectionGeometryProfile
@@ -455,8 +484,8 @@ camera color. `tools\Send-MakepadCameraControls.ps1` accepts the same
 alpha mode, scale, and bias properties for short headset A/B checks.
 Add `-ProcessingLayer blur -BlurRadiusPx 2.0` to enable the public diagnostic
 blur layer for valid camera samples while keeping the same projection border
-policy. The gate writes `debug.rustyxr.makepad.processing.layer` and
-`debug.rustyxr.makepad.blur.radius.px`, and the running app also accepts those
+policy. The gate writes `debug.rustyquest.makepad.processing.layer` and
+`debug.rustyquest.makepad.blur.radius.px`, and the running app also accepts those
 properties through `tools\Send-MakepadCameraControls.ps1` for short
 operator A/B checks.
 
@@ -499,12 +528,12 @@ window remains an `ok` run with the reason recorded. Record whether the run was
 - The Quest variant generates both a normal launcher activity and an XR activity.
 - The Makepad runner starts the launcher activity. End-user startup validation
   should use the launcher path; direct VR-category XR launch is a presentation
-  control path when comparing against direct Rusty XR launches.
-- Rusty XR runtime profiles are not yet mapped from arbitrary Android intent
+  control path when comparing against direct Quest baseline launches.
+- Rusty Quest Makepad runtime profiles are not yet mapped from arbitrary Android intent
   extras into Makepad Rust. This smoke pass reads environment variables for
   desktop/tooling runs. The camera-alignment lane also has a narrow Android
   property hotload adapter for live headset tuning:
-  `tools/Send-MakepadCameraControls.ps1` writes `debug.rustyxr` properties
+  `tools/Send-MakepadCameraControls.ps1` writes `debug.rustyquest.makepad` properties
   for horizontal alignment strength, additive left/right/vertical UV offsets,
   projection-footprint offsets/scales/X-keystone/midpoint bow, the synthetic
   projection-area diagnostic toggle, camera-window content scale,
@@ -556,7 +585,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   gaps are narrower: the camera feeds are swapped left/right between eyes, and
   panel alignment is not yet good enough for the intended stereo effect. The
   next gates fix source-eye mapping first, then tune alignment against the
-  custom Rusty XR target notes before performance comparison. S69 changed only
+  custom Quest baseline target notes before performance comparison. S69 changed only
   the display source-eye selector to `inverted_xr_view_id` /
   `display-left-from-right-source`; acquisition-order source indices remained
   logged separately. Operator review reported that this made the stereo eye
@@ -567,7 +596,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   library, and preserved zero GPU-fault/fatal counters. Screenshot review shows
   the horizontal mirror patch active. Operator follow-up clarified that the
   flip is still required; S70 keeps it and changes only geometry: the panel is
-  head-centered between display eyes and narrowed to the Rusty XR square camera
+  head-centered between display eyes and narrowed to the Quest baseline square camera
   target surface, about `0.92m x 0.92m` at `0.75m` depth, to address overlap
   alignment and horizontal stretch. Operator review accepted the S70 aspect
   correction but found a depth-dependent stereo mismatch: close objects are
@@ -581,7 +610,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   inspection decides whether the remaining close-range mismatch is panel
   convergence or metadata/intrinsics projection. Operator inspection reported
   S71 is slightly worse than S70 for close-range stereo alignment, so S72
-  reverts to the S70 visual basis and ports the Rusty XR projection delta into
+  reverts to the S70 visual basis and ports the Quest baseline projection delta into
   UV sampling rather than continuing to move the Makepad panel. This is not a
   scalar shift approximation: the app computes per-source
   `surface_to_camera_uv_homography` rows from Camera2 intrinsics, lens pose,
@@ -600,7 +629,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   launcher gate restored live camera pixels through dynamic metadata rows, with
   six byte-distinct screenshots and zero app/global GPU-fault or fatal
   counters. The remaining parity gap is projected-UV coverage: the Makepad
-  shader currently clamps invalid projected UVs, while the public Rusty XR
+  shader currently clamps invalid projected UVs, while the public Quest baseline
   target falls back to oriented unprojected content UVs.
 - Run-log review after S68 found one important distinction for the next fix:
   S51 already solved horizontal image mirroring with a vertical-only UV flip.
@@ -612,12 +641,12 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   bundling.
 - Earlier Quest validation reached the generated XR activity and emitted the
   marker, but the device log also reported GPU page faults. That fault class was
-  later narrowed below this Rusty XR smoke panel.
+  later narrowed below this Quest baseline smoke panel.
 - A control run of Makepad's upstream XR example on the same headset also
   reported GPU page faults, so the investigation moved into Makepad's
   Android/Vulkan path rather than this example's scene content.
 - The depth-stack comparison showed that Makepad's eager environment-depth path
-  differs from the non-Makepad Rusty XR composite stack, but follow-up splits
+  differs from the non-Makepad Rusty Morphospace composite stack, but follow-up splits
   still faulted without provider start, per-frame acquire/readback, or depth
   image view creation. Later splits also faulted without passthrough creation,
   without environment-depth provider/swapchain creation, and with zero
@@ -676,8 +705,8 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   captured six byte-distinct screenshots, and stayed fault-clean; treat S91 as
   best-effort until the next headset review.
 - Quest launcher run: installs, starts, emits Java activity, native bootstrap,
-  `RUSTY_XR_MAKEPAD_CAMERA_STATUS`, and
-  `RUSTY_XR_MAKEPAD_STEREO_COMPARISON` startup markers, switches into active
+  `RUSTY_QUEST_MAKEPAD_CAMERA_STATUS`, and
+  `RUSTY_QUEST_MAKEPAD_STEREO_COMPARISON` startup markers, switches into active
   XR presentation through `XrPermissionsFlow`, and shows the synthetic stereo
   scene in headset. The S14 launcher pass retained app/`XrUpdate`/draw cadence
   near 90Hz, paired camera texture progression near 50Hz, and no app-process
@@ -700,7 +729,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
 - Current direct-camera texture path: the visible panel defaults to the CPU-YUV
   route because it remains the Makepad color/reference path that matches HWB
   and OES visually. The hardware-buffer external route is opt-in via
-  `debug.rustyxr.makepad.direct.camera.hardware.buffer.external=true`; cadence
+  `debug.rustyquest.makepad.direct.camera.hardware.buffer.external=true`; cadence
   and projection markers include `cameraTexturePath`, `textureImportPath`,
   `cpuUploadPath`, and `visualColorStatus` so performance reviews cannot be
   mistaken for visual color acceptance. The guarded device gate exposes this as
@@ -710,7 +739,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
 - Performance comparison gate: active-presentation comparison reopened after
   S14, but final parity performance is still blocked on visible Makepad camera
   projection. S14 proved launcher-path XR presentation and paired import/cadence
-  with the synthetic scene visible. S15 confirmed the custom Rusty XR baseline
+  with the synthetic scene visible. S15 confirmed the custom Quest baseline
   visibly renders proper stereo camera projection, but the current sample was
   performance-degraded. S16 proved marker-level Makepad camera-panel readiness,
   then visual inspection showed the headset still rendering the synthetic
@@ -742,8 +771,8 @@ window remains an `ok` run with the reason recorded. Record whether the run was
 - Current target-local HWB stretch performance envelope: the metadata-backed
   Makepad path is render-deadline bound at full XR render scale. Keep the
   device gate default at Quest CPU/GPU level `4` / `4` and
-  `rustyxr.xrRenderScale=0.90` for the accepted visual/performance lane.
-  Use CPU/GPU level `3` / `3` or `rustyxr.xrRenderScale=1.0` only as explicit
+  `rustyquest.makepad.xrRenderScale=0.90` for the accepted visual/performance lane.
+  Use CPU/GPU level `3` / `3` or `rustyquest.makepad.xrRenderScale=1.0` only as explicit
   stress/full-resolution runs.
 - Current S92 performance comparison: the public fast target held about
   `72.9/72Hz` with zero numeric `Tear` / `Stale`, low app-process CPU, paired
@@ -760,7 +789,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   cadence around `90Hz` with paired texture updates around `50Hz`. Operator
   headset review found that the Meta performance HUD itself was stereo-misaligned
   while Makepad was active, then stable/aligned after switching back to the
-  public Rusty XR target under the same `90Hz` / level-4 device state. Treat the
+  public Quest baseline target under the same `90Hz` / level-4 device state. Treat the
   active Makepad blocker as XR presentation/view/layer state before further
   shader-only projection tuning.
 - Current S95 direct-XR control: starting the generated XR activity directly
@@ -837,11 +866,11 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   screenshots without that marker as launch/presentation evidence only, not
   alignment evidence.
 - Current S110 tuning slice: the camera-window sampler has a vertical UV
-  hotload knob in the same `debug.rustyxr` property lane as the horizontal
+  hotload knob in the same `debug.rustyquest.makepad` property lane as the horizontal
   offsets and content scale. Keep per-device values in run notes or broker
   state; do not bake headset-specific alignment constants into reusable source
   without a separate public validation pass.
-- Current cadence probe: rolling `RUSTY_XR_MAKEPAD_CADENCE` samples include
+- Current cadence probe: rolling `RUSTY_QUEST_MAKEPAD_CADENCE` samples include
   Makepad `NextFrame`, draw-event, `XrUpdate`, and paired left/right camera
   texture-update counters. The S14 active launcher sample reported
   app/`XrUpdate`/draw cadence near 90Hz and paired texture-update cadence near
@@ -908,7 +937,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   direct YUV-to-RGB color conversion in the same early-return shader path. The
   run stayed active-XR and app-fault clean, and CPU-side probes confirmed
   non-empty Y/U/V planes, but the headset view was strongly green/cyan. Per the
-  Rusty XR color notes, that result is now treated as sampler/decode-shape
+  Quest baseline color notes, that result is now treated as sampler/decode-shape
   evidence rather than final color calibration. The S53 gate visualizes the
   sampled Y, U, and V texture slots as separate grayscale bands before channel
   order, range, or matrix tuning resumes. S53 passed that slot-visibility gate:
@@ -921,7 +950,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   variants in one grid, but its first device screenshot sampled different source
   regions per quadrant. S56 keeps the same formulas and remaps each quadrant to
   the same full camera view; that device gate stayed clean and made the
-  comparison fair. The Rusty XR hardware-buffer baseline reports BT.601 narrow
+  comparison fair. The Quest hardware-buffer baseline reports BT.601 narrow
   range for the same camera format, so S57 collapsed the grid into a full-panel
   swapped-U/V limited-BT.601 candidate. S58 removed the center/split diagnostic
   guide and proved the shader edits were active with a border-only overlay, but
@@ -941,3 +970,4 @@ window remains an `ok` run with the reason recorded. Record whether the run was
 
 The current step-by-step implementation ledger is tracked in
 [../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).
+

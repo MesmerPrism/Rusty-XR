@@ -9,11 +9,7 @@ use std::{
 
 pub(crate) const DEFAULT_MANIFOLD_POSE_STREAM: &str = "stream.motion.object_pose";
 pub(crate) const DEFAULT_MANIFOLD_POSE_SOURCE: &str = "provider.makepad.controller_pose";
-pub(crate) const LEGACY_MANIFOLD_POSE_SOURCE_MAKEPAD_XR: &str =
-    "provider.makepad_xr.controller_pose";
 pub(crate) const MANIFOLD_POSE_SOURCE_KIND: &str = "controller_pose_provider";
-#[cfg(test)]
-const LEGACY_MANIFOLD_POSE_SOURCE_KIND_XR_CONTROLLER: &str = "xr_controller_pose_provider";
 pub(crate) const DEFAULT_MANIFOLD_POSE_CONTROLLER: &str = "right";
 pub(crate) const DEFAULT_MANIFOLD_POSE_KIND: &str = "grip";
 pub(crate) const DEFAULT_MANIFOLD_BROKER_HOST: &str = "127.0.0.1";
@@ -114,7 +110,7 @@ pub(crate) fn build_publish_stream_command(
 ) -> JsonValue {
     json!({
         "type": "command",
-        "schema": "rusty.xr.broker.command.v1",
+        "schema": "rusty.manifold.command.envelope.v1",
         "request_id": format!("makepad-controller-pose-{}", sample.sequence_id),
         "command": "publish_stream_event",
         "params": {
@@ -214,7 +210,7 @@ fn open_broker_websocket(config: &ManifoldPosePublisherConfig) -> Result<TcpStre
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
     let request = format!(
-        "GET /rustyxr/v1/events HTTP/1.1\r\n\
+        "GET /manifold/v1/events HTTP/1.1\r\n\
          Host: {}:{}\r\n\
          Upgrade: websocket\r\n\
          Connection: Upgrade\r\n\
@@ -343,10 +339,6 @@ mod tests {
         assert_eq!(payload["stream"], DEFAULT_MANIFOLD_POSE_STREAM);
         assert_eq!(payload["source"], DEFAULT_MANIFOLD_POSE_SOURCE);
         assert_eq!(payload["source_kind"], MANIFOLD_POSE_SOURCE_KIND);
-        assert_ne!(
-            payload["source_kind"],
-            LEGACY_MANIFOLD_POSE_SOURCE_KIND_XR_CONTROLLER
-        );
         assert_eq!(payload["controller"], "right");
         assert_eq!(payload["provider_boundary"]["source_agnostic"], true);
         assert_eq!(
@@ -355,20 +347,6 @@ mod tests {
         );
         let z = payload["position_m"][2].as_f64().unwrap_or_default();
         assert!((z - -0.34).abs() < 0.0001);
-    }
-
-    #[test]
-    fn accepts_legacy_makepad_xr_pose_source_alias() {
-        let config = ManifoldPosePublisherConfig {
-            source_id: LEGACY_MANIFOLD_POSE_SOURCE_MAKEPAD_XR.to_string(),
-            ..ManifoldPosePublisherConfig::default()
-        };
-        let payload = build_object_pose_payload(&config, &sample());
-        assert_eq!(payload["source"], LEGACY_MANIFOLD_POSE_SOURCE_MAKEPAD_XR);
-        assert_eq!(
-            payload["provider_boundary"]["provider"],
-            LEGACY_MANIFOLD_POSE_SOURCE_MAKEPAD_XR
-        );
     }
 
     #[test]
@@ -389,3 +367,4 @@ mod tests {
         assert_eq!(frame.len(), 8);
     }
 }
+

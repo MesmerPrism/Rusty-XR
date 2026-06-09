@@ -1,120 +1,105 @@
-function Get-RustyXrProjectionPropertyHygieneKeys {
+function Get-RustyQuestMakepadProjectionPropertyHygieneKeys {
     return @(
-        "debug.rustyxr.camera.projection.mode",
-        "debug.rustyxr.camera.projection.geometry.profile",
-        "debug.rustyxr.camera.source.sampling.mode",
-        "debug.rustyxr.camera.target.screen.uv.rect",
-        "debug.rustyxr.camera.left.target.screen.uv.rect",
-        "debug.rustyxr.camera.right.target.screen.uv.rect",
-        "debug.rustyxr.projection.geometry.profile",
-        "debug.rustyxr.projection.scale",
-        "debug.rustyxr.projection.depth.meters",
-        "debug.rustyxr.camera.projection.fov.y.degrees",
-        "debug.rustyxr.camera.preview.fov.y.degrees",
-        "debug.rustyxr.camera.preview.offset.y.meters",
-        "debug.rustyxr.camera.raw.overlay.overscan",
-        "debug.rustyxr.projection.area.scale.uv",
-        "debug.rustyxr.projection.area.scale.x",
-        "debug.rustyxr.projection.area.scale.y",
-        "debug.rustyxr.projection.area.offset.x.uv",
-        "debug.rustyxr.projection.area.offset.y.uv",
-        "debug.rustyxr.projection.area.left.offset.x.uv",
-        "debug.rustyxr.projection.area.left.offset.y.uv",
-        "debug.rustyxr.projection.area.right.offset.x.uv",
-        "debug.rustyxr.projection.area.right.offset.y.uv",
-        "debug.rustyxr.projection.area.radius.x.uv",
-        "debug.rustyxr.projection.area.radius.y.uv",
-        "debug.rustyxr.projection.area.corner.radius.uv",
-        "debug.rustyxr.projection.area.opacity",
-        "debug.rustyxr.projection.border.opacity",
-        "debug.rustyxr.projection.border.policy",
-        "debug.rustyxr.projection.target.offset.x.uv",
-        "debug.rustyxr.projection.target.offset.y.uv",
-        "debug.rustyxr.projection.target.scale",
-        "debug.rustyxr.projection.target.joystick.controls",
-        "debug.rustyxr.processing.layer",
-        "debug.rustyxr.camera.blur.radius.px",
-        "debug.rustyxr.peripheral.stretch.mode",
-        "debug.rustyxr.peripheral.stretch.core.scale",
-        "debug.rustyxr.peripheral.stretch.edge.inset.uv",
-        "debug.rustyxr.peripheral.stretch.max.inset.uv",
-        "debug.rustyxr.peripheral.stretch.curve",
-        "debug.rustyxr.peripheral.stretch.inner.blend.uv",
-        "debug.rustyxr.peripheral.stretch.blend.curve",
-        "debug.rustyxr.peripheral.stretch.blend.mode",
-        "debug.rustyxr.peripheral.stretch.corner.mode",
-        "debug.rustyxr.peripheral.stretch.debug",
-        "debug.rustyxr.projection.alpha.mode",
-        "debug.rustyxr.projection.alpha.scale",
-        "debug.rustyxr.projection.alpha.bias",
-        "debug.rustyxr.source.eye.mapping",
-        "debug.rustyxr.source.texture.transform.source",
-        "debug.rustyxr.source.visible.rect.x.uv",
-        "debug.rustyxr.source.visible.rect.y.uv",
-        "debug.rustyxr.source.visible.rect.width.uv",
-        "debug.rustyxr.source.visible.rect.height.uv",
-        "debug.rustyxr.oes.projection.runtime.resolution.enabled",
-        "debug.rustyxr.xr.render.scale",
-        "debug.rustyxr.xr.display.refresh.rate.hz",
-        "debug.rustyxr.makepad.camera.projection.geometry.profile",
-        "debug.rustyxr.makepad.camera.source.sampling.mode",
-        "debug.rustyxr.makepad.camera.target.screen.uv.rect",
-        "debug.rustyxr.makepad.camera.left.target.screen.uv.rect",
-        "debug.rustyxr.makepad.camera.right.target.screen.uv.rect",
-        "debug.rustyxr.makepad.broker.h264.enabled",
-        "debug.rustyxr.makepad.broker.h264.host",
-        "debug.rustyxr.makepad.broker.h264.broker.port",
-        "debug.rustyxr.makepad.broker.h264.stream.port",
-        "debug.rustyxr.makepad.broker.h264.right.stream.port",
-        "debug.rustyxr.makepad.broker.h264.source.mode",
-        "debug.rustyxr.makepad.broker.h264.synthetic.pattern",
-        "debug.rustyxr.makepad.broker.h264.projection.geometry.profile",
-        "debug.rustyxr.makepad.broker.h264.synthetic.projection.profile",
-        "debug.rustyxr.makepad.broker.h264.left.camera.id",
-        "debug.rustyxr.makepad.broker.h264.right.camera.id",
-        "debug.rustyxr.makepad.broker.h264.width",
-        "debug.rustyxr.makepad.broker.h264.height",
-        "debug.rustyxr.makepad.broker.h264.capture.ms",
-        "debug.rustyxr.makepad.broker.h264.max.packets",
-        "debug.rustyxr.makepad.broker.h264.bitrate.bps",
-        "debug.rustyxr.makepad.broker.h264.frame.rate.hz",
-        "debug.rustyxr.makepad.broker.h264.stream.timeout.ms",
-        "debug.rustyxr.makepad.broker.h264.decode.timeout.ms",
-        "debug.rustyxr.makepad.broker.h264.live.stream",
-        "debug.rustyxr.makepad.projection.border.policy",
-        "debug.rustyxr.makepad.native.passthrough.enabled",
-        "debug.rustyxr.makepad.projection.border.opacity",
-        "debug.rustyxr.makepad.projection.area.opacity",
-        "debug.rustyxr.makepad.projection.alpha.mode",
-        "debug.rustyxr.makepad.projection.alpha.scale",
-        "debug.rustyxr.makepad.projection.alpha.bias",
-        "debug.rustyxr.makepad.projection.runtime.resolution.enabled",
-        "debug.rustyxr.makepad.processing.layer",
-        "debug.rustyxr.makepad.projection.sample.mode",
-        "debug.rustyxr.makepad.blur.radius.px",
-        "debug.rustyxr.makepad.direct.camera.hardware.buffer.external",
-        "debug.rustyxr.makepad.horizontal.alignment.strength",
-        "debug.rustyxr.makepad.horizontal.offset.uv",
-        "debug.rustyxr.makepad.horizontal.offset.left.uv",
-        "debug.rustyxr.makepad.horizontal.offset.right.uv",
-        "debug.rustyxr.makepad.vertical.offset.uv",
-        "debug.rustyxr.makepad.content.uv.scale",
-        "debug.rustyxr.makepad.projection.area.diagnostic",
-        "debug.rustyxr.makepad.projection.area.offset.left.uv",
-        "debug.rustyxr.makepad.projection.area.offset.right.uv",
-        "debug.rustyxr.makepad.projection.area.offset.vertical.uv",
-        "debug.rustyxr.makepad.projection.area.scale.x",
-        "debug.rustyxr.makepad.projection.area.scale.y",
-        "debug.rustyxr.makepad.projection.area.radius.x.uv",
-        "debug.rustyxr.makepad.projection.area.radius.y.uv",
-        "debug.rustyxr.makepad.projection.area.corner.radius.uv",
-        "debug.rustyxr.makepad.projection.area.keystone.x",
-        "debug.rustyxr.makepad.projection.area.bow.x",
-        "debug.rustyxr.makepad.projection.target.joystick.controls"
+        "debug.rustyquest.makepad.camera.projection.mode",
+        "debug.rustyquest.makepad.camera.projection.geometry.profile",
+        "debug.rustyquest.makepad.camera.source.sampling.mode",
+        "debug.rustyquest.makepad.camera.target.screen.uv.rect",
+        "debug.rustyquest.makepad.camera.left.target.screen.uv.rect",
+        "debug.rustyquest.makepad.camera.right.target.screen.uv.rect",
+        "debug.rustyquest.makepad.projection.geometry.profile",
+        "debug.rustyquest.makepad.projection.scale",
+        "debug.rustyquest.makepad.projection.depth.meters",
+        "debug.rustyquest.makepad.camera.projection.fov.y.degrees",
+        "debug.rustyquest.makepad.camera.preview.fov.y.degrees",
+        "debug.rustyquest.makepad.camera.preview.offset.y.meters",
+        "debug.rustyquest.makepad.camera.raw.overlay.overscan",
+        "debug.rustyquest.makepad.projection.area.scale.uv",
+        "debug.rustyquest.makepad.projection.area.scale.x",
+        "debug.rustyquest.makepad.projection.area.scale.y",
+        "debug.rustyquest.makepad.projection.area.offset.x.uv",
+        "debug.rustyquest.makepad.projection.area.offset.y.uv",
+        "debug.rustyquest.makepad.projection.area.left.offset.x.uv",
+        "debug.rustyquest.makepad.projection.area.left.offset.y.uv",
+        "debug.rustyquest.makepad.projection.area.right.offset.x.uv",
+        "debug.rustyquest.makepad.projection.area.right.offset.y.uv",
+        "debug.rustyquest.makepad.projection.area.radius.x.uv",
+        "debug.rustyquest.makepad.projection.area.radius.y.uv",
+        "debug.rustyquest.makepad.projection.area.corner.radius.uv",
+        "debug.rustyquest.makepad.projection.area.opacity",
+        "debug.rustyquest.makepad.projection.border.opacity",
+        "debug.rustyquest.makepad.projection.border.policy",
+        "debug.rustyquest.makepad.projection.target.offset.x.uv",
+        "debug.rustyquest.makepad.projection.target.offset.y.uv",
+        "debug.rustyquest.makepad.projection.target.scale",
+        "debug.rustyquest.makepad.projection.target.joystick.controls",
+        "debug.rustyquest.makepad.processing.layer",
+        "debug.rustyquest.makepad.camera.blur.radius.px",
+        "debug.rustyquest.makepad.peripheral.stretch.mode",
+        "debug.rustyquest.makepad.peripheral.stretch.core.scale",
+        "debug.rustyquest.makepad.peripheral.stretch.edge.inset.uv",
+        "debug.rustyquest.makepad.peripheral.stretch.max.inset.uv",
+        "debug.rustyquest.makepad.peripheral.stretch.curve",
+        "debug.rustyquest.makepad.peripheral.stretch.inner.blend.uv",
+        "debug.rustyquest.makepad.peripheral.stretch.blend.curve",
+        "debug.rustyquest.makepad.peripheral.stretch.blend.mode",
+        "debug.rustyquest.makepad.peripheral.stretch.corner.mode",
+        "debug.rustyquest.makepad.peripheral.stretch.debug",
+        "debug.rustyquest.makepad.projection.alpha.mode",
+        "debug.rustyquest.makepad.projection.alpha.scale",
+        "debug.rustyquest.makepad.projection.alpha.bias",
+        "debug.rustyquest.makepad.source.eye.mapping",
+        "debug.rustyquest.makepad.source.texture.transform.source",
+        "debug.rustyquest.makepad.source.visible.rect.x.uv",
+        "debug.rustyquest.makepad.source.visible.rect.y.uv",
+        "debug.rustyquest.makepad.source.visible.rect.width.uv",
+        "debug.rustyquest.makepad.source.visible.rect.height.uv",
+        "debug.rustyquest.makepad.oes.projection.runtime.resolution.enabled",
+        "debug.rustyquest.makepad.xr.render.scale",
+        "debug.rustyquest.makepad.xr.display.refresh.rate.hz",
+        "debug.rustyquest.makepad.broker.h264.enabled",
+        "debug.rustyquest.makepad.broker.h264.host",
+        "debug.rustyquest.makepad.broker.h264.broker.port",
+        "debug.rustyquest.makepad.broker.h264.stream.port",
+        "debug.rustyquest.makepad.broker.h264.right.stream.port",
+        "debug.rustyquest.makepad.broker.h264.source.mode",
+        "debug.rustyquest.makepad.broker.h264.synthetic.pattern",
+        "debug.rustyquest.makepad.broker.h264.projection.geometry.profile",
+        "debug.rustyquest.makepad.broker.h264.synthetic.projection.profile",
+        "debug.rustyquest.makepad.broker.h264.left.camera.id",
+        "debug.rustyquest.makepad.broker.h264.right.camera.id",
+        "debug.rustyquest.makepad.broker.h264.width",
+        "debug.rustyquest.makepad.broker.h264.height",
+        "debug.rustyquest.makepad.broker.h264.capture.ms",
+        "debug.rustyquest.makepad.broker.h264.max.packets",
+        "debug.rustyquest.makepad.broker.h264.bitrate.bps",
+        "debug.rustyquest.makepad.broker.h264.frame.rate.hz",
+        "debug.rustyquest.makepad.broker.h264.stream.timeout.ms",
+        "debug.rustyquest.makepad.broker.h264.decode.timeout.ms",
+        "debug.rustyquest.makepad.broker.h264.live.stream",
+        "debug.rustyquest.makepad.native.passthrough.enabled",
+        "debug.rustyquest.makepad.projection.runtime.resolution.enabled",
+        "debug.rustyquest.makepad.projection.sample.mode",
+        "debug.rustyquest.makepad.direct.camera.hardware.buffer.external",
+        "debug.rustyquest.makepad.horizontal.alignment.strength",
+        "debug.rustyquest.makepad.horizontal.offset.uv",
+        "debug.rustyquest.makepad.horizontal.offset.left.uv",
+        "debug.rustyquest.makepad.horizontal.offset.right.uv",
+        "debug.rustyquest.makepad.vertical.offset.uv",
+        "debug.rustyquest.makepad.content.uv.scale",
+        "debug.rustyquest.makepad.projection.area.diagnostic",
+        "debug.rustyquest.makepad.projection.area.offset.left.uv",
+        "debug.rustyquest.makepad.projection.area.offset.right.uv",
+        "debug.rustyquest.makepad.projection.area.offset.vertical.uv",
+        "debug.rustyquest.makepad.projection.area.keystone.x",
+        "debug.rustyquest.makepad.projection.area.bow.x",
+        "debug.rustyquest.makepad.mesh.replay.enabled",
+        "debug.rustyquest.makepad.mesh.replay.source",
+        "debug.rustyquest.makepad.mesh.replay.speed",
+        "debug.rustyquest.makepad.mesh.replay.opacity"
     )
 }
 
-function Invoke-RustyXrProjectionPropertyHygieneAdb {
+function Invoke-RustyQuestMakepadProjectionPropertyHygieneAdb {
     param(
         [string]$Adb,
         [string]$Serial,
@@ -128,14 +113,14 @@ function Invoke-RustyXrProjectionPropertyHygieneAdb {
     & $Adb @adbArguments
 }
 
-function Read-RustyXrProjectionPropertyValues {
+function Read-RustyQuestMakepadProjectionPropertyValues {
     param(
         [string]$Adb,
         [string]$Serial,
         [string[]]$Keys
     )
     foreach ($key in $Keys) {
-        $value = (Invoke-RustyXrProjectionPropertyHygieneAdb -Adb $Adb -Serial $Serial -Arguments @("shell", "getprop", $key)) -join ""
+        $value = (Invoke-RustyQuestMakepadProjectionPropertyHygieneAdb -Adb $Adb -Serial $Serial -Arguments @("shell", "getprop", $key)) -join ""
         $trimmed = $value.Trim()
         [ordered]@{
             property = $key
@@ -145,7 +130,7 @@ function Read-RustyXrProjectionPropertyValues {
     }
 }
 
-function Invoke-RustyXrProjectionPropertyHygiene {
+function Invoke-RustyQuestMakepadProjectionPropertyHygiene {
     param(
         [string]$Adb = "adb",
         [string]$Serial = "",
@@ -157,10 +142,10 @@ function Invoke-RustyXrProjectionPropertyHygiene {
     $keysToCheck = if ($Keys.Count -gt 0) {
         @($Keys | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)
     } else {
-        @(Get-RustyXrProjectionPropertyHygieneKeys | Sort-Object -Unique)
+        @(Get-RustyQuestMakepadProjectionPropertyHygieneKeys | Sort-Object -Unique)
     }
 
-    $before = @(Read-RustyXrProjectionPropertyValues -Adb $Adb -Serial $Serial -Keys $keysToCheck)
+    $before = @(Read-RustyQuestMakepadProjectionPropertyValues -Adb $Adb -Serial $Serial -Keys $keysToCheck)
     $staleBefore = @($before | Where-Object { $_.nonEmpty })
     $cleared = @()
     if ($Mode -eq "clear") {
@@ -171,11 +156,11 @@ function Invoke-RustyXrProjectionPropertyHygiene {
             # Android setprop requires a non-empty VALUE argument. A single
             # space is accepted by setprop and is trimmed to empty by the
             # hygiene reader and runtime property parsers.
-            Invoke-RustyXrProjectionPropertyHygieneAdb -Adb $Adb -Serial $Serial -Arguments @("shell", "setprop $($entry.property) ' '") | Out-Null
+            Invoke-RustyQuestMakepadProjectionPropertyHygieneAdb -Adb $Adb -Serial $Serial -Arguments @("shell", "setprop $($entry.property) ' '") | Out-Null
             $cleared += $entry.property
         }
     }
-    $after = @(Read-RustyXrProjectionPropertyValues -Adb $Adb -Serial $Serial -Keys $keysToCheck)
+    $after = @(Read-RustyQuestMakepadProjectionPropertyValues -Adb $Adb -Serial $Serial -Keys $keysToCheck)
     $afterNonEmpty = @($after | Where-Object { $_.nonEmpty })
 
     $status = "ok"
@@ -187,7 +172,7 @@ function Invoke-RustyXrProjectionPropertyHygiene {
     }
 
     $summary = [ordered]@{
-        schemaVersion = "rusty.xr.projection-property-hygiene.v1"
+        schemaVersion = "rusty.quest.makepad.projection-property-hygiene.v1"
         checkedAt = (Get-Date).ToString("o")
         mode = $Mode
         keyCount = $keysToCheck.Count
@@ -209,11 +194,12 @@ function Invoke-RustyXrProjectionPropertyHygiene {
     }
 
     if ($Mode -eq "fail" -and $staleBefore.Count -gt 0) {
-        throw "Stale debug.rustyxr projection properties are present; see $OutputPath or rerun with property hygiene mode clear."
+        throw "Stale debug.rustyquest.makepad projection properties are present; see $OutputPath or rerun with property hygiene mode clear."
     }
     if ($Mode -eq "clear" -and $afterNonEmpty.Count -gt 0) {
-        throw "Failed to clear all debug.rustyxr projection properties; see $OutputPath."
+        throw "Failed to clear all debug.rustyquest.makepad projection properties; see $OutputPath."
     }
 
     return $summary
 }
+

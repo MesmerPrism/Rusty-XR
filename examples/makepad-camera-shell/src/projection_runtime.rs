@@ -9,7 +9,7 @@ pub(super) fn makepad_projection_runtime_mode_token() -> &'static str {
     if makepad_projection_runtime_resolution_enabled() {
         "resolved-manifest"
     } else {
-        "legacy"
+        "direct-hotload"
     }
 }
 
@@ -21,7 +21,7 @@ pub(super) fn makepad_projection_runtime_manifest_lines(
     let runtime = makepad_projection_runtime_resolution(config, tuning);
     let mut lines = runtime.manifest_marker_lines("makepad", phase);
     lines.push(format!(
-        "RUSTY_XR_MAKEPAD_PROJECTION_RUNTIME schema=rusty.xr.makepad-projection-runtime.v1 phase={} mode={} resolvedManifestConsumptionEnabled={}",
+        "RUSTY_QUEST_MAKEPAD_PROJECTION_RUNTIME schema=rusty.quest.makepad-projection-runtime.v1 phase={} mode={} resolvedManifestConsumptionEnabled={}",
         marker_token(phase),
         makepad_projection_runtime_mode_token(),
         makepad_projection_runtime_resolution_enabled()
@@ -54,46 +54,41 @@ pub(super) fn makepad_projection_runtime_resolution(
         .push_layer("makepad-env", 20, env_config)
         .expect("manifest owner should be valid");
 
-    let current_property_config =
-        makepad_projection_runtime_android_property_config(rxrc::RuntimeKeyAliasStatus::Current);
+    let current_property_config = makepad_projection_runtime_android_property_config();
     builder
         .push_layer("makepad-android-properties", 30, current_property_config)
         .expect("manifest owner should be valid");
 
     builder
-        .with_aliases(makepad_projection_alias_records())
+        .with_inputs(makepad_projection_input_records())
         .resolve()
 }
 
 fn makepad_projection_runtime_env_config() -> rxrc::RuntimeConfig {
-    let values = rxrc::PROJECTION_RUNTIME_KEY_ALIASES
+    let values = rxrc::PROJECTION_RUNTIME_KEY_INPUTS
         .iter()
-        .filter(|alias| alias.source == rxrc::RuntimeKeyAliasSource::EnvironmentVariable)
-        .filter_map(|alias| {
-            std::env::var(alias.alias)
+        .filter(|input| input.source == rxrc::RuntimeKeyInputSource::EnvironmentVariable)
+        .filter_map(|input| {
+            std::env::var(input.input)
                 .ok()
-                .map(|value| (alias.alias, value))
+                .map(|value| (input.input, value))
         })
         .collect::<Vec<_>>();
-    makepad_projection_runtime_alias_config(rxrc::RuntimeConfigSource::Environment, values)
+    makepad_projection_runtime_input_config(rxrc::RuntimeConfigSource::Environment, values)
 }
 
-fn makepad_projection_runtime_android_property_config(
-    status: rxrc::RuntimeKeyAliasStatus,
-) -> rxrc::RuntimeConfig {
-    let values = rxrc::PROJECTION_RUNTIME_KEY_ALIASES
+fn makepad_projection_runtime_android_property_config() -> rxrc::RuntimeConfig {
+    let values = rxrc::PROJECTION_RUNTIME_KEY_INPUTS
         .iter()
-        .filter(|alias| {
-            alias.source == rxrc::RuntimeKeyAliasSource::AndroidProperty && alias.status == status
-        })
-        .filter_map(|alias| {
-            android_system_property_value(alias.alias).map(|value| (alias.alias, value))
+        .filter(|input| input.source == rxrc::RuntimeKeyInputSource::AndroidProperty)
+        .filter_map(|input| {
+            android_system_property_value(input.input).map(|value| (input.input, value))
         })
         .collect::<Vec<_>>();
-    makepad_projection_runtime_alias_config(rxrc::RuntimeConfigSource::AndroidProperty, values)
+    makepad_projection_runtime_input_config(rxrc::RuntimeConfigSource::AndroidProperty, values)
 }
 
-fn makepad_projection_runtime_alias_config(
+fn makepad_projection_runtime_input_config(
     source: rxrc::RuntimeConfigSource,
     values: Vec<(&'static str, String)>,
 ) -> rxrc::RuntimeConfig {
@@ -118,8 +113,8 @@ pub(super) fn makepad_current_projection_runtime_float(
     max: f32,
 ) -> f32 {
     let config = App::runtime_config();
-    let legacy = App::legacy_horizontal_alignment_tuning();
-    let runtime = makepad_projection_runtime_resolution(&config, legacy);
+    let direct = App::direct_hotload_horizontal_alignment_tuning();
+    let runtime = makepad_projection_runtime_resolution(&config, direct);
     makepad_projection_runtime_float(&runtime.resolution, key, fallback, min, max)
 }
 
@@ -830,47 +825,47 @@ fn makepad_projection_runtime_config_effective(
     manifest
 }
 
-fn makepad_projection_alias_records() -> Vec<rxrc::RuntimeKeyAliasRecord> {
+fn makepad_projection_input_records() -> Vec<rxrc::RuntimeKeyInputRecord> {
     [
-        "debug.rustyxr.projection.depth.meters",
-        "debug.rustyxr.camera.preview.fov.y.degrees",
-        "debug.rustyxr.camera.preview.offset.y.meters",
-        "debug.rustyxr.camera.raw.overlay.overscan",
-        "debug.rustyxr.projection.area.scale.uv",
-        "debug.rustyxr.projection.area.offset.x.uv",
-        "debug.rustyxr.projection.area.left.offset.x.uv",
-        "debug.rustyxr.projection.area.right.offset.x.uv",
-        "debug.rustyxr.projection.area.offset.y.uv",
-        "debug.rustyxr.projection.area.scale.x",
-        "debug.rustyxr.projection.area.scale.y",
-        "debug.rustyxr.projection.target.offset.x.uv",
-        "debug.rustyxr.projection.target.offset.y.uv",
-        "debug.rustyxr.projection.target.scale",
-        "debug.rustyxr.projection.target.joystick.controls",
-        "debug.rustyxr.projection.area.radius.x.uv",
-        "debug.rustyxr.projection.area.radius.y.uv",
-        "debug.rustyxr.projection.area.corner.radius.uv",
-        "debug.rustyxr.projection.area.opacity",
-        "debug.rustyxr.projection.border.opacity",
-        "debug.rustyxr.projection.border.policy",
-        "debug.rustyxr.processing.layer",
-        "debug.rustyxr.camera.blur.radius.px",
-        "debug.rustyxr.peripheral.stretch.mode",
-        "debug.rustyxr.peripheral.stretch.core.scale",
-        "debug.rustyxr.peripheral.stretch.edge.inset.uv",
-        "debug.rustyxr.peripheral.stretch.max.inset.uv",
-        "debug.rustyxr.peripheral.stretch.curve",
-        "debug.rustyxr.peripheral.stretch.inner.blend.uv",
-        "debug.rustyxr.peripheral.stretch.blend.curve",
-        "debug.rustyxr.peripheral.stretch.blend.mode",
-        "debug.rustyxr.peripheral.stretch.corner.mode",
-        "debug.rustyxr.peripheral.stretch.debug",
-        "debug.rustyxr.projection.alpha.mode",
-        "debug.rustyxr.projection.alpha.scale",
-        "debug.rustyxr.projection.alpha.bias",
+        "debug.rustyquest.makepad.projection.depth.meters",
+        "debug.rustyquest.makepad.camera.preview.fov.y.degrees",
+        "debug.rustyquest.makepad.camera.preview.offset.y.meters",
+        "debug.rustyquest.makepad.camera.raw.overlay.overscan",
+        "debug.rustyquest.makepad.projection.area.scale.uv",
+        "debug.rustyquest.makepad.projection.area.offset.x.uv",
+        "debug.rustyquest.makepad.projection.area.left.offset.x.uv",
+        "debug.rustyquest.makepad.projection.area.right.offset.x.uv",
+        "debug.rustyquest.makepad.projection.area.offset.y.uv",
+        "debug.rustyquest.makepad.projection.area.scale.x",
+        "debug.rustyquest.makepad.projection.area.scale.y",
+        "debug.rustyquest.makepad.projection.target.offset.x.uv",
+        "debug.rustyquest.makepad.projection.target.offset.y.uv",
+        "debug.rustyquest.makepad.projection.target.scale",
+        "debug.rustyquest.makepad.projection.target.joystick.controls",
+        "debug.rustyquest.makepad.projection.area.radius.x.uv",
+        "debug.rustyquest.makepad.projection.area.radius.y.uv",
+        "debug.rustyquest.makepad.projection.area.corner.radius.uv",
+        "debug.rustyquest.makepad.projection.area.opacity",
+        "debug.rustyquest.makepad.projection.border.opacity",
+        "debug.rustyquest.makepad.projection.border.policy",
+        "debug.rustyquest.makepad.processing.layer",
+        "debug.rustyquest.makepad.camera.blur.radius.px",
+        "debug.rustyquest.makepad.peripheral.stretch.mode",
+        "debug.rustyquest.makepad.peripheral.stretch.core.scale",
+        "debug.rustyquest.makepad.peripheral.stretch.edge.inset.uv",
+        "debug.rustyquest.makepad.peripheral.stretch.max.inset.uv",
+        "debug.rustyquest.makepad.peripheral.stretch.curve",
+        "debug.rustyquest.makepad.peripheral.stretch.inner.blend.uv",
+        "debug.rustyquest.makepad.peripheral.stretch.blend.curve",
+        "debug.rustyquest.makepad.peripheral.stretch.blend.mode",
+        "debug.rustyquest.makepad.peripheral.stretch.corner.mode",
+        "debug.rustyquest.makepad.peripheral.stretch.debug",
+        "debug.rustyquest.makepad.projection.alpha.mode",
+        "debug.rustyquest.makepad.projection.alpha.scale",
+        "debug.rustyquest.makepad.projection.alpha.bias",
     ]
     .into_iter()
-    .filter_map(|key| rxrc::resolve_projection_runtime_key(key).ok())
+    .filter_map(|key| rxrc::resolve_projection_runtime_input(key).ok())
     .collect()
 }
 
@@ -895,3 +890,5 @@ fn set_projection_manifest_float(
         .set(key, rxrc::RuntimeValue::Float(value), source)
         .expect("projection manifest keys should be public-safe");
 }
+
+

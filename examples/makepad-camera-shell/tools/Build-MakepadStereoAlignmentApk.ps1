@@ -1,7 +1,7 @@
 param(
     [string]$SdkPath,
-    [string]$PackageName = "io.github.mesmerprism.rustyxr.makepad.camera",
-    [string]$AppLabel = "Rusty XR Makepad Camera",
+    [string]$PackageName = "io.github.mesmerprism.rustyquest.makepad.camera",
+    [string]$AppLabel = "Rusty Quest Makepad Camera",
     [string]$CargoPackage = "rusty-xr-makepad-camera-shell",
     [ValidateSet("display-left-from-left-source", "display-left-from-right-source")]
     [string]$DisplaySourceEyeMapping = "display-left-from-left-source",
@@ -105,8 +105,8 @@ function Resolve-JavaHome {
     if (-not [string]::IsNullOrWhiteSpace($ExplicitJavaHome)) {
         $candidates += $ExplicitJavaHome
     }
-    if (-not [string]::IsNullOrWhiteSpace($env:RUSTY_XR_ANDROID_JDK_ROOT)) {
-        $candidates += $env:RUSTY_XR_ANDROID_JDK_ROOT
+    if (-not [string]::IsNullOrWhiteSpace($env:RUSTY_QUEST_MAKEPAD_ANDROID_JDK_ROOT)) {
+        $candidates += $env:RUSTY_QUEST_MAKEPAD_ANDROID_JDK_ROOT
     }
     if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
         $candidates += $env:JAVA_HOME
@@ -286,7 +286,7 @@ function Resolve-PatchCargoHome {
     )
     if ($Temporary) {
         return [pscustomobject]@{
-            Path = Join-Path ([System.IO.Path]::GetTempPath()) "rusty-xr-makepad-cargo-$([guid]::NewGuid().ToString('N'))"
+            Path = Join-Path ([System.IO.Path]::GetTempPath()) "rustyquest-makepad-cargo-$([guid]::NewGuid().ToString('N'))"
             Temporary = $true
         }
     }
@@ -486,7 +486,7 @@ function Write-MakepadBuildProvenance {
     $apkLastWriteTimeUtc = if ($apkPath) { (Get-Item -LiteralPath $apkPath).LastWriteTimeUtc.ToString("o") } else { $null }
     $makepadSource = New-MakepadSourceProvenance -SourceRoot $MakepadSourceRoot
     $provenance = [ordered]@{
-        schema = "rusty.xr.makepad-apk-build-provenance.v1"
+        schema = "rusty.quest.makepad-apk-build-provenance.v1"
         startedAt = $StartedAt.ToString("o")
         endedAt = $EndedAt.ToString("o")
         durationMs = [long]($EndedAt - $StartedAt).TotalMilliseconds
@@ -531,13 +531,13 @@ if ([string]::IsNullOrWhiteSpace($WslDistro)) {
     $WslDistro = Select-FirstNonEmpty @($env:MAKEPAD_WSL_DISTRO, "Ubuntu-Work")
 }
 if ([string]::IsNullOrWhiteSpace($MakepadSourceRoot)) {
-    $MakepadSourceRoot = Select-FirstNonEmpty @($env:RUSTY_XR_MAKEPAD_SOURCE_ROOT)
+    $MakepadSourceRoot = Select-FirstNonEmpty @($env:RUSTY_QUEST_MAKEPAD_SOURCE_ROOT)
 }
 if ($PatchMakepadXrFromSource -and $NoPatchMakepadXrFromSource) {
     throw "Use either -PatchMakepadXrFromSource or -NoPatchMakepadXrFromSource, not both."
 }
 if ((-not $NoPatchMakepadXrFromSource) -and [string]::IsNullOrWhiteSpace($MakepadSourceRoot)) {
-    throw "Build-MakepadStereoAlignmentApk.ps1 requires -MakepadSourceRoot or RUSTY_XR_MAKEPAD_SOURCE_ROOT by default so cargo-makepad and app Makepad dependencies come from the same maintained checkout. Use -NoPatchMakepadXrFromSource only for an intentional installed-tool or pinned-dependency comparison."
+    throw "Build-MakepadStereoAlignmentApk.ps1 requires -MakepadSourceRoot or RUSTY_QUEST_MAKEPAD_SOURCE_ROOT by default so cargo-makepad and app Makepad dependencies come from the same maintained checkout. Use -NoPatchMakepadXrFromSource only for an intentional installed-tool or pinned-dependency comparison."
 }
 if (-not [string]::IsNullOrWhiteSpace($MakepadSourceRoot)) {
     $MakepadSourceRoot = (Resolve-Path -LiteralPath $MakepadSourceRoot).Path
@@ -547,7 +547,7 @@ $patchMakepadXrFromSourceEffective = (-not [string]::IsNullOrWhiteSpace($Makepad
 $hostKind = if ($UseWindowsHost) { "windows" } else { "linux" }
 if ([string]::IsNullOrWhiteSpace($SdkPath)) {
     if ($UseWindowsHost) {
-        $SdkPath = Select-FirstNonEmpty @($env:RUSTY_XR_ANDROID_SDK_ROOT, $env:ANDROID_SDK_ROOT, $env:ANDROID_HOME)
+        $SdkPath = Select-FirstNonEmpty @($env:RUSTY_QUEST_MAKEPAD_ANDROID_SDK_ROOT, $env:ANDROID_SDK_ROOT, $env:ANDROID_HOME)
     } else {
         $SdkPath = Select-FirstNonEmpty @($env:MAKEPAD_ANDROID_SDK)
     }
@@ -571,7 +571,7 @@ Write-Host "Makepad build phase: cargo/cargo-makepad output follows; wrapper suc
 if ($UseWindowsHost) {
     Push-Location $exampleRoot
     $buildStartedAt = Get-Date
-    $oldMapping = $env:RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING
+    $oldMapping = $env:RUSTY_QUEST_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING
     $oldCargoHome = $env:CARGO_HOME
     $oldJavaHome = $env:JAVA_HOME
     $oldAndroidHome = $env:ANDROID_HOME
@@ -592,7 +592,7 @@ if ($UseWindowsHost) {
     } else {
         $null
     }
-    $env:RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING = $DisplaySourceEyeMapping
+    $env:RUSTY_QUEST_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING = $DisplaySourceEyeMapping
     $env:JAVA_HOME = $sdkProfile.JavaHome
     $env:ANDROID_HOME = $sdkProfile.SdkRoot
     $env:ANDROID_SDK_ROOT = $sdkProfile.SdkRoot
@@ -648,9 +648,9 @@ if ($UseWindowsHost) {
         }
     } finally {
         if ($null -eq $oldMapping) {
-            Remove-Item Env:\RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING -ErrorAction SilentlyContinue
+            Remove-Item Env:\RUSTY_QUEST_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING -ErrorAction SilentlyContinue
         } else {
-            $env:RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING = $oldMapping
+            $env:RUSTY_QUEST_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING = $oldMapping
         }
         if ($null -eq $oldCargoHome) {
             Remove-Item Env:\CARGO_HOME -ErrorAction SilentlyContinue
@@ -699,7 +699,7 @@ $javaHomeWsl = Convert-ToWslPath -Path $sdkProfile.JavaHome
 $wslPatchCargoHome = $null
 $wslPatchConfigBase64 = $null
 if ($patchMakepadXrFromSourceEffective) {
-    $wslPatchCargoHome = "/tmp/rusty-xr-makepad-cargo-$([guid]::NewGuid().ToString('N'))"
+    $wslPatchCargoHome = "/tmp/rustyquest-makepad-cargo-$([guid]::NewGuid().ToString('N'))"
     $patchConfigText = New-MakepadPatchConfigText -SourceRoot $MakepadSourceRoot -Wsl
     $wslPatchConfigBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($patchConfigText))
 }
@@ -752,7 +752,7 @@ $commandParts += @(
     "export ANDROID_SDK_VERSION=$(Quote-Bash ([string]$sdkProfile.PlatformApi))",
     "export ANDROID_API_LEVEL=$(Quote-Bash ([string]$sdkProfile.CompilerApi))",
     "export ANDROID_BUILD_TOOLS_VERSION=$(Quote-Bash $sdkProfile.BuildToolsVersion)",
-    "export RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING=$(Quote-Bash $DisplaySourceEyeMapping)",
+    "export RUSTY_QUEST_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING=$(Quote-Bash $DisplaySourceEyeMapping)",
     "export MAKEPAD_ANDROID_TIMINGS=$(Quote-Bash (Select-FirstNonEmpty @($env:MAKEPAD_ANDROID_TIMINGS, '1')))",
     "cd $(Quote-Bash $exampleRootWsl)",
     $cargoCommand
@@ -787,3 +787,4 @@ if ($wslExitCode -ne 0) {
     throw "WSL cargo makepad build failed with exit code $wslExitCode"
 }
 Write-Host "Makepad APK wrapper completed after WSL cargo/cargo-makepad output."
+

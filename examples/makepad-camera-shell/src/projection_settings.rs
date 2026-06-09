@@ -235,10 +235,7 @@ pub(crate) enum MakepadProcessingLayer {
 
 impl MakepadProcessingLayer {
     pub(crate) fn current() -> Self {
-        let value = hotload_text_any(
-            &[rxrc::KEY_PROCESSING_LAYER, KEY_MAKEPAD_PROCESSING_LAYER],
-            "raw",
-        );
+        let value = hotload_text(rxrc::KEY_PROCESSING_LAYER, "raw");
         Self::from_stable_id(&value)
     }
 
@@ -618,12 +615,7 @@ impl MakepadProjectionSampleMode {
 }
 
 pub(crate) fn makepad_blur_radius_px() -> f32 {
-    hotload_f32_any(
-        &[rxrc::KEY_CAMERA_BLUR_RADIUS_PX, KEY_MAKEPAD_BLUR_RADIUS_PX],
-        2.0,
-        0.0,
-        16.0,
-    )
+    hotload_f32(rxrc::KEY_CAMERA_BLUR_RADIUS_PX, 2.0, 0.0, 16.0)
 }
 
 #[cfg(test)]
@@ -728,10 +720,10 @@ pub(crate) fn makepad_projection_depth_meters() -> f32 {
             10.0,
         );
     }
-    makepad_legacy_projection_depth_meters()
+    makepad_direct_hotload_projection_depth_meters()
 }
 
-fn makepad_legacy_projection_depth_meters() -> f32 {
+fn makepad_direct_hotload_projection_depth_meters() -> f32 {
     hotload_f32(
         KEY_PROJECTION_DEPTH_METERS,
         TARGET_PROJECTION_DEPTH_METERS,
@@ -763,10 +755,10 @@ pub(crate) fn makepad_projection_preview_fov_y_degrees() -> f32 {
             175.0,
         );
     }
-    makepad_legacy_projection_preview_fov_y_degrees()
+    makepad_direct_hotload_projection_preview_fov_y_degrees()
 }
 
-fn makepad_legacy_projection_preview_fov_y_degrees() -> f32 {
+fn makepad_direct_hotload_projection_preview_fov_y_degrees() -> f32 {
     hotload_f32(
         KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
         TARGET_PROJECTION_PREVIEW_FOV_Y_DEGREES,
@@ -784,10 +776,10 @@ pub(crate) fn makepad_projection_preview_offset_y_meters() -> f32 {
             2.0,
         );
     }
-    makepad_legacy_projection_preview_offset_y_meters()
+    makepad_direct_hotload_projection_preview_offset_y_meters()
 }
 
-fn makepad_legacy_projection_preview_offset_y_meters() -> f32 {
+fn makepad_direct_hotload_projection_preview_offset_y_meters() -> f32 {
     hotload_f32(
         KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
         TARGET_PROJECTION_PREVIEW_OFFSET_Y_METERS,
@@ -805,10 +797,10 @@ pub(crate) fn makepad_projection_raw_overscan() -> f32 {
             16.0,
         );
     }
-    makepad_legacy_projection_raw_overscan()
+    makepad_direct_hotload_projection_raw_overscan()
 }
 
-fn makepad_legacy_projection_raw_overscan() -> f32 {
+fn makepad_direct_hotload_projection_raw_overscan() -> f32 {
     hotload_f32(
         KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
         TARGET_PROJECTION_RAW_OVERSCAN,

@@ -1,5 +1,5 @@
 fn main() {
-    const KEY: &str = "RUSTY_XR_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING";
+    const KEY: &str = "RUSTY_QUEST_MAKEPAD_DISPLAY_SOURCE_EYE_MAPPING";
     const DEFAULT: &str = "display-left-from-left-source";
 
     println!("cargo:rerun-if-env-changed={KEY}");
