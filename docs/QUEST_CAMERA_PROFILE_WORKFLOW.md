@@ -157,7 +157,7 @@ For visual camera/parity gates, add a short screenshot freshness sequence:
 powershell -ExecutionPolicy Bypass -File .\tools\quest-camera-profile\Invoke-QuestCameraProfileRun.ps1 `
   -Serial <serial> `
   -RuntimeProfile camera-stereo-gpu-composite-full-feed-control `
-  -Override 'rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.projectionAreaScaleUv=1,rustyxr.projectionAreaRadiusXUv=0.5,rustyxr.projectionAreaRadiusYUv=0.5,rustyxr.projectionAreaCornerRadiusUv=0' `
+  -Override 'rustyxr.xrRenderScale=1,rustyquest.cameraProjectionScale=1,rustyquest.projectionAreaScaleUv=1,rustyquest.projectionAreaRadiusXUv=0.5,rustyquest.projectionAreaRadiusYUv=0.5,rustyquest.projectionAreaCornerRadiusUv=0' `
   -CaptureHzdbScreencap `
   -FreshnessFrames 6 `
   -FreshnessIntervalMs 1000

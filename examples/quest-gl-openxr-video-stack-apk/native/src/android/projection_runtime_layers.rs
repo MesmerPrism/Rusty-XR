@@ -1,4 +1,4 @@
-use rusty_quest_makepad_runtime_config as rxrc;
+use rusty_quest_projection_runtime_config as rxrc;
 
 use crate::current_android_projection_property_config;
 

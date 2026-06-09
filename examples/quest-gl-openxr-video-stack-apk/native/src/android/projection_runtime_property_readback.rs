@@ -1,5 +1,5 @@
 use jni::{objects::JObject, sys::jobject, JavaVM};
-use rusty_quest_makepad_runtime_config as rxrc;
+use rusty_quest_projection_runtime_config as rxrc;
 
 use super::openxr_gles_config::{
     activity_string_extra, android_system_property_value,

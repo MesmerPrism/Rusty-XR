@@ -1045,14 +1045,14 @@ version = "0.1.0"
 dependencies = [
  "makepad-xr",
  "ndk-sys",
- "rusty-quest-makepad-runtime-config",
+ "rusty-quest-projection-runtime-config",
  "rusty-xr-camera-model",
  "rusty-xr-contracts",
  "serde_json",
 ]
 
 [[package]]
-name = "rusty-quest-makepad-runtime-config"
+name = "rusty-quest-projection-runtime-config"
 version = "0.1.0"
 
 [[package]]

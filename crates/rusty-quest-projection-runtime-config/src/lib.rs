@@ -1,4 +1,4 @@
-//! Runtime configuration helpers for Rusty Morphospace Makepad lanes.
+//! Runtime configuration helpers for Rusty Quest projection lanes.
 //!
 //! This crate models generic launch/runtime settings. Downstream apps can map
 //! their private environment variables, Android properties, or config files
@@ -9,7 +9,7 @@
 //! serialize these public settings.
 //!
 //! ```
-//! use rusty_quest_makepad_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
+//! use rusty_quest_projection_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 //!
 //! let mut config = RuntimeConfig::new();
 //! config
@@ -213,7 +213,7 @@ impl AndroidPropertyPrefix {
 
 impl Default for AndroidPropertyPrefix {
     fn default() -> Self {
-        Self("debug.rustyquest.makepad".to_string())
+        Self("debug.rustyquest".to_string())
     }
 }
 
@@ -862,460 +862,430 @@ const fn projection_key(
 /// External input spellings for projection runtime keys.
 pub const PROJECTION_RUNTIME_KEY_INPUTS: &[RuntimeKeyInputBinding] = &[
     launch_input(
-        "rustyquest.makepad.cameraProjectionMode",
+        "rustyquest.cameraProjectionMode",
         KEY_CAMERA_PROJECTION_MODE,
     ),
     launch_input(
-        "rustyquest.makepad.cameraProjectionGeometryProfile",
+        "rustyquest.cameraProjectionGeometryProfile",
         KEY_PROJECTION_GEOMETRY_PROFILE,
     ),
     launch_input(
-        "rustyquest.makepad.brokerH264ProjectionGeometryProfile",
+        "rustyquest.brokerH264ProjectionGeometryProfile",
         KEY_PROJECTION_GEOMETRY_PROFILE,
     ),
     launch_input(
-        "rustyquest.makepad.brokerH264SyntheticProjectionProfile",
+        "rustyquest.brokerH264SyntheticProjectionProfile",
         KEY_SYNTHETIC_PROJECTION_PROFILE,
     ),
+    launch_input("rustyquest.cameraProjectionScale", KEY_PROJECTION_SCALE),
     launch_input(
-        "rustyquest.makepad.cameraProjectionScale",
-        KEY_PROJECTION_SCALE,
-    ),
-    launch_input(
-        "rustyquest.makepad.projectionDepthMeters",
+        "rustyquest.projectionDepthMeters",
         KEY_PROJECTION_DEPTH_METERS,
     ),
     launch_input(
-        "rustyquest.makepad.cameraProjectionFovYDegrees",
+        "rustyquest.cameraProjectionFovYDegrees",
         KEY_CAMERA_PROJECTION_FOV_Y_DEGREES,
     ),
     launch_input(
-        "rustyquest.makepad.cameraPreviewFovYDegrees",
+        "rustyquest.cameraPreviewFovYDegrees",
         KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
     ),
     launch_input(
-        "rustyquest.makepad.cameraPreviewOffsetYMeters",
+        "rustyquest.cameraPreviewOffsetYMeters",
         KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
     ),
     launch_input(
-        "rustyquest.makepad.cameraRawOverlayOverscan",
+        "rustyquest.cameraRawOverlayOverscan",
         KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaScaleUv",
+        "rustyquest.projectionAreaScaleUv",
         KEY_PROJECTION_AREA_SCALE_UV,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaScaleX",
+        "rustyquest.projectionAreaScaleX",
         KEY_PROJECTION_AREA_SCALE_X,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaScaleY",
+        "rustyquest.projectionAreaScaleY",
         KEY_PROJECTION_AREA_SCALE_Y,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaOffsetXUv",
+        "rustyquest.projectionAreaOffsetXUv",
         KEY_PROJECTION_AREA_OFFSET_X_UV,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaOffsetYUv",
+        "rustyquest.projectionAreaOffsetYUv",
         KEY_PROJECTION_AREA_OFFSET_Y_UV,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaLeftOffsetXUv",
+        "rustyquest.projectionAreaLeftOffsetXUv",
         KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaLeftOffsetYUv",
+        "rustyquest.projectionAreaLeftOffsetYUv",
         KEY_PROJECTION_AREA_LEFT_OFFSET_Y_UV,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaRightOffsetXUv",
+        "rustyquest.projectionAreaRightOffsetXUv",
         KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaRightOffsetYUv",
+        "rustyquest.projectionAreaRightOffsetYUv",
         KEY_PROJECTION_AREA_RIGHT_OFFSET_Y_UV,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaRadiusXUv",
+        "rustyquest.projectionAreaRadiusXUv",
         KEY_PROJECTION_AREA_RADIUS_X_UV,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaRadiusYUv",
+        "rustyquest.projectionAreaRadiusYUv",
         KEY_PROJECTION_AREA_RADIUS_Y_UV,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaCornerRadiusUv",
+        "rustyquest.projectionAreaCornerRadiusUv",
         KEY_PROJECTION_AREA_CORNER_RADIUS_UV,
     ),
     launch_input(
-        "rustyquest.makepad.projectionAreaOpacity",
+        "rustyquest.projectionAreaOpacity",
         KEY_PROJECTION_AREA_OPACITY,
     ),
     launch_input(
-        "rustyquest.makepad.projectionBorderOpacity",
+        "rustyquest.projectionBorderOpacity",
         KEY_PROJECTION_BORDER_OPACITY,
     ),
     launch_input(
-        "rustyquest.makepad.projectionBorderPolicy",
+        "rustyquest.projectionBorderPolicy",
         KEY_PROJECTION_BORDER_POLICY,
     ),
     launch_input(
-        "rustyquest.makepad.projectionTargetOffsetXUv",
+        "rustyquest.projectionTargetOffsetXUv",
         KEY_PROJECTION_TARGET_OFFSET_X_UV,
     ),
     launch_input(
-        "rustyquest.makepad.projectionTargetOffsetYUv",
+        "rustyquest.projectionTargetOffsetYUv",
         KEY_PROJECTION_TARGET_OFFSET_Y_UV,
     ),
     launch_input(
-        "rustyquest.makepad.projectionTargetScale",
+        "rustyquest.projectionTargetScale",
         KEY_PROJECTION_TARGET_SCALE,
     ),
     launch_input(
-        "rustyquest.makepad.projectionTargetJoystickControls",
+        "rustyquest.projectionTargetJoystickControls",
         KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
     ),
     launch_input(
-        "rustyquest.makepad.projectionTargetBreathControls",
+        "rustyquest.projectionTargetBreathControls",
         KEY_PROJECTION_TARGET_BREATH_CONTROLS,
     ),
     launch_input(
-        "rustyquest.makepad.projectionTargetBreathStream",
+        "rustyquest.projectionTargetBreathStream",
         KEY_PROJECTION_TARGET_BREATH_STREAM,
     ),
     launch_input(
-        "rustyquest.makepad.projectionTargetBreathMinScale",
+        "rustyquest.projectionTargetBreathMinScale",
         KEY_PROJECTION_TARGET_BREATH_MIN_SCALE,
     ),
     launch_input(
-        "rustyquest.makepad.projectionTargetBreathMaxScale",
+        "rustyquest.projectionTargetBreathMaxScale",
         KEY_PROJECTION_TARGET_BREATH_MAX_SCALE,
     ),
     launch_input(
-        "rustyquest.makepad.projectionTargetBreathSmoothingAlpha",
+        "rustyquest.projectionTargetBreathSmoothingAlpha",
         KEY_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA,
     ),
     launch_input(
-        "rustyquest.makepad.projectionTargetBreathInvert",
+        "rustyquest.projectionTargetBreathInvert",
         KEY_PROJECTION_TARGET_BREATH_INVERT,
     ),
     launch_input(
-        "rustyquest.makepad.projectionTargetBreathMinQuality",
+        "rustyquest.projectionTargetBreathMinQuality",
         KEY_PROJECTION_TARGET_BREATH_MIN_QUALITY,
     ),
-    launch_input("rustyquest.makepad.processingLayer", KEY_PROCESSING_LAYER),
+    launch_input("rustyquest.processingLayer", KEY_PROCESSING_LAYER),
+    launch_input("rustyquest.cameraBlurRadiusPx", KEY_CAMERA_BLUR_RADIUS_PX),
     launch_input(
-        "rustyquest.makepad.cameraBlurRadiusPx",
-        KEY_CAMERA_BLUR_RADIUS_PX,
-    ),
-    launch_input(
-        "rustyquest.makepad.peripheralStretchMode",
+        "rustyquest.peripheralStretchMode",
         KEY_PERIPHERAL_STRETCH_MODE,
     ),
     launch_input(
-        "rustyquest.makepad.peripheralStretchCoreScale",
+        "rustyquest.peripheralStretchCoreScale",
         KEY_PERIPHERAL_STRETCH_CORE_SCALE,
     ),
     launch_input(
-        "rustyquest.makepad.peripheralStretchEdgeInsetUv",
+        "rustyquest.peripheralStretchEdgeInsetUv",
         KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
     ),
     launch_input(
-        "rustyquest.makepad.peripheralStretchMaxInsetUv",
+        "rustyquest.peripheralStretchMaxInsetUv",
         KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
     ),
     launch_input(
-        "rustyquest.makepad.peripheralStretchCurve",
+        "rustyquest.peripheralStretchCurve",
         KEY_PERIPHERAL_STRETCH_CURVE,
     ),
     launch_input(
-        "rustyquest.makepad.peripheralStretchInnerBlendUv",
+        "rustyquest.peripheralStretchInnerBlendUv",
         KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
     ),
     launch_input(
-        "rustyquest.makepad.peripheralStretchBlendCurve",
+        "rustyquest.peripheralStretchBlendCurve",
         KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
     ),
     launch_input(
-        "rustyquest.makepad.peripheralStretchBlendMode",
+        "rustyquest.peripheralStretchBlendMode",
         KEY_PERIPHERAL_STRETCH_BLEND_MODE,
     ),
     launch_input(
-        "rustyquest.makepad.peripheralStretchCornerMode",
+        "rustyquest.peripheralStretchCornerMode",
         KEY_PERIPHERAL_STRETCH_CORNER_MODE,
     ),
     launch_input(
-        "rustyquest.makepad.peripheralStretchDebug",
+        "rustyquest.peripheralStretchDebug",
         KEY_PERIPHERAL_STRETCH_DEBUG,
     ),
+    launch_input("rustyquest.projectionAlphaMode", KEY_PROJECTION_ALPHA_MODE),
     launch_input(
-        "rustyquest.makepad.projectionAlphaMode",
-        KEY_PROJECTION_ALPHA_MODE,
-    ),
-    launch_input(
-        "rustyquest.makepad.projectionAlphaScale",
+        "rustyquest.projectionAlphaScale",
         KEY_PROJECTION_ALPHA_SCALE,
     ),
+    launch_input("rustyquest.projectionAlphaBias", KEY_PROJECTION_ALPHA_BIAS),
+    launch_input("rustyquest.cameraSourceEyeMapping", KEY_SOURCE_EYE_MAPPING),
     launch_input(
-        "rustyquest.makepad.projectionAlphaBias",
-        KEY_PROJECTION_ALPHA_BIAS,
-    ),
-    launch_input(
-        "rustyquest.makepad.cameraSourceEyeMapping",
-        KEY_SOURCE_EYE_MAPPING,
-    ),
-    launch_input(
-        "rustyquest.makepad.cameraTextureRotation",
+        "rustyquest.cameraTextureRotation",
         KEY_SOURCE_TEXTURE_ROTATION,
     ),
+    launch_input("rustyquest.cameraTextureFlipX", KEY_SOURCE_TEXTURE_FLIP_X),
+    launch_input("rustyquest.cameraTextureFlipY", KEY_SOURCE_TEXTURE_FLIP_Y),
+    launch_input("rustyquest.cameraTextureMirror", KEY_SOURCE_TEXTURE_MIRROR),
     launch_input(
-        "rustyquest.makepad.cameraTextureFlipX",
-        KEY_SOURCE_TEXTURE_FLIP_X,
-    ),
-    launch_input(
-        "rustyquest.makepad.cameraTextureFlipY",
-        KEY_SOURCE_TEXTURE_FLIP_Y,
-    ),
-    launch_input(
-        "rustyquest.makepad.cameraTextureMirror",
-        KEY_SOURCE_TEXTURE_MIRROR,
-    ),
-    launch_input(
-        "rustyquest.makepad.cameraTextureTransformSource",
+        "rustyquest.cameraTextureTransformSource",
         KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE,
     ),
     launch_input(
-        "rustyquest.makepad.cameraTextureTransformReason",
+        "rustyquest.cameraTextureTransformReason",
         KEY_SOURCE_TEXTURE_TRANSFORM_REASON,
     ),
     launch_input(
-        "rustyquest.makepad.leftCameraTextureTransformSource",
+        "rustyquest.leftCameraTextureTransformSource",
         KEY_LEFT_SOURCE_TEXTURE_TRANSFORM_SOURCE,
     ),
     launch_input(
-        "rustyquest.makepad.rightCameraTextureTransformSource",
+        "rustyquest.rightCameraTextureTransformSource",
         KEY_RIGHT_SOURCE_TEXTURE_TRANSFORM_SOURCE,
     ),
     property_input(
-        "debug.rustyquest.makepad.camera.projection.mode",
+        "debug.rustyquest.camera.projection.mode",
         KEY_CAMERA_PROJECTION_MODE,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.geometry.profile",
+        "debug.rustyquest.projection.geometry.profile",
         KEY_PROJECTION_GEOMETRY_PROFILE,
     ),
+    property_input("debug.rustyquest.projection.scale", KEY_PROJECTION_SCALE),
     property_input(
-        "debug.rustyquest.makepad.projection.scale",
-        KEY_PROJECTION_SCALE,
-    ),
-    property_input(
-        "debug.rustyquest.makepad.projection.depth.meters",
+        "debug.rustyquest.projection.depth.meters",
         KEY_PROJECTION_DEPTH_METERS,
     ),
     property_input(
-        "debug.rustyquest.makepad.camera.projection.fov.y.degrees",
+        "debug.rustyquest.camera.projection.fov.y.degrees",
         KEY_CAMERA_PROJECTION_FOV_Y_DEGREES,
     ),
     property_input(
-        "debug.rustyquest.makepad.camera.preview.fov.y.degrees",
+        "debug.rustyquest.camera.preview.fov.y.degrees",
         KEY_CAMERA_PREVIEW_FOV_Y_DEGREES,
     ),
     property_input(
-        "debug.rustyquest.makepad.camera.preview.offset.y.meters",
+        "debug.rustyquest.camera.preview.offset.y.meters",
         KEY_CAMERA_PREVIEW_OFFSET_Y_METERS,
     ),
     property_input(
-        "debug.rustyquest.makepad.camera.raw.overlay.overscan",
+        "debug.rustyquest.camera.raw.overlay.overscan",
         KEY_CAMERA_RAW_OVERLAY_OVERSCAN,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.scale.uv",
+        "debug.rustyquest.projection.area.scale.uv",
         KEY_PROJECTION_AREA_SCALE_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.scale.x",
+        "debug.rustyquest.projection.area.scale.x",
         KEY_PROJECTION_AREA_SCALE_X,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.scale.y",
+        "debug.rustyquest.projection.area.scale.y",
         KEY_PROJECTION_AREA_SCALE_Y,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.offset.x.uv",
+        "debug.rustyquest.projection.area.offset.x.uv",
         KEY_PROJECTION_AREA_OFFSET_X_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.offset.y.uv",
+        "debug.rustyquest.projection.area.offset.y.uv",
         KEY_PROJECTION_AREA_OFFSET_Y_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.left.offset.x.uv",
+        "debug.rustyquest.projection.area.left.offset.x.uv",
         KEY_PROJECTION_AREA_LEFT_OFFSET_X_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.left.offset.y.uv",
+        "debug.rustyquest.projection.area.left.offset.y.uv",
         KEY_PROJECTION_AREA_LEFT_OFFSET_Y_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.right.offset.x.uv",
+        "debug.rustyquest.projection.area.right.offset.x.uv",
         KEY_PROJECTION_AREA_RIGHT_OFFSET_X_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.right.offset.y.uv",
+        "debug.rustyquest.projection.area.right.offset.y.uv",
         KEY_PROJECTION_AREA_RIGHT_OFFSET_Y_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.radius.x.uv",
+        "debug.rustyquest.projection.area.radius.x.uv",
         KEY_PROJECTION_AREA_RADIUS_X_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.radius.y.uv",
+        "debug.rustyquest.projection.area.radius.y.uv",
         KEY_PROJECTION_AREA_RADIUS_Y_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.corner.radius.uv",
+        "debug.rustyquest.projection.area.corner.radius.uv",
         KEY_PROJECTION_AREA_CORNER_RADIUS_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.area.opacity",
+        "debug.rustyquest.projection.area.opacity",
         KEY_PROJECTION_AREA_OPACITY,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.border.opacity",
+        "debug.rustyquest.projection.border.opacity",
         KEY_PROJECTION_BORDER_OPACITY,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.border.policy",
+        "debug.rustyquest.projection.border.policy",
         KEY_PROJECTION_BORDER_POLICY,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.target.offset.x.uv",
+        "debug.rustyquest.projection.target.offset.x.uv",
         KEY_PROJECTION_TARGET_OFFSET_X_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.target.offset.y.uv",
+        "debug.rustyquest.projection.target.offset.y.uv",
         KEY_PROJECTION_TARGET_OFFSET_Y_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.target.scale",
+        "debug.rustyquest.projection.target.scale",
         KEY_PROJECTION_TARGET_SCALE,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.target.joystick.controls",
+        "debug.rustyquest.projection.target.joystick.controls",
         KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.target.breath.controls",
+        "debug.rustyquest.projection.target.breath.controls",
         KEY_PROJECTION_TARGET_BREATH_CONTROLS,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.target.breath.stream",
+        "debug.rustyquest.projection.target.breath.stream",
         KEY_PROJECTION_TARGET_BREATH_STREAM,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.target.breath.min.scale",
+        "debug.rustyquest.projection.target.breath.min.scale",
         KEY_PROJECTION_TARGET_BREATH_MIN_SCALE,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.target.breath.max.scale",
+        "debug.rustyquest.projection.target.breath.max.scale",
         KEY_PROJECTION_TARGET_BREATH_MAX_SCALE,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.target.breath.smoothing.alpha",
+        "debug.rustyquest.projection.target.breath.smoothing.alpha",
         KEY_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.target.breath.invert",
+        "debug.rustyquest.projection.target.breath.invert",
         KEY_PROJECTION_TARGET_BREATH_INVERT,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.target.breath.min.quality",
+        "debug.rustyquest.projection.target.breath.min.quality",
         KEY_PROJECTION_TARGET_BREATH_MIN_QUALITY,
     ),
+    property_input("debug.rustyquest.processing.layer", KEY_PROCESSING_LAYER),
     property_input(
-        "debug.rustyquest.makepad.processing.layer",
-        KEY_PROCESSING_LAYER,
-    ),
-    property_input(
-        "debug.rustyquest.makepad.camera.blur.radius.px",
+        "debug.rustyquest.camera.blur.radius.px",
         KEY_CAMERA_BLUR_RADIUS_PX,
     ),
     property_input(
-        "debug.rustyquest.makepad.peripheral.stretch.mode",
+        "debug.rustyquest.peripheral.stretch.mode",
         KEY_PERIPHERAL_STRETCH_MODE,
     ),
     property_input(
-        "debug.rustyquest.makepad.peripheral.stretch.core.scale",
+        "debug.rustyquest.peripheral.stretch.core.scale",
         KEY_PERIPHERAL_STRETCH_CORE_SCALE,
     ),
     property_input(
-        "debug.rustyquest.makepad.peripheral.stretch.edge.inset.uv",
+        "debug.rustyquest.peripheral.stretch.edge.inset.uv",
         KEY_PERIPHERAL_STRETCH_EDGE_INSET_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.peripheral.stretch.max.inset.uv",
+        "debug.rustyquest.peripheral.stretch.max.inset.uv",
         KEY_PERIPHERAL_STRETCH_MAX_INSET_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.peripheral.stretch.curve",
+        "debug.rustyquest.peripheral.stretch.curve",
         KEY_PERIPHERAL_STRETCH_CURVE,
     ),
     property_input(
-        "debug.rustyquest.makepad.peripheral.stretch.inner.blend.uv",
+        "debug.rustyquest.peripheral.stretch.inner.blend.uv",
         KEY_PERIPHERAL_STRETCH_INNER_BLEND_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.peripheral.stretch.blend.curve",
+        "debug.rustyquest.peripheral.stretch.blend.curve",
         KEY_PERIPHERAL_STRETCH_BLEND_CURVE,
     ),
     property_input(
-        "debug.rustyquest.makepad.peripheral.stretch.blend.mode",
+        "debug.rustyquest.peripheral.stretch.blend.mode",
         KEY_PERIPHERAL_STRETCH_BLEND_MODE,
     ),
     property_input(
-        "debug.rustyquest.makepad.peripheral.stretch.corner.mode",
+        "debug.rustyquest.peripheral.stretch.corner.mode",
         KEY_PERIPHERAL_STRETCH_CORNER_MODE,
     ),
     property_input(
-        "debug.rustyquest.makepad.peripheral.stretch.debug",
+        "debug.rustyquest.peripheral.stretch.debug",
         KEY_PERIPHERAL_STRETCH_DEBUG,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.alpha.mode",
+        "debug.rustyquest.projection.alpha.mode",
         KEY_PROJECTION_ALPHA_MODE,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.alpha.scale",
+        "debug.rustyquest.projection.alpha.scale",
         KEY_PROJECTION_ALPHA_SCALE,
     ),
     property_input(
-        "debug.rustyquest.makepad.projection.alpha.bias",
+        "debug.rustyquest.projection.alpha.bias",
         KEY_PROJECTION_ALPHA_BIAS,
     ),
     property_input(
-        "debug.rustyquest.makepad.source.eye.mapping",
+        "debug.rustyquest.source.eye.mapping",
         KEY_SOURCE_EYE_MAPPING,
     ),
     property_input(
-        "debug.rustyquest.makepad.source.texture.transform.source",
+        "debug.rustyquest.source.texture.transform.source",
         KEY_SOURCE_TEXTURE_TRANSFORM_SOURCE,
     ),
     property_input(
-        "debug.rustyquest.makepad.source.visible.rect.x.uv",
+        "debug.rustyquest.source.visible.rect.x.uv",
         KEY_SOURCE_VISIBLE_RECT_X_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.source.visible.rect.y.uv",
+        "debug.rustyquest.source.visible.rect.y.uv",
         KEY_SOURCE_VISIBLE_RECT_Y_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.source.visible.rect.width.uv",
+        "debug.rustyquest.source.visible.rect.width.uv",
         KEY_SOURCE_VISIBLE_RECT_WIDTH_UV,
     ),
     property_input(
-        "debug.rustyquest.makepad.source.visible.rect.height.uv",
+        "debug.rustyquest.source.visible.rect.height.uv",
         KEY_SOURCE_VISIBLE_RECT_HEIGHT_UV,
     ),
     env_input(
@@ -1966,7 +1936,7 @@ mod tests {
 
         assert_eq!(
             key.android_property(&prefix),
-            "debug.rustyquest.makepad.render.scale"
+            "debug.rustyquest.render.scale"
         );
     }
 
@@ -1977,7 +1947,7 @@ mod tests {
 
         assert_eq!(
             key.android_property(&prefix),
-            "debug.rustyquest.makepad.render.scale"
+            "debug.rustyquest.render.scale"
         );
     }
 
@@ -2028,14 +1998,13 @@ mod tests {
             );
         }
 
-        let launch = resolve_projection_runtime_input("rustyquest.makepad.projectionDepthMeters")
+        let launch = resolve_projection_runtime_input("rustyquest.projectionDepthMeters")
             .expect("launch extra input should resolve");
         assert_eq!(launch.canonical_key.as_str(), KEY_PROJECTION_DEPTH_METERS);
         assert_eq!(launch.source, RuntimeKeyInputSource::LaunchExtra);
 
-        let property =
-            resolve_projection_runtime_input("debug.rustyquest.makepad.projection.depth.meters")
-                .expect("Android property input should resolve");
+        let property = resolve_projection_runtime_input("debug.rustyquest.projection.depth.meters")
+            .expect("Android property input should resolve");
         assert_eq!(property.canonical_key.as_str(), KEY_PROJECTION_DEPTH_METERS);
         assert_eq!(property.source, RuntimeKeyInputSource::AndroidProperty);
     }
@@ -2076,12 +2045,9 @@ mod tests {
         let parsed = parse_projection_runtime_pairs(
             RuntimeConfigSource::CommandLine,
             [
-                ("rustyquest.makepad.projectionDepthMeters", "1.25"),
+                ("rustyquest.projectionDepthMeters", "1.25"),
                 ("source_eye_mapping", "right-left"),
-                (
-                    "debug.rustyquest.makepad.source.visible.rect.width.uv",
-                    "0.875",
-                ),
+                ("debug.rustyquest.source.visible.rect.width.uv", "0.875"),
             ],
         )
         .expect("projection pairs should parse");
@@ -2112,16 +2078,10 @@ mod tests {
         let parsed = parse_projection_runtime_pairs(
             RuntimeConfigSource::AndroidProperty,
             [
-                ("debug.rustyquest.makepad.projection.depth.meters", "1"),
-                (
-                    "debug.rustyquest.makepad.camera.preview.offset.y.meters",
-                    "0",
-                ),
-                ("rustyquest.makepad.cameraTextureFlipX", "true"),
-                (
-                    "debug.rustyquest.makepad.projection.alpha.mode",
-                    "source-alpha",
-                ),
+                ("debug.rustyquest.projection.depth.meters", "1"),
+                ("debug.rustyquest.camera.preview.offset.y.meters", "0"),
+                ("rustyquest.cameraTextureFlipX", "true"),
+                ("debug.rustyquest.projection.alpha.mode", "source-alpha"),
             ],
         )
         .expect("registered projection value kinds should parse");
@@ -2148,17 +2108,14 @@ mod tests {
     fn rejects_removed_makepad_directional_offset_inputs() {
         let error = parse_projection_runtime_pairs(
             RuntimeConfigSource::AndroidProperty,
-            [(
-                "debug.rustyquest.makepad.projection.area.offset.left.uv",
-                "0.125",
-            )],
+            [("debug.rustyquest.projection.area.offset.left.uv", "0.125")],
         )
         .unwrap_err();
 
         assert_eq!(
             error,
             RuntimeConfigError::UnknownRuntimeKeyInput(
-                "debug.rustyquest.makepad.projection.area.offset.left.uv".to_string()
+                "debug.rustyquest.projection.area.offset.left.uv".to_string()
             )
         );
     }
@@ -2166,10 +2123,9 @@ mod tests {
     #[test]
     fn rejects_unknown_projection_runtime_inputs() {
         assert_eq!(
-            resolve_projection_runtime_input("rustyquest.makepad.privateEffectStrength")
-                .unwrap_err(),
+            resolve_projection_runtime_input("rustyquest.privateEffectStrength").unwrap_err(),
             RuntimeConfigError::UnknownRuntimeKeyInput(
-                "rustyquest.makepad.privateEffectStrength".to_string()
+                "rustyquest.privateEffectStrength".to_string()
             )
         );
     }
@@ -2183,7 +2139,7 @@ mod tests {
         .expect("defaults should parse");
         let requested = parse_projection_runtime_pairs(
             RuntimeConfigSource::AndroidProperty,
-            [("debug.rustyquest.makepad.projection.depth.meters", "1.5")],
+            [("debug.rustyquest.projection.depth.meters", "1.5")],
         )
         .expect("properties should parse");
         let resolution = RuntimeConfigResolver::new()
@@ -2208,8 +2164,7 @@ mod tests {
         assert!(joined.contains("projection_depth_meters"));
         assert!(joined.contains("resolved=float:1.500000"));
         assert!(joined.contains("default=float:1.000000"));
-        assert!(joined
-            .contains("debug.rustyquest.makepad.projection.depth.meters>projection_depth_meters"));
+        assert!(joined.contains("debug.rustyquest.projection.depth.meters>projection_depth_meters"));
     }
 
     #[test]
@@ -2221,7 +2176,7 @@ mod tests {
         .expect("defaults should parse");
         let requested = parse_projection_runtime_pairs(
             RuntimeConfigSource::AndroidProperty,
-            [("debug.rustyquest.makepad.projection.depth.meters", "1.25")],
+            [("debug.rustyquest.projection.depth.meters", "1.25")],
         )
         .expect("properties should parse");
         let runtime = ProjectionRuntimeConfigBuilder::new()
@@ -2373,55 +2328,43 @@ mod tests {
             "hwb",
             &[
                 (
-                    "rustyquest.makepad.cameraProjectionMode",
+                    "rustyquest.cameraProjectionMode",
                     "display-screen-homography",
                 ),
-                ("rustyquest.makepad.projectionDepthMeters", "1.25"),
-                ("rustyquest.makepad.cameraPreviewFovYDegrees", "63.0"),
-                ("rustyquest.makepad.cameraPreviewOffsetYMeters", "0.08"),
-                ("rustyquest.makepad.cameraRawOverlayOverscan", "1.12"),
-                ("rustyquest.makepad.projectionAreaScaleX", "0.82"),
-                ("rustyquest.makepad.projectionAreaScaleY", "0.74"),
-                ("rustyquest.makepad.projectionAreaOffsetXUv", "0.03"),
-                ("rustyquest.makepad.projectionAreaOffsetYUv", "-0.02"),
-                ("rustyquest.makepad.projectionAreaLeftOffsetXUv", "-0.04"),
-                ("rustyquest.makepad.projectionAreaRightOffsetXUv", "0.04"),
-                ("rustyquest.makepad.projectionAreaRadiusXUv", "0.44"),
-                ("rustyquest.makepad.projectionAreaRadiusYUv", "0.31"),
-                ("rustyquest.makepad.projectionAreaOpacity", "0.90"),
-                ("rustyquest.makepad.projectionBorderOpacity", "0.80"),
-                ("rustyquest.makepad.projectionBorderPolicy", "solid-red"),
-                ("rustyquest.makepad.projectionTargetOffsetXUv", "0.05"),
-                ("rustyquest.makepad.projectionTargetOffsetYUv", "-0.03"),
-                ("rustyquest.makepad.projectionTargetScale", "0.80"),
+                ("rustyquest.projectionDepthMeters", "1.25"),
+                ("rustyquest.cameraPreviewFovYDegrees", "63.0"),
+                ("rustyquest.cameraPreviewOffsetYMeters", "0.08"),
+                ("rustyquest.cameraRawOverlayOverscan", "1.12"),
+                ("rustyquest.projectionAreaScaleX", "0.82"),
+                ("rustyquest.projectionAreaScaleY", "0.74"),
+                ("rustyquest.projectionAreaOffsetXUv", "0.03"),
+                ("rustyquest.projectionAreaOffsetYUv", "-0.02"),
+                ("rustyquest.projectionAreaLeftOffsetXUv", "-0.04"),
+                ("rustyquest.projectionAreaRightOffsetXUv", "0.04"),
+                ("rustyquest.projectionAreaRadiusXUv", "0.44"),
+                ("rustyquest.projectionAreaRadiusYUv", "0.31"),
+                ("rustyquest.projectionAreaOpacity", "0.90"),
+                ("rustyquest.projectionBorderOpacity", "0.80"),
+                ("rustyquest.projectionBorderPolicy", "solid-red"),
+                ("rustyquest.projectionTargetOffsetXUv", "0.05"),
+                ("rustyquest.projectionTargetOffsetYUv", "-0.03"),
+                ("rustyquest.projectionTargetScale", "0.80"),
                 (
-                    "rustyquest.makepad.projectionTargetJoystickControls",
+                    "rustyquest.projectionTargetJoystickControls",
                     "offset-scale",
                 ),
-                ("rustyquest.makepad.projectionTargetBreathControls", "scale"),
-                (
-                    "rustyquest.makepad.projectionTargetBreathStream",
-                    "bio:breath",
-                ),
-                ("rustyquest.makepad.projectionTargetBreathMinScale", "0.70"),
-                ("rustyquest.makepad.projectionTargetBreathMaxScale", "1.20"),
-                (
-                    "rustyquest.makepad.projectionTargetBreathSmoothingAlpha",
-                    "0.30",
-                ),
-                ("rustyquest.makepad.projectionTargetBreathInvert", "true"),
-                (
-                    "rustyquest.makepad.projectionTargetBreathMinQuality",
-                    "0.20",
-                ),
-                ("rustyquest.makepad.projectionAlphaMode", "fixed"),
-                ("rustyquest.makepad.projectionAlphaScale", "1.10"),
-                ("rustyquest.makepad.projectionAlphaBias", "-0.05"),
-                ("rustyquest.makepad.cameraSourceEyeMapping", "left-right"),
-                (
-                    "rustyquest.makepad.cameraTextureTransformSource",
-                    "metadata",
-                ),
+                ("rustyquest.projectionTargetBreathControls", "scale"),
+                ("rustyquest.projectionTargetBreathStream", "bio:breath"),
+                ("rustyquest.projectionTargetBreathMinScale", "0.70"),
+                ("rustyquest.projectionTargetBreathMaxScale", "1.20"),
+                ("rustyquest.projectionTargetBreathSmoothingAlpha", "0.30"),
+                ("rustyquest.projectionTargetBreathInvert", "true"),
+                ("rustyquest.projectionTargetBreathMinQuality", "0.20"),
+                ("rustyquest.projectionAlphaMode", "fixed"),
+                ("rustyquest.projectionAlphaScale", "1.10"),
+                ("rustyquest.projectionAlphaBias", "-0.05"),
+                ("rustyquest.cameraSourceEyeMapping", "left-right"),
+                ("rustyquest.cameraTextureTransformSource", "metadata"),
                 (KEY_SOURCE_VISIBLE_RECT_X_UV, "0.10"),
                 (KEY_SOURCE_VISIBLE_RECT_Y_UV, "0.20"),
                 (KEY_SOURCE_VISIBLE_RECT_WIDTH_UV, "0.80"),
@@ -2476,113 +2419,68 @@ mod tests {
             &[],
             &[
                 (
-                    "debug.rustyquest.makepad.camera.projection.mode",
+                    "debug.rustyquest.camera.projection.mode",
                     "display-screen-homography",
                 ),
-                ("debug.rustyquest.makepad.projection.depth.meters", "1.25"),
+                ("debug.rustyquest.projection.depth.meters", "1.25"),
+                ("debug.rustyquest.camera.preview.fov.y.degrees", "63.0"),
+                ("debug.rustyquest.camera.preview.offset.y.meters", "0.08"),
+                ("debug.rustyquest.camera.raw.overlay.overscan", "1.12"),
+                ("debug.rustyquest.projection.area.scale.x", "0.82"),
+                ("debug.rustyquest.projection.area.scale.y", "0.74"),
+                ("debug.rustyquest.projection.area.offset.x.uv", "0.03"),
+                ("debug.rustyquest.projection.area.offset.y.uv", "-0.02"),
+                ("debug.rustyquest.projection.area.left.offset.x.uv", "-0.04"),
+                ("debug.rustyquest.projection.area.right.offset.x.uv", "0.04"),
+                ("debug.rustyquest.projection.area.radius.x.uv", "0.44"),
+                ("debug.rustyquest.projection.area.radius.y.uv", "0.31"),
+                ("debug.rustyquest.projection.area.opacity", "0.90"),
+                ("debug.rustyquest.projection.border.opacity", "0.80"),
+                ("debug.rustyquest.projection.border.policy", "solid-red"),
+                ("debug.rustyquest.projection.target.offset.x.uv", "0.05"),
+                ("debug.rustyquest.projection.target.offset.y.uv", "-0.03"),
+                ("debug.rustyquest.projection.target.scale", "0.80"),
                 (
-                    "debug.rustyquest.makepad.camera.preview.fov.y.degrees",
-                    "63.0",
-                ),
-                (
-                    "debug.rustyquest.makepad.camera.preview.offset.y.meters",
-                    "0.08",
-                ),
-                (
-                    "debug.rustyquest.makepad.camera.raw.overlay.overscan",
-                    "1.12",
-                ),
-                ("debug.rustyquest.makepad.projection.area.scale.x", "0.82"),
-                ("debug.rustyquest.makepad.projection.area.scale.y", "0.74"),
-                (
-                    "debug.rustyquest.makepad.projection.area.offset.x.uv",
-                    "0.03",
-                ),
-                (
-                    "debug.rustyquest.makepad.projection.area.offset.y.uv",
-                    "-0.02",
-                ),
-                (
-                    "debug.rustyquest.makepad.projection.area.left.offset.x.uv",
-                    "-0.04",
-                ),
-                (
-                    "debug.rustyquest.makepad.projection.area.right.offset.x.uv",
-                    "0.04",
-                ),
-                (
-                    "debug.rustyquest.makepad.projection.area.radius.x.uv",
-                    "0.44",
-                ),
-                (
-                    "debug.rustyquest.makepad.projection.area.radius.y.uv",
-                    "0.31",
-                ),
-                ("debug.rustyquest.makepad.projection.area.opacity", "0.90"),
-                ("debug.rustyquest.makepad.projection.border.opacity", "0.80"),
-                (
-                    "debug.rustyquest.makepad.projection.border.policy",
-                    "solid-red",
-                ),
-                (
-                    "debug.rustyquest.makepad.projection.target.offset.x.uv",
-                    "0.05",
-                ),
-                (
-                    "debug.rustyquest.makepad.projection.target.offset.y.uv",
-                    "-0.03",
-                ),
-                ("debug.rustyquest.makepad.projection.target.scale", "0.80"),
-                (
-                    "debug.rustyquest.makepad.projection.target.joystick.controls",
+                    "debug.rustyquest.projection.target.joystick.controls",
                     "offset-scale",
                 ),
                 (
-                    "debug.rustyquest.makepad.projection.target.breath.controls",
+                    "debug.rustyquest.projection.target.breath.controls",
                     "scale",
                 ),
                 (
-                    "debug.rustyquest.makepad.projection.target.breath.stream",
+                    "debug.rustyquest.projection.target.breath.stream",
                     "bio:breath",
                 ),
                 (
-                    "debug.rustyquest.makepad.projection.target.breath.min.scale",
+                    "debug.rustyquest.projection.target.breath.min.scale",
                     "0.70",
                 ),
                 (
-                    "debug.rustyquest.makepad.projection.target.breath.max.scale",
+                    "debug.rustyquest.projection.target.breath.max.scale",
                     "1.20",
                 ),
                 (
-                    "debug.rustyquest.makepad.projection.target.breath.smoothing.alpha",
+                    "debug.rustyquest.projection.target.breath.smoothing.alpha",
                     "0.30",
                 ),
+                ("debug.rustyquest.projection.target.breath.invert", "true"),
                 (
-                    "debug.rustyquest.makepad.projection.target.breath.invert",
-                    "true",
-                ),
-                (
-                    "debug.rustyquest.makepad.projection.target.breath.min.quality",
+                    "debug.rustyquest.projection.target.breath.min.quality",
                     "0.20",
                 ),
-                ("debug.rustyquest.makepad.projection.alpha.mode", "fixed"),
-                ("debug.rustyquest.makepad.projection.alpha.scale", "1.10"),
-                ("debug.rustyquest.makepad.projection.alpha.bias", "-0.05"),
-                ("debug.rustyquest.makepad.source.eye.mapping", "left-right"),
+                ("debug.rustyquest.projection.alpha.mode", "fixed"),
+                ("debug.rustyquest.projection.alpha.scale", "1.10"),
+                ("debug.rustyquest.projection.alpha.bias", "-0.05"),
+                ("debug.rustyquest.source.eye.mapping", "left-right"),
                 (
-                    "debug.rustyquest.makepad.source.texture.transform.source",
+                    "debug.rustyquest.source.texture.transform.source",
                     "metadata",
                 ),
-                ("debug.rustyquest.makepad.source.visible.rect.x.uv", "0.10"),
-                ("debug.rustyquest.makepad.source.visible.rect.y.uv", "0.20"),
-                (
-                    "debug.rustyquest.makepad.source.visible.rect.width.uv",
-                    "0.80",
-                ),
-                (
-                    "debug.rustyquest.makepad.source.visible.rect.height.uv",
-                    "0.60",
-                ),
+                ("debug.rustyquest.source.visible.rect.x.uv", "0.10"),
+                ("debug.rustyquest.source.visible.rect.y.uv", "0.20"),
+                ("debug.rustyquest.source.visible.rect.width.uv", "0.80"),
+                ("debug.rustyquest.source.visible.rect.height.uv", "0.60"),
             ],
         );
 
@@ -2603,10 +2501,10 @@ mod tests {
         let canvas = projection_runtime_golden_snapshot(
             "hwb",
             &[
-                ("rustyquest.makepad.cameraProjectionMode", "world-canvas"),
-                ("rustyquest.makepad.projectionAreaScaleX", "0.70"),
-                ("rustyquest.makepad.projectionAreaScaleY", "0.55"),
-                ("rustyquest.makepad.projectionBorderPolicy", "solid-red"),
+                ("rustyquest.cameraProjectionMode", "world-canvas"),
+                ("rustyquest.projectionAreaScaleX", "0.70"),
+                ("rustyquest.projectionAreaScaleY", "0.55"),
+                ("rustyquest.projectionBorderPolicy", "solid-red"),
             ],
             &[],
         );
@@ -2622,13 +2520,10 @@ mod tests {
         let underlay = projection_runtime_golden_snapshot(
             "oes",
             &[
-                (
-                    "rustyquest.makepad.projectionBorderPolicy",
-                    "passthrough-underlay",
-                ),
-                ("rustyquest.makepad.projectionAreaOpacity", "0.65"),
-                ("rustyquest.makepad.projectionBorderOpacity", "0.0"),
-                ("rustyquest.makepad.projectionAlphaMode", "luma"),
+                ("rustyquest.projectionBorderPolicy", "passthrough-underlay"),
+                ("rustyquest.projectionAreaOpacity", "0.65"),
+                ("rustyquest.projectionBorderOpacity", "0.0"),
+                ("rustyquest.projectionAlphaMode", "luma"),
             ],
             &[],
         );

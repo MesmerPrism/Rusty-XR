@@ -275,18 +275,18 @@ a negative/lane-parity control only; it is not the custom passthrough footprint
 because the raw Camera2 frame is not the full native passthrough FOV.
 
 For strict canvas/collapsed equivalence, override both profiles with
-`rustyquest.makepad.cameraRawOverlayOverscan=1.0`,
-`rustyquest.makepad.projectionDepthMeters=1.0`, neutral `projectionArea*` values, and
-`rustyquest.makepad.projectionBorderOpacity=0.0`. A passing comparison means the visible
+`rustyquest.cameraRawOverlayOverscan=1.0`,
+`rustyquest.projectionDepthMeters=1.0`, neutral `projectionArea*` values, and
+`rustyquest.projectionBorderOpacity=0.0`. A passing comparison means the visible
 canvas and collapsed custom projection share the same surface geometry. After
 that, do native-passthrough alignment on the canvas profile first.
 
 The native-passthrough depth sweep should capture two states for each depth:
 
-- canvas-visible: `rustyquest.makepad.cameraProjectionMode=world-canvas`,
+- canvas-visible: `rustyquest.cameraProjectionMode=world-canvas`,
   `rustyquest.makepad.projectionLayerVisible=true`,
   `rustyquest.makepad.openxrPassthroughProbe=underlay`,
-  `rustyquest.makepad.cameraRawOverlayOverscan=1.0`, and
+  `rustyquest.cameraRawOverlayOverscan=1.0`, and
   `rustyquest.makepad.mediaProjection=true`;
 - passthrough-only reference: same launch context, but
   `rustyquest.makepad.projectionLayerVisible=false`,
@@ -295,9 +295,9 @@ The native-passthrough depth sweep should capture two states for each depth:
 
 `CompositeLayerActivity` hotloads runtime config from a new launch intent, so
 an already-installed APK can be swept by relaunching with new extras rather
-than rebuilding. Bracket `rustyquest.makepad.projectionDepthMeters` first, starting around
+than rebuilding. Bracket `rustyquest.projectionDepthMeters` first, starting around
 closer surfaces such as `0.5` meters when the canvas appears too far away. Once
-depth is bracketed, adjust `rustyquest.makepad.cameraPreviewFovYDegrees` for vertical
+depth is bracketed, adjust `rustyquest.cameraPreviewFovYDegrees` for vertical
 height. Keep `cameraRawOverlayOverscan=1.0` until depth and height are close;
 then use overscan only as a named coverage pad. Compare the green center cross
 with `Analyze-TargetAlignmentWitness.py` using `--single-view` for
@@ -307,10 +307,10 @@ The current native-passthrough aligned world-canvas reference is
 `camera-stereo-gpu-composite-world-canvas-native-aligned-mediaprojection`.
 It keeps the same direct stereo GPU Camera2 launch context as the depth-1
 world-canvas diagnostic and changes only the solved visible-canvas geometry:
-`rustyquest.makepad.projectionDepthMeters=1.434085`,
-`rustyquest.makepad.cameraPreviewFovYDegrees=69.763084`,
-`rustyquest.makepad.cameraPreviewOffsetYMeters=-0.168832`, and
-`rustyquest.makepad.cameraRawOverlayOverscan=1.0`.
+`rustyquest.projectionDepthMeters=1.434085`,
+`rustyquest.cameraPreviewFovYDegrees=69.763084`,
+`rustyquest.cameraPreviewOffsetYMeters=-0.168832`, and
+`rustyquest.cameraRawOverlayOverscan=1.0`.
 
 Launch this reference through the catalog runner or another launcher that
 passes the complete runtime profile. Do not reproduce it with a minimal direct
@@ -357,9 +357,9 @@ full-frame canvas case maps through the solved screen-to-surface homography so
 the camera frame lands on the bounded surface instead of filling the eye.
 
 For HWB, keep the world-canvas reference on
-`rustyquest.makepad.cameraProjectionGeometryProfile=full-frame-diagnostic`, and keep the
+`rustyquest.cameraProjectionGeometryProfile=full-frame-diagnostic`, and keep the
 custom/collapsed profile explicit as
-`rustyquest.makepad.cameraProjectionGeometryProfile=camera-projection` with the bounded
+`rustyquest.cameraProjectionGeometryProfile=camera-projection` with the bounded
 projection-area values `0.47 x 0.36`, corner `0.08`. Do not rely on the direct
 Camera2 service default for the custom lane.
 
@@ -614,19 +614,19 @@ Current public presets are `projected-srgb`, `raw-feed-unorm`,
 `separate-decode-unorm`, and `raw-projection-unorm`. The
 `raw-projection-unorm` preset keeps the raw feed and UNORM swapchain on the
 direct raw-projection shader path; projection exterior fill is selected
-separately with `rustyquest.makepad.projectionBorderPolicy`. The
+separately with `rustyquest.projectionBorderPolicy`. The
 `projectionBorderPolicy=solid-red` setting is the clean projection-area
 alignment probe: valid projected camera pixels inside the hard public
 projection-area mask stay raw, and every pixel outside that area is opaque red
 for segmentation and operator checks. `projectionBorderPolicy=passthrough-underlay`
 submits a public OpenXR passthrough underlay and makes that same
 outside-projection area transparent, which is useful when comparing background
-composition separately from raw camera sampling. The `rustyquest.makepad.processingLayer=blur`
+composition separately from raw camera sampling. The `rustyquest.processingLayer=blur`
 setting keeps the selected projection-area policy but runs the valid camera
 samples through a generic 25-tap diagnostic blur.
 Standalone direct profile runs default to
 `rustyquest.makepad.cameraProjectionEffectMode=raw-projection` and
-`rustyquest.makepad.projectionBorderPolicy=solid-red` so HWB/OES diagnostics do not inherit
+`rustyquest.projectionBorderPolicy=solid-red` so HWB/OES diagnostics do not inherit
 the legacy feedback-border visual path. Use
 `-ProjectionBorderPolicy passthrough-underlay` for a transparent border over
 passthrough, and use
@@ -634,7 +634,7 @@ passthrough, and use
 that feedback-border mode.
 HWB, OES, and Makepad normalize the diagnostic blur texel step against the same
 1280x1280 source domain used by the broker camera and synthetic diagnostic feed.
-Use `rustyquest.makepad.cameraBlurRadiusPx` to adjust the visual sample radius for stack
+Use `rustyquest.cameraBlurRadiusPx` to adjust the visual sample radius for stack
 comparison. The app-parsed runtime config log reports both the requested preset
 and the resolved feed, sampler, decode, projection-effect, tone, blur radius,
 and swapchain settings.
@@ -642,12 +642,12 @@ The `display-eye-uv-fiducial-unorm` preset renders a diagnostic marker pattern
 at known display-eye UV positions through the same OpenXR submission path. It
 is for mirror-capture mapping only; it ignores camera pixels and must not be
 used as a camera-source alignment result.
-`rustyquest.makepad.projectionAreaOpacity` fades valid projected camera pixels, while
-`rustyquest.makepad.projectionBorderOpacity` fades the solid diagnostic border. For a
+`rustyquest.projectionAreaOpacity` fades valid projected camera pixels, while
+`rustyquest.projectionBorderOpacity` fades the solid diagnostic border. For a
 red-border passthrough alignment run, use a solid-red preset with
 `rustyquest.makepad.openxrPassthroughProbe=underlay` and sweep only the opacity values; do
 not switch geometry presets while measuring screen-space offsets.
-`rustyquest.makepad.projectionAlphaMode` can derive valid-camera alpha from source
+`rustyquest.projectionAlphaMode` can derive valid-camera alpha from source
 color after geometry is stable. Supported modes are `fixed`, `red`, `green`,
 `blue`, `luma`, and the four inverse variants; the effective alpha is area
 opacity multiplied by `clamp(mask * scale + bias)`.
@@ -670,48 +670,48 @@ integrations on these stable keys instead of duplicating shader-specific state:
 | --- | --- | --- |
 | `rustyquest.makepad.cameraPipelinePreset` | string | Selects the feed/sampler/effect/color-format preset, for example `raw-projection-unorm`, `display-eye-uv-fiducial-unorm`, `projection-content-uv-fiducial-unorm`, or `source-sampling-witness-unorm`. |
 | `rustyquest.makepad.cameraProjectionEffectMode` | string | Selects the shader effect explicitly. Diagnostic runs use `raw-projection`; `border-composite` is the legacy feedback-border effect and should be requested deliberately. |
-| `rustyquest.makepad.projectionBorderPolicy` | string | Selects the projection exterior fill policy independently from the camera pipeline preset: `solid-red` or `passthrough-underlay`. |
+| `rustyquest.projectionBorderPolicy` | string | Selects the projection exterior fill policy independently from the camera pipeline preset: `solid-red` or `passthrough-underlay`. |
 | `rustyquest.makepad.cameraSamplerBindingMode` | string | Selects the HWB Vulkan sampler binding path for direct diagnostics: `combined-immutable-sampler`, `separate-image-sampler`, or `separate-immutable-sampler`. The separate modes are descriptor-layout probes; visual acceptance should stay on the combined immutable path unless fresh device evidence proves another path color-correct. |
-| `rustyquest.makepad.processingLayer` | string | Selects the diagnostic content-processing layer. Use `raw` for unprocessed camera content, `blur` for the public diagnostic blur, or `peripheral-stretch` for metadata target-footprint exterior replacement. |
-| `rustyquest.makepad.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `world-canvas`, `display-screen-homography`, or `quad-surface`. |
-| `rustyquest.makepad.cameraProjectionGeometryProfile` | string | Selects direct Camera2 source/content geometry metadata. Active direct lanes accept `full-frame-diagnostic` for full-frame-to-projection-area checks and `camera-projection` for per-eye screen-to-camera homography checks; other values are rejected or reported as unsupported. |
+| `rustyquest.processingLayer` | string | Selects the diagnostic content-processing layer. Use `raw` for unprocessed camera content, `blur` for the public diagnostic blur, or `peripheral-stretch` for metadata target-footprint exterior replacement. |
+| `rustyquest.cameraProjectionMode` | string | Selects projection geometry independently from the preset: `world-canvas`, `display-screen-homography`, or `quad-surface`. |
+| `rustyquest.cameraProjectionGeometryProfile` | string | Selects direct Camera2 source/content geometry metadata. Active direct lanes accept `full-frame-diagnostic` for full-frame-to-projection-area checks and `camera-projection` for per-eye screen-to-camera homography checks; other values are rejected or reported as unsupported. |
 | `rustyquest.makepad.cameraSourceSamplingMode` | string | Selects the stream metadata source-sampling contract: `target-local-raster` places the incoming raster in the metadata target footprint; `screen-to-camera-homography` maps display-eye screen UV through the calibrated camera homography. |
 | `rustyquest.makepad.cameraLeftTargetScreenUvRect` / `rustyquest.makepad.cameraRightTargetScreenUvRect` | string | Direct Camera2 metadata target-footprint overrides, encoded as `x,y,width,height` in display-eye screen UV. |
-| `rustyquest.makepad.projectionTargetOffsetXUv` / `rustyquest.makepad.projectionTargetOffsetYUv` | float | Runtime target-footprint offset applied after source metadata in display-eye screen UV. This moves the target-local raster footprint without changing the source metadata contract. |
-| `rustyquest.makepad.projectionTargetScale` | float | Runtime target-footprint scale applied around the metadata/fallback target center. Values below `1.0` shrink the coherent target footprint and increase the peripheral-stretch exterior. |
-| `rustyquest.makepad.projectionTargetJoystickControls` | string | HWB OpenXR controller mode for runtime target-footprint adjustment. `offset-scale` maps left stick to target offset, right stick Y to target scale, and right A to reset. |
+| `rustyquest.projectionTargetOffsetXUv` / `rustyquest.projectionTargetOffsetYUv` | float | Runtime target-footprint offset applied after source metadata in display-eye screen UV. This moves the target-local raster footprint without changing the source metadata contract. |
+| `rustyquest.projectionTargetScale` | float | Runtime target-footprint scale applied around the metadata/fallback target center. Values below `1.0` shrink the coherent target footprint and increase the peripheral-stretch exterior. |
+| `rustyquest.projectionTargetJoystickControls` | string | HWB OpenXR controller mode for runtime target-footprint adjustment. `offset-scale` maps left stick to target offset, right stick Y to target scale, and right A to reset. |
 | `rustyquest.makepad.brokerH264LeftTargetScreenUvRect` / `rustyquest.makepad.brokerH264RightTargetScreenUvRect` | string | Broker H.264 per-eye target-footprint overrides, encoded as `x,y,width,height`; these are forwarded into broker stream metadata so HWB/OES consume the same target-local raster contract as direct Camera2. |
-| `rustyquest.makepad.directCamera2OesProjectionGeometryProfile` | string | GL/OES direct Camera2 override; falls back to `rustyquest.makepad.cameraProjectionGeometryProfile`. |
+| `rustyquest.makepad.directCamera2OesProjectionGeometryProfile` | string | GL/OES direct Camera2 override; falls back to `rustyquest.cameraProjectionGeometryProfile`. |
 | `rustyquest.makepad.directCamera2OesSourceSamplingMode` | string | GL/OES direct Camera2 source-sampling override; falls back to `rustyquest.makepad.cameraSourceSamplingMode` and is emitted as `sourceSamplingMode` metadata. |
 | `rustyquest.makepad.directCamera2OesLeftTargetScreenUvRect` / `rustyquest.makepad.directCamera2OesRightTargetScreenUvRect` | string | GL/OES direct Camera2 per-eye target-footprint override, encoded as `x,y,width,height`; falls back to the generic camera target rect. |
-| `rustyquest.makepad.brokerH264ProjectionGeometryProfile` | string | Broker H.264 source/content geometry metadata for camera or synthetic streams; use this for source-agnostic transport checks. |
+| `rustyquest.brokerH264ProjectionGeometryProfile` | string | Broker H.264 source/content geometry metadata for camera or synthetic streams; use this for source-agnostic transport checks. |
 | `rustyquest.makepad.brokerH264SourceSamplingMode` | string | Broker H.264 stream source-sampling override; the broker emits it as `sourceSamplingMode` metadata for camera and synthetic stream headers. |
 | `rustyquest.makepad.oesSourceColorTransfer` | string | GL/OES external texture color transfer before camera color controls. Default is `srgb-to-linear`; use `identity` only for an explicit OES source-convention A/B run. |
-| `rustyquest.makepad.projectionDepthMeters` | float | Shared head-anchored projection surface depth in meters. |
-| `rustyquest.makepad.cameraPreviewOffsetYMeters` | float | Vertical world-canvas surface offset in meters along tracking up; default is `0`. |
-| `rustyquest.makepad.projectionAreaScaleUv` | float | Shared projection-area scale in display-eye screen UV. |
-| `rustyquest.makepad.projectionAreaOffsetXUv` | float | Shared horizontal projection-area sweep knob for screen-space centering diagnostics. |
-| `rustyquest.makepad.projectionAreaOffsetYUv` | float | Shared vertical projection-area sweep knob for screen-space centering diagnostics. |
-| `rustyquest.makepad.projectionAreaLeftOffsetXUv` | float | Shared left-eye horizontal projection-area override; falls back to `rustyquest.makepad.projectionAreaOffsetXUv`. |
-| `rustyquest.makepad.projectionAreaLeftOffsetYUv` | float | Shared left-eye vertical projection-area override; falls back to `rustyquest.makepad.projectionAreaOffsetYUv`. |
-| `rustyquest.makepad.projectionAreaRightOffsetXUv` | float | Shared right-eye horizontal projection-area override; falls back to `rustyquest.makepad.projectionAreaOffsetXUv`. |
-| `rustyquest.makepad.projectionAreaRightOffsetYUv` | float | Shared right-eye vertical projection-area override; falls back to `rustyquest.makepad.projectionAreaOffsetYUv`. |
-| `rustyquest.makepad.projectionAreaOpacity` | float | Shared valid projection-window alpha, clamped to `0..1`. |
-| `rustyquest.makepad.projectionBorderOpacity` | float | Shared solid border alpha, clamped to `0..1`. |
-| `rustyquest.makepad.projectionAlphaMode` | string | Shared color-derived alpha mode: `fixed`, RGB, luma, or inverse variants. |
-| `rustyquest.makepad.projectionAlphaScale` | float | Shared multiplier applied to the selected alpha mask, clamped to `0..4`. |
-| `rustyquest.makepad.projectionAlphaBias` | float | Shared bias applied after alpha-mask scaling, clamped to `-1..1`. |
-| `rustyquest.makepad.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in 1280x1280 source pixels when `rustyquest.makepad.processingLayer=blur`. |
-| `rustyquest.makepad.peripheralStretchMode` | string | Selects the peripheral-stretch mode; the current public mode is `edge-stretch`. |
-| `rustyquest.makepad.peripheralStretchCoreScale` | float | Keeps the coherent target-footprint core unchanged at `1.0`; lower values are not part of the accepted v0 geometry contract. |
-| `rustyquest.makepad.peripheralStretchEdgeInsetUv` | float | Near-edge source UV inset used when the exterior first leaves the target footprint. |
-| `rustyquest.makepad.peripheralStretchMaxInsetUv` | float | Far-exterior source UV inset used by the graded stretch mapping. |
-| `rustyquest.makepad.peripheralStretchCurve` | float | Shapes the exterior distance ramp between `peripheralStretchEdgeInsetUv` and `peripheralStretchMaxInsetUv`. |
-| `rustyquest.makepad.peripheralStretchInnerBlendUv` | float | Width of the target-footprint inner transition band that UV-blends canonical sampling into the stretch remap. |
-| `rustyquest.makepad.peripheralStretchBlendCurve` | float | Shapes the transition-band blend ramp. |
-| `rustyquest.makepad.peripheralStretchBlendMode` | string | Selects the transition-band blend mode; use `target-inner-band` for the metadata-backed target-footprint transition. |
-| `rustyquest.makepad.peripheralStretchCornerMode` | string | Selects effect-boundary corner semantics; use `target-footprint` for metadata-backed runs. |
-| `rustyquest.makepad.peripheralStretchDebug` | string | Selects stretch debug output: `off`, `regions`, or `sample-uv`. |
+| `rustyquest.projectionDepthMeters` | float | Shared head-anchored projection surface depth in meters. |
+| `rustyquest.cameraPreviewOffsetYMeters` | float | Vertical world-canvas surface offset in meters along tracking up; default is `0`. |
+| `rustyquest.projectionAreaScaleUv` | float | Shared projection-area scale in display-eye screen UV. |
+| `rustyquest.projectionAreaOffsetXUv` | float | Shared horizontal projection-area sweep knob for screen-space centering diagnostics. |
+| `rustyquest.projectionAreaOffsetYUv` | float | Shared vertical projection-area sweep knob for screen-space centering diagnostics. |
+| `rustyquest.projectionAreaLeftOffsetXUv` | float | Shared left-eye horizontal projection-area override; falls back to `rustyquest.projectionAreaOffsetXUv`. |
+| `rustyquest.projectionAreaLeftOffsetYUv` | float | Shared left-eye vertical projection-area override; falls back to `rustyquest.projectionAreaOffsetYUv`. |
+| `rustyquest.projectionAreaRightOffsetXUv` | float | Shared right-eye horizontal projection-area override; falls back to `rustyquest.projectionAreaOffsetXUv`. |
+| `rustyquest.projectionAreaRightOffsetYUv` | float | Shared right-eye vertical projection-area override; falls back to `rustyquest.projectionAreaOffsetYUv`. |
+| `rustyquest.projectionAreaOpacity` | float | Shared valid projection-window alpha, clamped to `0..1`. |
+| `rustyquest.projectionBorderOpacity` | float | Shared solid border alpha, clamped to `0..1`. |
+| `rustyquest.projectionAlphaMode` | string | Shared color-derived alpha mode: `fixed`, RGB, luma, or inverse variants. |
+| `rustyquest.projectionAlphaScale` | float | Shared multiplier applied to the selected alpha mask, clamped to `0..4`. |
+| `rustyquest.projectionAlphaBias` | float | Shared bias applied after alpha-mask scaling, clamped to `-1..1`. |
+| `rustyquest.cameraBlurRadiusPx` | float | Sets the public diagnostic blur sample radius in 1280x1280 source pixels when `rustyquest.processingLayer=blur`. |
+| `rustyquest.peripheralStretchMode` | string | Selects the peripheral-stretch mode; the current public mode is `edge-stretch`. |
+| `rustyquest.peripheralStretchCoreScale` | float | Keeps the coherent target-footprint core unchanged at `1.0`; lower values are not part of the accepted v0 geometry contract. |
+| `rustyquest.peripheralStretchEdgeInsetUv` | float | Near-edge source UV inset used when the exterior first leaves the target footprint. |
+| `rustyquest.peripheralStretchMaxInsetUv` | float | Far-exterior source UV inset used by the graded stretch mapping. |
+| `rustyquest.peripheralStretchCurve` | float | Shapes the exterior distance ramp between `peripheralStretchEdgeInsetUv` and `peripheralStretchMaxInsetUv`. |
+| `rustyquest.peripheralStretchInnerBlendUv` | float | Width of the target-footprint inner transition band that UV-blends canonical sampling into the stretch remap. |
+| `rustyquest.peripheralStretchBlendCurve` | float | Shapes the transition-band blend ramp. |
+| `rustyquest.peripheralStretchBlendMode` | string | Selects the transition-band blend mode; use `target-inner-band` for the metadata-backed target-footprint transition. |
+| `rustyquest.peripheralStretchCornerMode` | string | Selects effect-boundary corner semantics; use `target-footprint` for metadata-backed runs. |
+| `rustyquest.peripheralStretchDebug` | string | Selects stretch debug output: `off`, `regions`, or `sample-uv`. |
 | `rustyquest.makepad.xrRenderScale` | float | Controls OpenXR swapchain scale for performance A/B runs. |
 | `rustyquest.makepad.openxrPassthroughProbe` | string | Keeps native passthrough checks separate from camera projection: `off`, `warmup`, `client`, or `underlay`. |
 
@@ -720,12 +720,12 @@ properties. Stale `debug.rustyquest.makepad.projection.*` projection properties 
 cleared by hygiene but are not accepted as projection-runtime inputs.
 `debug.rustyquest.makepad.camera.projection.geometry.profile` selects direct
 Camera2 `full-frame-diagnostic` geometry, while
-`debug.rustyquest.makepad.projection.depth.meters` controls the head-anchored projection
+`debug.rustyquest.projection.depth.meters` controls the head-anchored projection
 surface depth and is logged back as `projectionDepthMeters`.
 The Makepad raw-projection lane also accepts
-`debug.rustyquest.makepad.camera.preview.fov.y.degrees`,
-`debug.rustyquest.makepad.camera.preview.offset.y.meters`, and
-`debug.rustyquest.makepad.camera.raw.overlay.overscan`; the raw-stack suite forwards these
+`debug.rustyquest.camera.preview.fov.y.degrees`,
+`debug.rustyquest.camera.preview.offset.y.meters`, and
+`debug.rustyquest.camera.raw.overlay.overscan`; the raw-stack suite forwards these
 from `-CameraPreviewFovYDegrees`, `-CameraPreviewOffsetYMeters`, and
 `-CameraRawOverlayOverscan` so OES and Makepad can be checked against the same
 canvas-solved surface shape as the Vulkan/HWB lane.

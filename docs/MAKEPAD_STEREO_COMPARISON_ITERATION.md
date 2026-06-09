@@ -156,7 +156,7 @@ from diagnostic styling. With the laptop stimulus kept fixed and the headset
 unmoved, dense-grid homography comparison between the Rusty XR reference target
 and the Makepad live-camera lane stayed within roughly `0.004 px` worst-case
 delta. The Makepad red projection-footprint overlay was then made hotloadable
-through `debug.rustyquest.makepad.projection.border.opacity`; setting it to `0`
+through `debug.rustyquest.projection.border.opacity`; setting it to `0`
 removed analyzer edge-stripe signal without changing the screen-to-camera
 coordinate path. Treat the red border as an operator witness layer, not as part
 of projection parity.

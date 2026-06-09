@@ -383,7 +383,7 @@ public final class DirectCamera2OesProbe {
                 stringExtra(
                     activity,
                     "rustyxr.directCamera2OesProjectionGeometryProfile",
-                    stringExtra(activity, "rustyxr.cameraProjectionGeometryProfile", PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC)),
+                    stringExtra(activity, "rustyquest.cameraProjectionGeometryProfile", PROJECTION_GEOMETRY_PROFILE_FULL_FRAME_DIAGNOSTIC)),
                 stringExtra(
                     activity,
                     "rustyxr.directCamera2OesSourceSamplingMode",

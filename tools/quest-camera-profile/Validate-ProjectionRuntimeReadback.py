@@ -124,7 +124,7 @@ def repo_root() -> Path:
 
 
 def runtime_config_source_path() -> Path:
-    return repo_root() / "crates" / "rusty-quest-makepad-runtime-config" / "src" / "lib.rs"
+    return repo_root() / "crates" / "rusty-quest-projection-runtime-config" / "src" / "lib.rs"
 
 
 def read_json(path: Path) -> Any:
@@ -763,11 +763,11 @@ def write_self_test_fixture(root: Path) -> tuple[Path, Path, Path]:
             {
                 "schemaVersion": "rusty.quest.makepad.profile-run.v1",
                 "values": {
-                    "rustyquest.makepad.projectionDepthMeters": "1.234",
-                    "rustyquest.makepad.projectionBorderPolicy": "solid-red",
-                    "rustyquest.makepad.cameraProjectionGeometryProfile": "full-frame-diagnostic",
+                    "rustyquest.projectionDepthMeters": "1.234",
+                    "rustyquest.projectionBorderPolicy": "solid-red",
+                    "rustyquest.cameraProjectionGeometryProfile": "full-frame-diagnostic",
                 },
-                "overrides": ["rustyquest.makepad.projectionAreaRadiusXUv=0.47"],
+                "overrides": ["rustyquest.projectionAreaRadiusXUv=0.47"],
             }
         ),
         encoding="utf-8",
@@ -776,7 +776,7 @@ def write_self_test_fixture(root: Path) -> tuple[Path, Path, Path]:
         json.dumps(
             [
                 {
-                    "property": "debug.rustyquest.makepad.projection.area.left.offset.x.uv",
+                    "property": "debug.rustyquest.projection.area.left.offset.x.uv",
                     "expected": "0.125",
                     "actual": "0.125",
                 }
@@ -805,7 +805,7 @@ def write_ambiguous_backend_fixture(root: Path) -> tuple[Path, Path]:
             {
                 "schemaVersion": "rusty.quest.makepad.profile-run.v1",
                 "values": {
-                    "rustyquest.makepad.projectionDepthMeters": "1.234",
+                    "rustyquest.projectionDepthMeters": "1.234",
                 },
             }
         ),
@@ -959,7 +959,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
 

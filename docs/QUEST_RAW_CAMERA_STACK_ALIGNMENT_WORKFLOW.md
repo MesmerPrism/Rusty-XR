@@ -137,17 +137,17 @@ For each candidate depth:
 1. Launch or hotload
    `camera-stereo-gpu-composite-world-canvas-depth1-mediaprojection` with
    overrides for the current depth and strict coverage:
-   `rustyxr.cameraProjectionMode=world-canvas`,
-   `rustyxr.projectionDepthMeters=<depth>`,
-   `rustyxr.cameraRawOverlayOverscan=1.0`,
-   `rustyxr.cameraProjectionScale=1.0`,
-   `rustyxr.projectionAreaScaleUv=1.0`,
-   `rustyxr.projectionAreaOffsetXUv=0.0`,
-   `rustyxr.projectionAreaOffsetYUv=0.0`,
-   `rustyxr.projectionAreaRadiusXUv=0.5`,
-   `rustyxr.projectionAreaRadiusYUv=0.5`,
-   `rustyxr.projectionAreaCornerRadiusUv=0.0`,
-   `rustyxr.projectionBorderOpacity=0.0`,
+   `rustyquest.cameraProjectionMode=world-canvas`,
+   `rustyquest.projectionDepthMeters=<depth>`,
+   `rustyquest.cameraRawOverlayOverscan=1.0`,
+   `rustyquest.cameraProjectionScale=1.0`,
+   `rustyquest.projectionAreaScaleUv=1.0`,
+   `rustyquest.projectionAreaOffsetXUv=0.0`,
+   `rustyquest.projectionAreaOffsetYUv=0.0`,
+   `rustyquest.projectionAreaRadiusXUv=0.5`,
+   `rustyquest.projectionAreaRadiusYUv=0.5`,
+   `rustyquest.projectionAreaCornerRadiusUv=0.0`,
+   `rustyquest.projectionBorderOpacity=0.0`,
    `rustyxr.projectionLayerVisible=true`,
    `rustyxr.openxrPassthroughProbe=underlay`, and
    `rustyxr.mediaProjection=true`.
@@ -188,10 +188,10 @@ uses the direct stereo GPU Camera2 world-canvas launch context and these solved
 surface values:
 
 ```text
-rustyxr.projectionDepthMeters=1.434085
-rustyxr.cameraPreviewFovYDegrees=69.763084
-rustyxr.cameraPreviewOffsetYMeters=-0.168832
-rustyxr.cameraRawOverlayOverscan=1.0
+rustyquest.projectionDepthMeters=1.434085
+rustyquest.cameraPreviewFovYDegrees=69.763084
+rustyquest.cameraPreviewOffsetYMeters=-0.168832
+rustyquest.cameraRawOverlayOverscan=1.0
 rustyxr.projectionLayerVisible=true
 ```
 
@@ -277,33 +277,33 @@ Launch/profile behavior:
   `passthrough-underlay` for operator alignment against native passthrough;
 - projection surface depth in meters. The suite-level
   `-ProjectionDepthMeters` default is forwarded as
-  `rustyxr.projectionDepthMeters` for Vulkan/HWB and GL/OES, and
-  `debug.rustyquest.makepad.projection.depth.meters` for Makepad. Lane-specific depth
+  `rustyquest.projectionDepthMeters` for Vulkan/HWB and GL/OES, and
+  `debug.rustyquest.projection.depth.meters` for Makepad. Lane-specific depth
   overrides must be logged rather than
   hidden in renderer constants;
 - preview-surface shape values. The suite-level
   `-CameraPreviewFovYDegrees`, `-CameraPreviewOffsetYMeters`, and
   `-CameraRawOverlayOverscan` values are forwarded as the public
-  `rustyxr.cameraPreview*` extras for Vulkan/HWB and GL/OES, and as
-  `debug.rustyquest.makepad.camera.preview.*` / `debug.rustyquest.makepad.camera.raw.overlay.overscan`
+  `rustyquest.cameraPreview*` extras for Vulkan/HWB and GL/OES, and as
+  `debug.rustyquest.camera.preview.*` / `debug.rustyquest.camera.raw.overlay.overscan`
   properties for Makepad. This keeps the native-aligned HWB canvas target
   replayable by OES and Makepad custom-projection lanes without hiding shape
   differences in renderer constants;
 - projection-area offset sweep values such as
-  `rustyxr.projectionAreaOffsetXUv`, `rustyxr.projectionAreaOffsetYUv`,
-  per-eye variants such as `rustyxr.projectionAreaLeftOffsetXUv`,
-  `rustyxr.projectionAreaLeftOffsetYUv`,
-  `rustyxr.projectionAreaRightOffsetXUv`, and
-  `rustyxr.projectionAreaRightOffsetYUv`. The shorter
-  `rustyxr.projectionArea*` launch names and matching
-  `debug.rustyquest.makepad.projection.area.*` Android properties are the cross-renderer
+  `rustyquest.projectionAreaOffsetXUv`, `rustyquest.projectionAreaOffsetYUv`,
+  per-eye variants such as `rustyquest.projectionAreaLeftOffsetXUv`,
+  `rustyquest.projectionAreaLeftOffsetYUv`,
+  `rustyquest.projectionAreaRightOffsetXUv`, and
+  `rustyquest.projectionAreaRightOffsetYUv`. The shorter
+  `rustyquest.projectionArea*` launch names and matching
+  `debug.rustyquest.projection.area.*` Android properties are the cross-renderer
   contract. Makepad-specific projection-area aliases are stale hygiene keys,
   not accepted runtime inputs;
 - independent projection-area and border opacity values such as
-  `rustyxr.projectionAreaOpacity`, `rustyxr.projectionBorderOpacity`, and the
-  matching `debug.rustyquest.makepad.projection.*.opacity` Android properties;
+  `rustyquest.projectionAreaOpacity`, `rustyquest.projectionBorderOpacity`, and the
+  matching `debug.rustyquest.projection.*.opacity` Android properties;
 - color-derived projection alpha controls such as
-  `rustyquest.makepad.projectionAlphaMode` and `debug.rustyquest.makepad.projection.alpha.mode`,
+  `rustyquest.projectionAlphaMode` and `debug.rustyquest.projection.alpha.mode`,
   with shared scale/bias controls;
 - synthetic pattern selection when running broker-synthetic validation;
 - screenshot, HzDB, logcat, freshness, visual-stimulus, and comparison capture
@@ -388,9 +388,9 @@ effective source-valid rect is fullscreen as renderer-geometry failures, even
 when MediaProjection and HzDB images are nonblank.
 
 For HWB, keep the canvas reference explicit as
-`rustyxr.cameraProjectionGeometryProfile=full-frame-diagnostic`, but run the
+`rustyquest.cameraProjectionGeometryProfile=full-frame-diagnostic`, but run the
 custom/collapsed profile with
-`rustyxr.cameraProjectionGeometryProfile=camera-projection` and the bounded
+`rustyquest.cameraProjectionGeometryProfile=camera-projection` and the bounded
 projection-area values (`projectionAreaRadiusXUv=0.47`,
 `projectionAreaRadiusYUv=0.36`, `projectionAreaCornerRadiusUv=0.08`). This
 prevents the direct Camera2 service default from silently turning the custom
@@ -424,7 +424,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -AppId rusty-xr-quest-composite-layer `
   -DeviceProfile xr-composite-comparison-level-5 `
   -RuntimeProfile camera-stereo-gpu-composite-full-feed-control `
-  -Override rustyxr.cameraTargetFps=50,rustyxr.cameraPipelinePreset=raw-projection-unorm,rustyxr.cameraProjectionEffectMode=raw-projection,rustyxr.projectionBorderPolicy=solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.projectionDepthMeters=1,rustyxr.projectionAreaScaleUv=1,rustyxr.projectionAreaRadiusXUv=0.5,rustyxr.projectionAreaRadiusYUv=0.5,rustyxr.projectionAreaCornerRadiusUv=0 `
+  -Override rustyxr.cameraTargetFps=50,rustyxr.cameraPipelinePreset=raw-projection-unorm,rustyxr.cameraProjectionEffectMode=raw-projection,rustyquest.projectionBorderPolicy=solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyquest.cameraProjectionScale=1,rustyquest.projectionDepthMeters=1,rustyquest.projectionAreaScaleUv=1,rustyquest.projectionAreaRadiusXUv=0.5,rustyquest.projectionAreaRadiusYUv=0.5,rustyquest.projectionAreaCornerRadiusUv=0 `
   -FreshnessFrames 6
 ```
 
@@ -437,7 +437,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -AppId rusty-xr-quest-composite-layer `
   -DeviceProfile xr-composite-comparison-level-5 `
   -RuntimeProfile broker-h264-stereo-live-openxr-projection-full-feed-control `
-  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.cameraPipelinePreset=raw-projection-unorm,rustyxr.cameraProjectionEffectMode=raw-projection,rustyxr.projectionBorderPolicy=solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyxr.cameraProjectionScale=1,rustyxr.projectionDepthMeters=1,rustyxr.projectionAreaScaleUv=1,rustyxr.projectionAreaRadiusXUv=0.5,rustyxr.projectionAreaRadiusYUv=0.5,rustyxr.projectionAreaCornerRadiusUv=0 `
+  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.cameraPipelinePreset=raw-projection-unorm,rustyxr.cameraProjectionEffectMode=raw-projection,rustyquest.projectionBorderPolicy=solid-red,rustyxr.openxrPassthroughProbe=off,rustyxr.xrRenderScale=1,rustyquest.cameraProjectionScale=1,rustyquest.projectionDepthMeters=1,rustyquest.projectionAreaScaleUv=1,rustyquest.projectionAreaRadiusXUv=0.5,rustyquest.projectionAreaRadiusYUv=0.5,rustyquest.projectionAreaCornerRadiusUv=0 `
   -FreshnessFrames 6
 ```
 
@@ -450,7 +450,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -AppId rusty-xr-quest-gl-openxr-video-stack `
   -DeviceProfile gles-openxr-comparison-level-5 `
   -RuntimeProfile gles-direct-camera2-oes-projection `
-  -Override rustyxr.projectionBorderPolicy=solid-red `
+  -Override rustyquest.projectionBorderPolicy=solid-red `
   -FreshnessFrames 6
 ```
 
@@ -463,7 +463,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -AppId rusty-xr-quest-gl-openxr-video-stack `
   -DeviceProfile gles-openxr-comparison-level-5 `
   -RuntimeProfile gles-broker-camera-h264-oes-projection `
-  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyxr.projectionBorderPolicy=solid-red `
+  -Override rustyxr.brokerH264CaptureMs=0,rustyxr.brokerH264MaxPackets=0,rustyxr.brokerH264FrameRateHz=50,rustyquest.projectionBorderPolicy=solid-red `
   -FreshnessFrames 6
 ```
 
@@ -577,9 +577,9 @@ The suite applies the same policy to every public lane:
 
 | Renderer family | Border mapping | Blur mapping |
 | --- | --- | --- |
-| Vulkan/HWB | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` with `rustyxr.cameraPipelinePreset=raw-projection-unorm` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
-| GL/OES | `rustyxr.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyxr.processingLayer=blur` plus `rustyxr.cameraBlurRadiusPx` |
-| Makepad CPU-YUV | `debug.rustyquest.makepad.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyquest.makepad.processing.layer=blur` plus `debug.rustyquest.makepad.camera.blur.radius.px` |
+| Vulkan/HWB | `rustyquest.projectionBorderPolicy=solid-red` or `passthrough-underlay` with `rustyxr.cameraPipelinePreset=raw-projection-unorm` | `rustyquest.processingLayer=blur` plus `rustyquest.cameraBlurRadiusPx` |
+| GL/OES | `rustyquest.projectionBorderPolicy=solid-red` or `passthrough-underlay` | `rustyquest.processingLayer=blur` plus `rustyquest.cameraBlurRadiusPx` |
+| Makepad CPU-YUV | `debug.rustyquest.projection.border.policy=solid-red` or `passthrough-underlay` | `debug.rustyquest.processing.layer=blur` plus `debug.rustyquest.camera.blur.radius.px` |
 
 Use `-ProjectionAreaOffsetXUv <value>` and `-ProjectionAreaOffsetYUv <value>`
 on the suite to run repeatable centering sweeps. The suite-level contract uses
@@ -587,7 +587,7 @@ screen/screenshot coordinates: positive X moves the projection area right and
 positive Y moves it down. Renderer-specific sign or viewport conventions must
 be normalized at the renderer/profile boundary before the app is launched.
 Prefer those suite-level controls for cross-lane work. The Makepad launcher
-wrapper writes the same current `debug.rustyquest.makepad.projection.area.*` properties as
+wrapper writes the same current `debug.rustyquest.projection.area.*` properties as
 the other Android-property paths; stale Makepad-specific projection-area
 aliases are hygiene-only cleanup keys.
 Treat these values as projection-area placement controls; do not hide

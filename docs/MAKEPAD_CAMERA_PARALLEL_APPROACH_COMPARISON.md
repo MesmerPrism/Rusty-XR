@@ -33,7 +33,7 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
   device behavior, dependency cost, and update cadence.
 - Treat the current custom APK lane as the diagnostic baseline and the Makepad
   lane as the ergonomic app-shell lane, not as two independent products.
-- Route Makepad lane profile values through `rusty-quest-makepad-runtime-config` first;
+- Route Makepad lane profile values through `rusty-quest-projection-runtime-config` first;
   add camera metadata, stream framing, and scorecard contracts through core
   crates before adding Makepad-specific adapters.
 - Treat performance comparison as a controlled device-profile test. Current
@@ -101,8 +101,8 @@ in [MAKEPAD_STEREO_COMPARISON_ITERATION.md](MAKEPAD_STEREO_COMPARISON_ITERATION.
 | Java shell | Rusty XR examples own Java activity/service code. | Makepad generates `MakepadActivity`, launcher activity, and XR activity. |
 | OpenXR loader | Explicit build input or local Android dependency. | Bundled by Makepad Quest variant into the APK. |
 | Quest permissions | Explicit source manifest permissions. | Quest variant generates OpenXR, passthrough, scene, anchor, and headset camera permissions. |
-| Runtime configuration | Intent extras and Rusty Quest config code are directly controlled. | Startup marker values now pass through `rusty-quest-makepad-runtime-config`; Android intent extras still need a Makepad adapter. |
-| Shared core usage | Uses public Morphospace crates directly for config, diagnostics, camera, broker, and scorecard behavior. | First shared-core bridge uses `rusty-quest-makepad-runtime-config`; next bridges should add stream, camera, and scorecard contracts. |
+| Runtime configuration | Intent extras and Rusty Quest config code are directly controlled. | Startup marker values now pass through `rusty-quest-projection-runtime-config`; Android intent extras still need a Makepad adapter. |
+| Shared core usage | Uses public Morphospace crates directly for config, diagnostics, camera, broker, and scorecard behavior. | First shared-core bridge uses `rusty-quest-projection-runtime-config`; next bridges should add stream, camera, and scorecard contracts. |
 | UI/runtime | Minimal Android shell plus Rust examples. | Full Makepad UI, live/studio ecosystem, OpenXR render loop, and Quest shell. |
 | XR scene/root | Rusty XR example owns OpenXR/Vulkan setup directly. | `makepad-xr` provides `XrRoot`, scene nodes, XR permission flow, passthrough hooks, and Makepad draw abstractions. |
 | Camera affordance | Camera2 `PRIVATE`, MediaCodec, and projection probes are explicit in example code. | The Makepad shell now has a Rusty XR-owned Android NDK Camera2 metadata/acquisition probe and a direct generated-XR paired Makepad `VideoExternal` import/projection-mapping marker path. Q2Q transport remains a later gate. |

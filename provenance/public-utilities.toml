@@ -12,7 +12,7 @@ scrubbed_private_dependencies = ["package identity", "downstream visual effect s
 review_status = "foundation-pass"
 
 [[utility]]
-crate = "rusty-quest-makepad-runtime-config"
+crate = "rusty-quest-projection-runtime-config"
 source_family = "cross-shell runtime profile workflows"
 extraction_date = "2026-04-29"
 public_safe_rationale = "Generic runtime keys and typed values let app shells map private input spellings onto public configuration without publishing those private inputs."

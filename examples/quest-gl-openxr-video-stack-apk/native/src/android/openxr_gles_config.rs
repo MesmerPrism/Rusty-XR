@@ -12,9 +12,9 @@ pub(super) const DEFAULT_PROJECTION_TARGET_DEPTH_METERS: f32 = 1.0;
 pub(super) const PROJECTION_PREVIEW_FOV_Y_DEGREES: f32 = 60.0;
 pub(super) const PROJECTION_RAW_OVERSCAN: f32 = 1.06;
 pub(super) const OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_PROP: &str =
-    "debug.rustyquest.makepad.oes.projection.runtime.resolution.enabled";
+    "debug.rustyquest.oes.projection.runtime.resolution.enabled";
 pub(super) const OES_PROJECTION_RUNTIME_RESOLUTION_ENABLED_EXTRA: &str =
-    "rustyquest.makepad.projectionRuntimeResolutionEnabled";
+    "rustyquest.projectionRuntimeResolutionEnabled";
 
 pub(super) use super::openxr_gles_contracts::{
     OesCameraProjectionMode, OesContentMappingMode, OesPeripheralStretchBlendMode,

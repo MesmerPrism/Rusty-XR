@@ -630,16 +630,16 @@ function Format-OptionalInvariantDouble {
 
 function Add-PeripheralStretchRuntimeValues {
     param([System.Collections.Generic.List[string]]$Values)
-    $Values.Add("rustyquest.makepad.peripheralStretchMode=$PeripheralStretchMode")
-    $Values.Add(("rustyquest.makepad.peripheralStretchCoreScale={0}" -f (Format-InvariantDouble -Value $PeripheralStretchCoreScale)))
-    $Values.Add(("rustyquest.makepad.peripheralStretchEdgeInsetUv={0}" -f (Format-InvariantDouble -Value $PeripheralStretchEdgeInsetUv)))
-    $Values.Add(("rustyquest.makepad.peripheralStretchMaxInsetUv={0}" -f (Format-InvariantDouble -Value $PeripheralStretchMaxInsetUv)))
-    $Values.Add(("rustyquest.makepad.peripheralStretchCurve={0}" -f (Format-InvariantDouble -Value $PeripheralStretchCurve)))
-    $Values.Add(("rustyquest.makepad.peripheralStretchInnerBlendUv={0}" -f (Format-InvariantDouble -Value $PeripheralStretchInnerBlendUv)))
-    $Values.Add(("rustyquest.makepad.peripheralStretchBlendCurve={0}" -f (Format-InvariantDouble -Value $PeripheralStretchBlendCurve)))
-    $Values.Add("rustyquest.makepad.peripheralStretchBlendMode=$PeripheralStretchBlendMode")
-    $Values.Add("rustyquest.makepad.peripheralStretchCornerMode=$PeripheralStretchCornerMode")
-    $Values.Add("rustyquest.makepad.peripheralStretchDebug=$PeripheralStretchDebug")
+    $Values.Add("rustyquest.peripheralStretchMode=$PeripheralStretchMode")
+    $Values.Add(("rustyquest.peripheralStretchCoreScale={0}" -f (Format-InvariantDouble -Value $PeripheralStretchCoreScale)))
+    $Values.Add(("rustyquest.peripheralStretchEdgeInsetUv={0}" -f (Format-InvariantDouble -Value $PeripheralStretchEdgeInsetUv)))
+    $Values.Add(("rustyquest.peripheralStretchMaxInsetUv={0}" -f (Format-InvariantDouble -Value $PeripheralStretchMaxInsetUv)))
+    $Values.Add(("rustyquest.peripheralStretchCurve={0}" -f (Format-InvariantDouble -Value $PeripheralStretchCurve)))
+    $Values.Add(("rustyquest.peripheralStretchInnerBlendUv={0}" -f (Format-InvariantDouble -Value $PeripheralStretchInnerBlendUv)))
+    $Values.Add(("rustyquest.peripheralStretchBlendCurve={0}" -f (Format-InvariantDouble -Value $PeripheralStretchBlendCurve)))
+    $Values.Add("rustyquest.peripheralStretchBlendMode=$PeripheralStretchBlendMode")
+    $Values.Add("rustyquest.peripheralStretchCornerMode=$PeripheralStretchCornerMode")
+    $Values.Add("rustyquest.peripheralStretchDebug=$PeripheralStretchDebug")
 }
 
 function Resolve-ProjectionAreaOffsetXUv {
@@ -897,35 +897,35 @@ function Get-VulkanProjectionBorderOverride {
     $alphaBias = Format-InvariantDouble -Value $ProjectionAlphaBias
     $commonValues = [System.Collections.Generic.List[string]]::new()
     $commonValues.Add("rustyquest.makepad.xrRenderScale=$xrRenderScale")
-    $commonValues.Add("rustyquest.makepad.cameraProjectionGeometryProfile=$CameraProjectionGeometryProfile")
-    $commonValues.Add("rustyquest.makepad.cameraProjectionScale=$projectionScale")
-    $commonValues.Add("rustyquest.makepad.projectionDepthMeters=$projectionDepth")
-    $commonValues.Add("rustyquest.makepad.projectionAreaScaleUv=$projectionAreaScaleUv")
-    $commonValues.Add("rustyquest.makepad.projectionAreaOffsetXUv=$offsetX")
-    $commonValues.Add("rustyquest.makepad.projectionAreaOffsetYUv=$offsetY")
-    $commonValues.Add("rustyquest.makepad.projectionAreaLeftOffsetXUv=$leftOffsetX")
-    $commonValues.Add("rustyquest.makepad.projectionAreaLeftOffsetYUv=$leftOffsetY")
-    $commonValues.Add("rustyquest.makepad.projectionAreaRightOffsetXUv=$rightOffsetX")
-    $commonValues.Add("rustyquest.makepad.projectionAreaRightOffsetYUv=$rightOffsetY")
-    $commonValues.Add("rustyquest.makepad.projectionAreaRadiusXUv=$areaRadiusX")
-    $commonValues.Add("rustyquest.makepad.projectionAreaRadiusYUv=$areaRadiusY")
-    $commonValues.Add("rustyquest.makepad.projectionAreaCornerRadiusUv=$areaCornerRadius")
-    $commonValues.Add("rustyquest.makepad.projectionAreaOpacity=$areaOpacity")
-    $commonValues.Add("rustyquest.makepad.projectionBorderOpacity=$borderOpacity")
-    $commonValues.Add("rustyquest.makepad.projectionAlphaMode=$ProjectionAlphaMode")
-    $commonValues.Add("rustyquest.makepad.projectionAlphaScale=$alphaScale")
-    $commonValues.Add("rustyquest.makepad.projectionAlphaBias=$alphaBias")
-    $commonValues.Add("rustyquest.makepad.processingLayer=$ProcessingLayer")
-    $commonValues.Add("rustyquest.makepad.cameraBlurRadiusPx=$blurRadius")
+    $commonValues.Add("rustyquest.cameraProjectionGeometryProfile=$CameraProjectionGeometryProfile")
+    $commonValues.Add("rustyquest.cameraProjectionScale=$projectionScale")
+    $commonValues.Add("rustyquest.projectionDepthMeters=$projectionDepth")
+    $commonValues.Add("rustyquest.projectionAreaScaleUv=$projectionAreaScaleUv")
+    $commonValues.Add("rustyquest.projectionAreaOffsetXUv=$offsetX")
+    $commonValues.Add("rustyquest.projectionAreaOffsetYUv=$offsetY")
+    $commonValues.Add("rustyquest.projectionAreaLeftOffsetXUv=$leftOffsetX")
+    $commonValues.Add("rustyquest.projectionAreaLeftOffsetYUv=$leftOffsetY")
+    $commonValues.Add("rustyquest.projectionAreaRightOffsetXUv=$rightOffsetX")
+    $commonValues.Add("rustyquest.projectionAreaRightOffsetYUv=$rightOffsetY")
+    $commonValues.Add("rustyquest.projectionAreaRadiusXUv=$areaRadiusX")
+    $commonValues.Add("rustyquest.projectionAreaRadiusYUv=$areaRadiusY")
+    $commonValues.Add("rustyquest.projectionAreaCornerRadiusUv=$areaCornerRadius")
+    $commonValues.Add("rustyquest.projectionAreaOpacity=$areaOpacity")
+    $commonValues.Add("rustyquest.projectionBorderOpacity=$borderOpacity")
+    $commonValues.Add("rustyquest.projectionAlphaMode=$ProjectionAlphaMode")
+    $commonValues.Add("rustyquest.projectionAlphaScale=$alphaScale")
+    $commonValues.Add("rustyquest.projectionAlphaBias=$alphaBias")
+    $commonValues.Add("rustyquest.processingLayer=$ProcessingLayer")
+    $commonValues.Add("rustyquest.cameraBlurRadiusPx=$blurRadius")
     Add-PeripheralStretchRuntimeValues -Values $commonValues
     if (-not [double]::IsNaN($CameraPreviewFovYDegrees)) {
-        $commonValues.Add(("rustyquest.makepad.cameraPreviewFovYDegrees={0}" -f (Format-InvariantDouble -Value $CameraPreviewFovYDegrees)))
+        $commonValues.Add(("rustyquest.cameraPreviewFovYDegrees={0}" -f (Format-InvariantDouble -Value $CameraPreviewFovYDegrees)))
     }
     if (-not [double]::IsNaN($CameraPreviewOffsetYMeters)) {
-        $commonValues.Add(("rustyquest.makepad.cameraPreviewOffsetYMeters={0}" -f (Format-InvariantDouble -Value $CameraPreviewOffsetYMeters)))
+        $commonValues.Add(("rustyquest.cameraPreviewOffsetYMeters={0}" -f (Format-InvariantDouble -Value $CameraPreviewOffsetYMeters)))
     }
     if (-not [double]::IsNaN($CameraRawOverlayOverscan)) {
-        $commonValues.Add(("rustyquest.makepad.cameraRawOverlayOverscan={0}" -f (Format-InvariantDouble -Value $CameraRawOverlayOverscan)))
+        $commonValues.Add(("rustyquest.cameraRawOverlayOverscan={0}" -f (Format-InvariantDouble -Value $CameraRawOverlayOverscan)))
     }
     if (-not [double]::IsNaN($CameraFullViewOverlayOverscan)) {
         $commonValues.Add(("rustyquest.makepad.cameraFullViewOverlayOverscan={0}" -f (Format-InvariantDouble -Value $CameraFullViewOverlayOverscan)))
@@ -937,7 +937,7 @@ function Get-VulkanProjectionBorderOverride {
     else {
         "rustyquest.makepad.openxrPassthroughProbe=off"
     }
-    return "rustyquest.makepad.cameraPipelinePreset=raw-projection-unorm,rustyquest.makepad.cameraProjectionEffectMode=raw-projection,rustyquest.makepad.projectionBorderPolicy=$ProjectionBorderPolicy,$passthroughOverride,$commonOverride"
+    return "rustyquest.makepad.cameraPipelinePreset=raw-projection-unorm,rustyquest.makepad.cameraProjectionEffectMode=raw-projection,rustyquest.projectionBorderPolicy=$ProjectionBorderPolicy,$passthroughOverride,$commonOverride"
 }
 
 function Get-GlesProjectionBorderOverride {
@@ -970,36 +970,36 @@ function Get-GlesProjectionBorderOverride {
     $colorBrightness = Format-InvariantDouble -Value $GlesCameraColorBrightness
     $colorSaturation = Format-InvariantDouble -Value $GlesCameraColorSaturation
     $values = [System.Collections.Generic.List[string]]::new()
-    $values.Add("rustyquest.makepad.cameraProjectionGeometryProfile=$CameraProjectionGeometryProfile")
+    $values.Add("rustyquest.cameraProjectionGeometryProfile=$CameraProjectionGeometryProfile")
     $values.Add("rustyquest.makepad.directCamera2OesProjectionGeometryProfile=$CameraProjectionGeometryProfile")
-    $values.Add("rustyquest.makepad.projectionBorderPolicy=$ProjectionBorderPolicy")
-    $values.Add("rustyquest.makepad.processingLayer=$ProcessingLayer")
-    $values.Add("rustyquest.makepad.cameraBlurRadiusPx=$blurRadius")
+    $values.Add("rustyquest.projectionBorderPolicy=$ProjectionBorderPolicy")
+    $values.Add("rustyquest.processingLayer=$ProcessingLayer")
+    $values.Add("rustyquest.cameraBlurRadiusPx=$blurRadius")
     Add-PeripheralStretchRuntimeValues -Values $values
-    $values.Add("rustyquest.makepad.projectionDepthMeters=$projectionDepth")
-    $values.Add("rustyquest.makepad.projectionAreaOffsetXUv=$offsetX")
-    $values.Add("rustyquest.makepad.projectionAreaOffsetYUv=$offsetY")
-    $values.Add("rustyquest.makepad.projectionAreaLeftOffsetXUv=$leftOffsetX")
-    $values.Add("rustyquest.makepad.projectionAreaLeftOffsetYUv=$leftOffsetY")
-    $values.Add("rustyquest.makepad.projectionAreaRightOffsetXUv=$rightOffsetX")
-    $values.Add("rustyquest.makepad.projectionAreaRightOffsetYUv=$rightOffsetY")
-    $values.Add("rustyquest.makepad.projectionAreaScaleUv=$scaleUv")
-    $values.Add("rustyquest.makepad.projectionAreaRadiusXUv=$areaRadiusX")
-    $values.Add("rustyquest.makepad.projectionAreaRadiusYUv=$areaRadiusY")
-    $values.Add("rustyquest.makepad.projectionAreaCornerRadiusUv=$cornerRadius")
-    $values.Add("rustyquest.makepad.projectionAreaOpacity=$areaOpacity")
-    $values.Add("rustyquest.makepad.projectionBorderOpacity=$borderOpacity")
-    $values.Add("rustyquest.makepad.projectionAlphaMode=$ProjectionAlphaMode")
-    $values.Add("rustyquest.makepad.projectionAlphaScale=$alphaScale")
-    $values.Add("rustyquest.makepad.projectionAlphaBias=$alphaBias")
+    $values.Add("rustyquest.projectionDepthMeters=$projectionDepth")
+    $values.Add("rustyquest.projectionAreaOffsetXUv=$offsetX")
+    $values.Add("rustyquest.projectionAreaOffsetYUv=$offsetY")
+    $values.Add("rustyquest.projectionAreaLeftOffsetXUv=$leftOffsetX")
+    $values.Add("rustyquest.projectionAreaLeftOffsetYUv=$leftOffsetY")
+    $values.Add("rustyquest.projectionAreaRightOffsetXUv=$rightOffsetX")
+    $values.Add("rustyquest.projectionAreaRightOffsetYUv=$rightOffsetY")
+    $values.Add("rustyquest.projectionAreaScaleUv=$scaleUv")
+    $values.Add("rustyquest.projectionAreaRadiusXUv=$areaRadiusX")
+    $values.Add("rustyquest.projectionAreaRadiusYUv=$areaRadiusY")
+    $values.Add("rustyquest.projectionAreaCornerRadiusUv=$cornerRadius")
+    $values.Add("rustyquest.projectionAreaOpacity=$areaOpacity")
+    $values.Add("rustyquest.projectionBorderOpacity=$borderOpacity")
+    $values.Add("rustyquest.projectionAlphaMode=$ProjectionAlphaMode")
+    $values.Add("rustyquest.projectionAlphaScale=$alphaScale")
+    $values.Add("rustyquest.projectionAlphaBias=$alphaBias")
     if (-not [double]::IsNaN($CameraPreviewFovYDegrees)) {
-        $values.Add(("rustyquest.makepad.cameraPreviewFovYDegrees={0}" -f (Format-InvariantDouble -Value $CameraPreviewFovYDegrees)))
+        $values.Add(("rustyquest.cameraPreviewFovYDegrees={0}" -f (Format-InvariantDouble -Value $CameraPreviewFovYDegrees)))
     }
     if (-not [double]::IsNaN($CameraPreviewOffsetYMeters)) {
-        $values.Add(("rustyquest.makepad.cameraPreviewOffsetYMeters={0}" -f (Format-InvariantDouble -Value $CameraPreviewOffsetYMeters)))
+        $values.Add(("rustyquest.cameraPreviewOffsetYMeters={0}" -f (Format-InvariantDouble -Value $CameraPreviewOffsetYMeters)))
     }
     if (-not [double]::IsNaN($CameraRawOverlayOverscan)) {
-        $values.Add(("rustyquest.makepad.cameraRawOverlayOverscan={0}" -f (Format-InvariantDouble -Value $CameraRawOverlayOverscan)))
+        $values.Add(("rustyquest.cameraRawOverlayOverscan={0}" -f (Format-InvariantDouble -Value $CameraRawOverlayOverscan)))
     }
     $values.Add("rustyquest.makepad.oesSourceColorTransfer=$GlesOesSourceColorTransfer")
     $values.Add("rustyquest.makepad.cameraColorMatrix=$GlesCameraColorMatrix")
@@ -1025,8 +1025,8 @@ function Get-BrokerH264Override {
     $values = [System.Collections.Generic.List[string]]::new()
     $values.Add("rustyquest.makepad.brokerH264SourceMode=$BrokerH264SourceMode")
     $values.Add("rustyquest.makepad.brokerH264SyntheticPattern=$BrokerH264SyntheticPattern")
-    $values.Add("rustyquest.makepad.brokerH264SyntheticProjectionProfile=$BrokerH264SyntheticProjectionProfile")
-    $values.Add("rustyquest.makepad.brokerH264ProjectionGeometryProfile=$projectionGeometryProfile")
+    $values.Add("rustyquest.brokerH264SyntheticProjectionProfile=$BrokerH264SyntheticProjectionProfile")
+    $values.Add("rustyquest.brokerH264ProjectionGeometryProfile=$projectionGeometryProfile")
     $values.Add("rustyquest.makepad.brokerH264StreamPort=$BrokerH264LeftStreamPort")
     $values.Add("rustyquest.makepad.brokerH264RightStreamPort=$BrokerH264RightStreamPort")
     $values.Add("rustyquest.makepad.brokerH264CaptureMs=$BrokerH264CaptureMs")

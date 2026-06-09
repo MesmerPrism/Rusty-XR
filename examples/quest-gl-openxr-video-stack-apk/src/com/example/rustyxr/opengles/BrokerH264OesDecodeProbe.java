@@ -308,11 +308,11 @@ public final class BrokerH264OesDecodeProbe {
                 booleanExtra(activity, "rustyxr.brokerH264LiveStream", true),
                 stringExtra(activity, "rustyxr.brokerH264SourceMode", SOURCE_MODE_BROKER_SYNTHETIC),
                 stringExtra(activity, "rustyxr.brokerH264SyntheticPattern", SYNTHETIC_PATTERN),
-                stringExtra(activity, "rustyxr.brokerH264SyntheticProjectionProfile", SYNTHETIC_PROJECTION_PROFILE),
+                stringExtra(activity, "rustyquest.brokerH264SyntheticProjectionProfile", SYNTHETIC_PROJECTION_PROFILE),
                 stringExtra(
                     activity,
-                    "rustyxr.brokerH264ProjectionGeometryProfile",
-                    stringExtra(activity, "rustyxr.brokerH264SyntheticProjectionProfile", SYNTHETIC_PROJECTION_PROFILE)),
+                    "rustyquest.brokerH264ProjectionGeometryProfile",
+                    stringExtra(activity, "rustyquest.brokerH264SyntheticProjectionProfile", SYNTHETIC_PROJECTION_PROFILE)),
                 stringExtra(
                     activity,
                     "rustyxr.brokerH264SourceSamplingMode",

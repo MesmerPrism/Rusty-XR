@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "crates/rusty-xr-contracts",
-    "crates/rusty-quest-makepad-runtime-config",
+    "crates/rusty-quest-projection-runtime-config",
     "crates/rusty-xr-ble",
     "crates/rusty-xr-debug-canvas",
     "crates/rusty-xr-lsl",

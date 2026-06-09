@@ -142,7 +142,7 @@ Keep the migration layered. Do not move all platform code into Rusty XR core.
 3. **Build system is a shell concern.** Makepad should be allowed to own APK
    packaging without changing Rusty XR's public contracts.
 4. **Keep runtime keys stable.** Existing keys such as
-   `rustyxr.xrRenderScale`, `rustyxr.cameraProjectionMode`,
+   `rustyxr.xrRenderScale`, `rustyquest.cameraProjectionMode`,
    `rustyxr.brokerH264LiveDecode`, and `rustyxr.cameraPipelinePreset` should
    remain the shared control vocabulary.
 5. **Do not hide profile changes.** Every hotloaded or hotpatched value should
@@ -302,7 +302,7 @@ fault is isolated. It currently proves:
 - the Makepad Quest variant can generate the required OpenXR, passthrough, and
   headset camera manifest surface
 - a `makepad-xr` `XrRoot` app can launch through the generated XR activity
-- runtime profile values can be resolved through `rusty-quest-makepad-runtime-config` and
+- runtime profile values can be resolved through `rusty-quest-projection-runtime-config` and
   logged at startup
 - the app can emit the same public diagnostic marker style used by existing
   scorecard tools

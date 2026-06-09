@@ -38,7 +38,7 @@ use projection_runtime::{
 };
 use projection_settings::*;
 use runtime_settings::*;
-use rusty_quest_makepad_runtime_config as rxrc;
+use rusty_quest_projection_runtime_config as rxrc;
 #[cfg(target_os = "android")]
 use source_metadata::{
     broker_projection_plan_decision, BrokerProjectionPlanDecision, BrokerProjectionPlanKind,
@@ -87,7 +87,7 @@ use manifold_pose_publisher::{
     ManifoldPosePublisher, ManifoldPosePublisherConfig, ManifoldPoseSample,
 };
 use mesh_replay::{MeshReplayConfig, MeshReplayRuntime, MeshReplayUniforms};
-use rusty_quest_makepad_runtime_config::RuntimeConfig;
+use rusty_quest_projection_runtime_config::RuntimeConfig;
 use rusty_quest_makepad_xr::scene::{xr_widget_world_transform, XrNode};
 use rusty_xr_camera_model::{Rect2, SourceSamplingMode, Vec2};
 use source_sampling::{

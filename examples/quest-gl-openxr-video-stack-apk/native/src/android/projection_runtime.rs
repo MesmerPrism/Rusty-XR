@@ -7,7 +7,7 @@ use super::{
         oes_projection_runtime_state_from_resolution,
     },
 };
-use rusty_quest_makepad_runtime_config as rxrc;
+use rusty_quest_projection_runtime_config as rxrc;
 
 pub(super) fn log_oes_projection_runtime_manifest(
     phase: &str,
@@ -35,7 +35,7 @@ pub(super) fn oes_projection_tuning_hotload_log_message(
     tuning: OesProjectionTuning,
 ) -> String {
     format!(
-        "Rusty Quest OpenXR GLES projection tuning hotload source={} frame={} projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} propertyPrefix=debug.rustyquest.makepad",
+        "Rusty Quest OpenXR GLES projection tuning hotload source={} frame={} projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} propertyPrefix=debug.rustyquest",
         tuning_source,
         frame_count,
         tuning.projection_depth_meters,
@@ -52,7 +52,7 @@ pub(super) fn oes_projection_runtime_hotload_log_message(
 ) -> String {
     let peripheral_stretch_fields = oes_peripheral_stretch_log_fields(projection_state);
     format!(
-        "Rusty Quest OpenXR GLES projection runtime hotload source={} frame={} projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} projectionAreaOffsetUv={:.6},{:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} cameraProjectionMode={} projectionBorderPolicy={} processingLayer={} cameraBlurRadiusPx={:.3} {} propertyPrefix=debug.rustyquest.makepad",
+        "Rusty Quest OpenXR GLES projection runtime hotload source={} frame={} projectionDepthMeters={:.6} cameraPreviewFovYDegrees={:.6} cameraPreviewOffsetYMeters={:.6} cameraRawOverlayOverscan={:.6} projectionAreaOffsetUv={:.6},{:.6} projectionAreaScale={:.6},{:.6} projectionAreaRadiusUv={:.6},{:.6} projectionAreaOpacity={:.3} projectionBorderOpacity={:.3} projectionAlphaMode={} projectionAlphaScale={:.3} projectionAlphaBias={:.3} cameraProjectionMode={} projectionBorderPolicy={} processingLayer={} cameraBlurRadiusPx={:.3} {} propertyPrefix=debug.rustyquest",
         tuning_source,
         frame_count,
         projection_state.tuning.projection_depth_meters,
@@ -259,7 +259,7 @@ mod tests {
 
         assert_eq!(
             line,
-            "Rusty Quest OpenXR GLES projection tuning hotload source=resolved-projection-runtime frame=0 projectionDepthMeters=1.250000 cameraPreviewFovYDegrees=72.000000 cameraPreviewOffsetYMeters=0.125000 cameraRawOverlayOverscan=1.500000 propertyPrefix=debug.rustyquest.makepad"
+            "Rusty Quest OpenXR GLES projection tuning hotload source=resolved-projection-runtime frame=0 projectionDepthMeters=1.250000 cameraPreviewFovYDegrees=72.000000 cameraPreviewOffsetYMeters=0.125000 cameraRawOverlayOverscan=1.500000 propertyPrefix=debug.rustyquest"
         );
     }
 
@@ -295,7 +295,7 @@ mod tests {
 
         assert_eq!(
             line,
-            "Rusty Quest OpenXR GLES projection runtime hotload source=android-system-property frame=42 projectionDepthMeters=1.250000 cameraPreviewFovYDegrees=72.000000 cameraPreviewOffsetYMeters=0.125000 cameraRawOverlayOverscan=1.500000 projectionAreaOffsetUv=0.010000,-0.020000 projectionAreaScale=0.950000,0.850000 projectionAreaRadiusUv=0.470000,0.360000 projectionAreaOpacity=0.750 projectionBorderOpacity=0.500 projectionAlphaMode=green projectionAlphaScale=1.250 projectionAlphaBias=-0.250 cameraProjectionMode=world-canvas projectionBorderPolicy=passthrough-underlay processingLayer=peripheral-stretch cameraBlurRadiusPx=4.000 peripheralStretchMode=edge-stretch peripheralStretchCoreScale=1.000 peripheralStretchEdgeInsetUv=0.015 peripheralStretchMaxInsetUv=0.140 peripheralStretchCurve=1.600 peripheralStretchInnerBlendUv=0.040 peripheralStretchBlendCurve=1.600 peripheralStretchBlendMode=target-inner-band peripheralStretchCornerMode=target-footprint peripheralStretchDebug=off peripheralStretchConsumesProjectionExterior=true peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band peripheralStretchTransitionRegion=target-footprint-inner-edge-band peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace=target-local-raster-uv peripheralStretchTransitionSemantics=canonical-sample-to-stretch-sample-remap peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample propertyPrefix=debug.rustyquest.makepad"
+            "Rusty Quest OpenXR GLES projection runtime hotload source=android-system-property frame=42 projectionDepthMeters=1.250000 cameraPreviewFovYDegrees=72.000000 cameraPreviewOffsetYMeters=0.125000 cameraRawOverlayOverscan=1.500000 projectionAreaOffsetUv=0.010000,-0.020000 projectionAreaScale=0.950000,0.850000 projectionAreaRadiusUv=0.470000,0.360000 projectionAreaOpacity=0.750 projectionBorderOpacity=0.500 projectionAlphaMode=green projectionAlphaScale=1.250 projectionAlphaBias=-0.250 cameraProjectionMode=world-canvas projectionBorderPolicy=passthrough-underlay processingLayer=peripheral-stretch cameraBlurRadiusPx=4.000 peripheralStretchMode=edge-stretch peripheralStretchCoreScale=1.000 peripheralStretchEdgeInsetUv=0.015 peripheralStretchMaxInsetUv=0.140 peripheralStretchCurve=1.600 peripheralStretchInnerBlendUv=0.040 peripheralStretchBlendCurve=1.600 peripheralStretchBlendMode=target-inner-band peripheralStretchCornerMode=target-footprint peripheralStretchDebug=off peripheralStretchConsumesProjectionExterior=true peripheralStretchCoreRegion=target-footprint-minus-inner-transition-band peripheralStretchTransitionRegion=target-footprint-inner-edge-band peripheralStretchExteriorRegion=visible-render-surface-minus-target-footprint peripheralStretchTransitionSpace=target-local-raster-uv peripheralStretchTransitionSemantics=canonical-sample-to-stretch-sample-remap peripheralStretchBorderSource=projection-edge-sample peripheralStretchExteriorSource=target-edge-sample propertyPrefix=debug.rustyquest"
         );
     }
 }

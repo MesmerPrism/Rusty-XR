@@ -46,7 +46,7 @@
       "label": "Rusty Quest Makepad runtime configuration core",
       "kind": "rust-source",
       "scope": "workspace",
-      "path": "../../crates/rusty-quest-makepad-runtime-config/src/lib.rs",
+      "path": "../../crates/rusty-quest-projection-runtime-config/src/lib.rs",
       "required": true
     },
     {
@@ -127,7 +127,7 @@
     "openxr-generated-android-manifest",
     "makepad-quest-openxr-smoke",
     "makepad-quest-synthetic-stereo-scene",
-    "rusty-quest-makepad-runtime-config-core",
+    "rusty-quest-projection-runtime-config-core",
     "headset-camera-permission-flow",
     "android-ndk-camera2-metadata-probe",
     "android-ndk-camera2-private-acquisition-probe",

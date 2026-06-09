@@ -1,10 +1,10 @@
 [package]
-name = "rusty-quest-makepad-runtime-config"
+name = "rusty-quest-projection-runtime-config"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Runtime configuration helpers for the Rusty Quest Makepad lane."
+description = "Runtime configuration helpers for Rusty Quest projection lanes."
 
 [features]
 default = []

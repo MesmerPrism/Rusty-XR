@@ -19,7 +19,7 @@ LSL-native adapters.
   descriptors, safety-gated visual strobe descriptors, render payloads,
   runtime counters, room mesh source state, semantic room mesh snapshots, and
   capture lifecycle state.
-- `rusty-quest-makepad-runtime-config`: generic runtime keys, values, and Android property
+- `rusty-quest-projection-runtime-config`: generic runtime keys, values, and Android property
   naming helpers.
 - `rusty-xr-ble`, `rusty-xr-lsl`, and `rusty-xr-polar`: protocol/data models
   without native transport backends.

@@ -877,8 +877,8 @@ function New-RunConfigurationSummary {
         [string]$RuntimeProfileId,
         [string]$ProjectionBorderPolicyValue
     )
-    $processingLayerValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.makepad.processingLayer"
-    $blurRadiusValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.makepad.cameraBlurRadiusPx"
+    $processingLayerValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.processingLayer"
+    $blurRadiusValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.cameraBlurRadiusPx"
     $xrRenderScaleValue = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.makepad.xrRenderScale"
     return [ordered]@{
         runtimeProfile = $RuntimeProfileId
@@ -888,7 +888,7 @@ function New-RunConfigurationSummary {
         blurRadiusPx = ConvertTo-OptionalDouble -Value $blurRadiusValue
         cameraPipelinePreset = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.makepad.cameraPipelinePreset"
         cameraProjectionEffectMode = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.makepad.cameraProjectionEffectMode"
-        cameraProjectionMode = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.makepad.cameraProjectionMode"
+        cameraProjectionMode = Get-LaunchValue -LaunchValues $LaunchValues -Key "rustyquest.cameraProjectionMode"
     }
 }
 
@@ -1512,10 +1512,10 @@ if ($CameraProjectionEffectMode) {
     $values["rustyquest.makepad.cameraProjectionEffectMode"] = $CameraProjectionEffectMode
 }
 if ($ProjectionBorderPolicy) {
-    $values["rustyquest.makepad.projectionBorderPolicy"] = $ProjectionBorderPolicy
+    $values["rustyquest.projectionBorderPolicy"] = $ProjectionBorderPolicy
 }
 if ($CameraProjectionMode) {
-    $values["rustyquest.makepad.cameraProjectionMode"] = $CameraProjectionMode
+    $values["rustyquest.cameraProjectionMode"] = $CameraProjectionMode
 }
 $runConfiguration = New-RunConfigurationSummary `
     -LaunchValues $values `
@@ -1728,4 +1728,3 @@ if ($metaPerfStaleGateFailures.Count -gt 0) {
     throw "meta performance stale gate failed: $($metaPerfStaleGateFailures -join '; ')"
 }
 Write-Output $dir
-

@@ -40,7 +40,7 @@ is:
 Initial crate layout:
 
 - `rusty-xr-contracts`: shared XR data contracts.
-- `rusty-quest-makepad-runtime-config`: runtime configuration and launch-property helpers for the Makepad Quest lane.
+- `rusty-quest-projection-runtime-config`: runtime configuration and launch-property helpers for shared Quest projection lanes.
 - `rusty-xr-ble`: framework-neutral BLE and Android Bluetooth contracts.
 - `rusty-xr-debug-canvas`: normalized debug/test canvas and diagnostic HUD
   state primitives.

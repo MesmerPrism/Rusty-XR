@@ -6,7 +6,7 @@ use super::{
     CameraProjectionAlphaMode, CameraProjectionBorderPolicy, CameraProjectionMode,
     ProjectionTargetJoystickControls, RuntimeConfig, StereoSourceEyeMapping,
 };
-use rusty_quest_makepad_runtime_config as rxrc;
+use rusty_quest_projection_runtime_config as rxrc;
 
 #[cfg(target_os = "android")]
 pub(super) fn log_projection_runtime_manifest(

@@ -275,7 +275,7 @@ plausible source sample for that surface. It is still a plane approximation:
 it is exact only for the chosen surface plane. Matching a whole room requires
 depth-assisted geometry or an accepted approximation policy.
 
-For the Vulkan composite example, `rustyxr.cameraProjectionMode=world-canvas`
+For the Vulkan composite example, `rustyquest.cameraProjectionMode=world-canvas`
 is the diagnostic lane for this model. It draws the chosen head-anchored
 surface as real OpenXR quad geometry and samples the source with
 `surface_to_camera` rows. Use it before another fullscreen-shader tuning pass

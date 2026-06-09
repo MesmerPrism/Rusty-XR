@@ -34,7 +34,7 @@ relationship and fork-patch policy are documented in
 - Uses `makepad-xr` with a minimal `XrRoot` plus a small synthetic stereo
   comparison scene. Earlier isolation passes tried a status panel, a simple
   cube marker, `XrPermissionsFlow`, and an empty root.
-- Reads its startup marker values through `rusty-quest-makepad-runtime-config`, so this
+- Reads its startup marker values through `rusty-quest-projection-runtime-config`, so this
   shell is already attached to a framework-neutral Morphospace core crate.
 - Emits `RUSTY_QUEST_MAKEPAD_CAMERA_STATUS` and
   `RUSTY_QUEST_MAKEPAD_STEREO_COMPARISON` on startup.
@@ -325,7 +325,7 @@ The projection-target joystick scale control is on by default for the current
 calibration profile and can be made explicit with:
 
 ```powershell
-adb -s <quest-serial> shell setprop debug.rustyquest.makepad.projection.target.joystick.controls offset-scale
+adb -s <quest-serial> shell setprop debug.rustyquest.projection.target.joystick.controls offset-scale
 ```
 
 Use `off` for comparison captures where controller input must not affect the
@@ -451,7 +451,7 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\I
 
 The same `-ProjectionBorderPolicy` switch can be combined with
 `-UseBrokerH264Camera` or `-UseBrokerH264Synthetic`. It sets
-`debug.rustyquest.makepad.projection.border.policy` and pairs
+`debug.rustyquest.projection.border.policy` and pairs
 `passthrough-underlay` with
 `debug.rustyquest.makepad.native.passthrough.enabled=true`. The app writes alpha
 zero outside the projected camera region for the underlay policy and keeps the
@@ -466,7 +466,7 @@ fades only valid projected camera pixels; the border opacity fades the
 non-projection matte/border independently.
 Add `-ProjectionDepthMeters <meters>` to set the head-anchored projection
 surface depth explicitly. The guarded launcher writes
-`debug.rustyquest.makepad.projection.depth.meters`, defaults to `1.0`, and logs the value
+`debug.rustyquest.projection.depth.meters`, defaults to `1.0`, and logs the value
 as `projectionDepthMeters` / `panelTargetDepthMeters` so Makepad depth remains
 visible beside HWB and GL/OES. For canvas/custom parity runs, pass
 `-CameraProjectionMode world-canvas -CameraProjectionGeometryProfile
@@ -486,7 +486,7 @@ camera color. `tools\Send-MakepadCameraControls.ps1` accepts the same
 alpha mode, scale, and bias properties for short headset A/B checks.
 Add `-ProcessingLayer blur -BlurRadiusPx 2.0` to enable the public diagnostic
 blur layer for valid camera samples while keeping the same projection border
-policy. The gate writes `debug.rustyquest.makepad.processing.layer` and
+policy. The gate writes `debug.rustyquest.processing.layer` and
 `debug.rustyquest.makepad.blur.radius.px`, and the running app also accepts those
 properties through `tools\Send-MakepadCameraControls.ps1` for short
 operator A/B checks.
@@ -544,7 +544,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   projection-footprint keystone and bow controls are pre-homography diagnostics
   and reset to neutral.
 - The first shared-core bridge is deliberately small: resolved profile values
-  pass through `rusty-quest-makepad-runtime-config` before logging. Camera metadata,
+  pass through `rusty-quest-projection-runtime-config` before logging. Camera metadata,
   stream framing, and scorecard models should be added the same way, through
   core crates first and Makepad adapters second.
 - The current lane uses synthetic status/stereo-comparison markers, a bounded

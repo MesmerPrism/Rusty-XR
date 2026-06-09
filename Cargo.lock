@@ -841,7 +841,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
-name = "rusty-quest-makepad-runtime-config"
+name = "rusty-quest-projection-runtime-config"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -971,7 +971,7 @@ dependencies = [
  "ndk-context",
  "ndk-sys",
  "openxr",
- "rusty-quest-makepad-runtime-config",
+ "rusty-quest-projection-runtime-config",
  "rusty-xr-camera-model",
  "rusty-xr-contracts",
  "rusty-xr-debug-canvas",
@@ -998,7 +998,7 @@ dependencies = [
  "jni 0.21.1",
  "ndk-sys",
  "openxr",
- "rusty-quest-makepad-runtime-config",
+ "rusty-quest-projection-runtime-config",
  "rusty-xr-camera-model",
  "rusty-xr-contracts",
  "rusty-xr-quest-diagnostics",

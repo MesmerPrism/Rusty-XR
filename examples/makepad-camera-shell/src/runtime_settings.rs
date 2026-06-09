@@ -1,6 +1,6 @@
 #[cfg(target_os = "android")]
-use rusty_quest_makepad_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
-use rusty_quest_makepad_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
+use rusty_quest_projection_runtime_config::{AndroidPropertyPrefix, RuntimeKey};
+use rusty_quest_projection_runtime_config::{RuntimeConfig, RuntimeConfigSource, RuntimeValue};
 
 pub(crate) const DEFAULT_PROFILE: &str = "makepad-stereo-projection-pair-probe";
 pub(crate) const DEFAULT_TRANSPORT: &str = "makepad-direct-hwb-target-inner-band-stretch";

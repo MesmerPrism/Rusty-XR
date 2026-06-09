@@ -32,7 +32,7 @@ not in base crates.
 
 | Crate or area | Role | Notes |
 | --- | --- | --- |
-| `rusty-quest-makepad-runtime-config` | Runtime keys, typed values, config maps, and Android property naming helpers for the Makepad Quest projection lane. | Use for app-owned runtime profiles without hard-coding private launch identities. |
+| `rusty-quest-projection-runtime-config` | Runtime keys, typed values, config maps, and Android property naming helpers for shared Quest projection lanes. | Use for app-owned runtime profiles without hard-coding private launch identities. |
 | `tools/schema` | Schema export and validation helpers. | Generated schemas are checked, not hand-maintained. |
 | Example catalogs | Public Quest app catalog fixtures and build manifests. | Catalogs describe public examples only. Package identity remains example-owned. |
 

@@ -275,7 +275,7 @@ Useful launch extras:
   `3` is kept as an explicit acquisition diagnostic because some lower-level
   camera stacks retain fewer images; test it separately from AE target FPS
   changes.
-- `rustyquest.makepad.cameraSourceEyeMapping`: `left-right` or `right-left`. It controls
+- `rustyquest.cameraSourceEyeMapping`: `left-right` or `right-left`. It controls
   whether the display left eye samples the left/source-0 camera or the
   right/source-1 camera. This is a runtime visual diagnostic knob because
   Camera2 source IDs are device/runtime observations, not portable eye labels.
@@ -478,7 +478,7 @@ The brightness trigger for border bleed uses the current final projected camera
 sample at that display pixel, with a small projected-neighborhood smooth, so
 the soft bleed follows dark regions in the visible stereo composite instead of
 raw left/right texture UVs, fullscreen screen UVs, or an inward guide sample.
-`rustyquest.makepad.cameraProjectionMode` selects the display mapping used by the
+`rustyquest.cameraProjectionMode` selects the display mapping used by the
 projected profile. The default `display-screen-homography` mode renders a
 fullscreen multiview pass and composes display-eye screen UVs back into the
 head-anchored content surface before sampling the source camera. The
@@ -558,7 +558,7 @@ when the broker is already publishing `bio:breath`: that profile disables
 joystick target tuning and maps the broker payload's `volume01` field onto
 `projectionTargetScale`. By default `volume01=0.0` maps to scale `0.75` and
 `volume01=1.0` maps to scale `1.15`; set
-`rustyquest.makepad.projectionTargetBreathInvert=true` if a run should reverse that
+`rustyquest.projectionTargetBreathInvert=true` if a run should reverse that
 relationship.
 When intrinsics or pose metadata is missing, this example logs the fallback
 reason and remains a GPU-buffer probe.
@@ -658,27 +658,27 @@ The catalog keeps camera path experiments as separate runtime profiles:
   checks.
 - For projection-area alignment, override any direct or broker raw-projection
   profile with `rustyquest.makepad.cameraPipelinePreset=raw-projection-unorm` and
-  `rustyquest.makepad.projectionBorderPolicy=solid-red` to keep camera pixels inside the
+  `rustyquest.projectionBorderPolicy=solid-red` to keep camera pixels inside the
   hard public projection-area mask and render the outside-projection area as
-  opaque red. Use `rustyquest.makepad.projectionBorderPolicy=passthrough-underlay` when
+  opaque red. Use `rustyquest.projectionBorderPolicy=passthrough-underlay` when
   the same outside-projection area should be transparent over the public OpenXR
-  passthrough underlay instead. Use `rustyquest.makepad.processingLayer=blur` with
-  `rustyquest.makepad.cameraBlurRadiusPx=<px>` for the same projection-area policies with
+  passthrough underlay instead. Use `rustyquest.processingLayer=blur` with
+  `rustyquest.cameraBlurRadiusPx=<px>` for the same projection-area policies with
   the public diagnostic blur layer applied to valid camera samples only. Use
-  `rustyquest.makepad.projectionAreaOffsetYUv=<value>` for controlled vertical centering
+  `rustyquest.projectionAreaOffsetYUv=<value>` for controlled vertical centering
   sweeps after the hard-mask evidence is valid.
-  Use `rustyquest.makepad.projectionAreaOpacity=<0..1>` to fade the projected camera
-  window and `rustyquest.makepad.projectionBorderOpacity=<0..1>` to fade the
+  Use `rustyquest.projectionAreaOpacity=<0..1>` to fade the projected camera
+  window and `rustyquest.projectionBorderOpacity=<0..1>` to fade the
   surrounding solid border independently. A red-border passthrough alignment
   run should keep the solid-red preset and set
   `rustyquest.makepad.openxrPassthroughProbe=underlay` so opacity changes do not alter the
   projection geometry.
-  Use `rustyquest.makepad.projectionAlphaMode=red|green|blue|luma` or an inverse
+  Use `rustyquest.projectionAlphaMode=red|green|blue|luma` or an inverse
   variant only after the hard-mask geometry is stable; the selected color mask
   is multiplied by projection-area opacity with optional
-  `rustyquest.makepad.projectionAlphaScale` and `rustyquest.makepad.projectionAlphaBias`.
-  Use `rustyquest.makepad.projectionDepthMeters=<meters>` for the head-anchored
-  projection surface depth. The default is `1.0`; `rustyquest.makepad.cameraProjectionScale`
+  `rustyquest.projectionAlphaScale` and `rustyquest.projectionAlphaBias`.
+  Use `rustyquest.projectionDepthMeters=<meters>` for the head-anchored
+  projection surface depth. The default is `1.0`; `rustyquest.cameraProjectionScale`
   remains a footprint/content-scale variable and is not a depth fallback.
 - `broker-h264` existing-stream mode: set
   `rustyquest.makepad.brokerH264SourceMode=existing-stream` when a broker TCP proxy,

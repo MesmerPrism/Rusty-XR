@@ -21,8 +21,8 @@ pub fn status_json() -> String {
 
 fn current_android_projection_property_config<'a>(
     pairs: impl IntoIterator<Item = (&'a str, &'a str)>,
-) -> rusty_quest_makepad_runtime_config::RuntimeConfigInputParse {
-    use rusty_quest_makepad_runtime_config as rxrc;
+) -> rusty_quest_projection_runtime_config::RuntimeConfigInputParse {
+    use rusty_quest_projection_runtime_config as rxrc;
 
     let mut config = rxrc::RuntimeConfig::new();
     let mut inputs = Vec::new();
@@ -532,7 +532,7 @@ mod android {
 #[cfg(test)]
 mod tests {
     use super::{current_android_projection_property_config, status_json};
-    use rusty_quest_makepad_runtime_config as rxrc;
+    use rusty_quest_projection_runtime_config as rxrc;
 
     #[test]
     fn status_json_uses_public_schema() {
@@ -545,26 +545,14 @@ mod tests {
     #[test]
     fn current_android_projection_properties_cover_canonical_surface() {
         let parsed = current_android_projection_property_config([
-            ("debug.rustyquest.makepad.projection.depth.meters", "1.75"),
+            ("debug.rustyquest.projection.depth.meters", "1.75"),
+            ("debug.rustyquest.projection.area.radius.x.uv", "0.42"),
+            ("debug.rustyquest.projection.border.policy", "solid-red"),
+            ("debug.rustyquest.projection.alpha.mode", "source-alpha"),
+            ("debug.rustyquest.source.visible.rect.width.uv", "0.875"),
+            ("debug.rustyquest.source.eye.mapping", "right-left"),
             (
-                "debug.rustyquest.makepad.projection.area.radius.x.uv",
-                "0.42",
-            ),
-            (
-                "debug.rustyquest.makepad.projection.border.policy",
-                "solid-red",
-            ),
-            (
-                "debug.rustyquest.makepad.projection.alpha.mode",
-                "source-alpha",
-            ),
-            (
-                "debug.rustyquest.makepad.source.visible.rect.width.uv",
-                "0.875",
-            ),
-            ("debug.rustyquest.makepad.source.eye.mapping", "right-left"),
-            (
-                "debug.rustyquest.makepad.source.texture.transform.source",
+                "debug.rustyquest.source.texture.transform.source",
                 "metadata",
             ),
         ]);
@@ -603,14 +591,8 @@ mod tests {
     #[test]
     fn current_android_projection_properties_reject_removed_directional_inputs() {
         let parsed = current_android_projection_property_config([
-            (
-                "debug.rustyquest.makepad.projection.area.offset.left.uv",
-                "0.125",
-            ),
-            (
-                "debug.rustyquest.makepad.projection.area.left.offset.x.uv",
-                "0.25",
-            ),
+            ("debug.rustyquest.projection.area.offset.left.uv", "0.125"),
+            ("debug.rustyquest.projection.area.left.offset.x.uv", "0.25"),
         ]);
 
         assert_eq!(
@@ -629,14 +611,8 @@ mod tests {
     #[test]
     fn current_android_projection_properties_ignore_invalid_values() {
         let parsed = current_android_projection_property_config([
-            (
-                "debug.rustyquest.makepad.projection.depth.meters",
-                "not-a-number",
-            ),
-            (
-                "debug.rustyquest.makepad.projection.area.radius.x.uv",
-                "0.42",
-            ),
+            ("debug.rustyquest.projection.depth.meters", "not-a-number"),
+            ("debug.rustyquest.projection.area.radius.x.uv", "0.42"),
         ]);
 
         assert_eq!(parsed.config.get(rxrc::KEY_PROJECTION_DEPTH_METERS), None);

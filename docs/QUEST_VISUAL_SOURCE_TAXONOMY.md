@@ -257,7 +257,7 @@ the projected shader path already receives camera UVs in the expected vertical
 orientation.
 
 The public profile supports independent left/right texture transforms and a
-source-eye mapping knob. Use `rustyxr.cameraSourceEyeMapping=left-right` or
+source-eye mapping knob. Use `rustyquest.cameraSourceEyeMapping=left-right` or
 `right-left` to test which Camera2 source belongs to each display eye. Use
 `rustyxr.cameraOrientationDiagnosticMode=cycle-source-eye-mapping`,
 `cycle-left-texture-transform`, `cycle-right-texture-transform`, or `cycle-all`

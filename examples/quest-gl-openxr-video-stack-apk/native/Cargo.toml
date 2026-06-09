@@ -17,7 +17,7 @@ path = "src/main.rs"
 rusty-xr-contracts = { path = "../../../crates/rusty-xr-contracts", features = ["serde"] }
 rusty-xr-camera-model = { path = "../../../crates/rusty-xr-camera-model" }
 rusty-xr-quest-diagnostics = { path = "../../../crates/rusty-xr-quest-diagnostics", features = ["serde"] }
-rusty-quest-makepad-runtime-config = { path = "../../../crates/rusty-quest-makepad-runtime-config" }
+rusty-quest-projection-runtime-config = { path = "../../../crates/rusty-quest-projection-runtime-config" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

@@ -69,7 +69,7 @@ pub(super) fn read_oes_activity_extras(app: &android_activity::AndroidApp) -> Oe
 
 fn processing_layer_from_activity(app: &android_activity::AndroidApp) -> OesProcessingLayer {
     with_activity_env(app, OesProcessingLayer::default(), |env, activity| {
-        let requested = activity_string_extra(env, activity, "rustyxr.processingLayer");
+        let requested = activity_string_extra(env, activity, "rustyquest.processingLayer");
         requested
             .as_deref()
             .and_then(OesProcessingLayer::parse)
@@ -79,7 +79,7 @@ fn processing_layer_from_activity(app: &android_activity::AndroidApp) -> OesProc
 
 fn blur_radius_px_from_activity(app: &android_activity::AndroidApp) -> f32 {
     with_activity_env(app, 2.0, |env, activity| {
-        activity_string_extra(env, activity, "rustyxr.cameraBlurRadiusPx")
+        activity_string_extra(env, activity, "rustyquest.cameraBlurRadiusPx")
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())
             .unwrap_or(2.0)
@@ -93,55 +93,59 @@ fn peripheral_stretch_from_activity(
     let defaults = OesPeripheralStretchConfig::default();
     with_activity_env(app, defaults, |env, activity| {
         OesPeripheralStretchConfig {
-            mode: activity_string_extra(env, activity, "rustyxr.peripheralStretchMode")
+            mode: activity_string_extra(env, activity, "rustyquest.peripheralStretchMode")
                 .as_deref()
                 .and_then(OesPeripheralStretchMode::parse)
                 .unwrap_or(defaults.mode),
             core_scale: activity_float_extra(
                 env,
                 activity,
-                &["rustyxr.peripheralStretchCoreScale"],
+                &["rustyquest.peripheralStretchCoreScale"],
             )
             .unwrap_or(defaults.core_scale),
             edge_inset_uv: activity_float_extra(
                 env,
                 activity,
-                &["rustyxr.peripheralStretchEdgeInsetUv"],
+                &["rustyquest.peripheralStretchEdgeInsetUv"],
             )
             .unwrap_or(defaults.edge_inset_uv),
             max_inset_uv: activity_float_extra(
                 env,
                 activity,
-                &["rustyxr.peripheralStretchMaxInsetUv"],
+                &["rustyquest.peripheralStretchMaxInsetUv"],
             )
             .unwrap_or(defaults.max_inset_uv),
-            curve: activity_float_extra(env, activity, &["rustyxr.peripheralStretchCurve"])
+            curve: activity_float_extra(env, activity, &["rustyquest.peripheralStretchCurve"])
                 .unwrap_or(defaults.curve),
             inner_blend_uv: activity_float_extra(
                 env,
                 activity,
-                &["rustyxr.peripheralStretchInnerBlendUv"],
+                &["rustyquest.peripheralStretchInnerBlendUv"],
             )
             .unwrap_or(defaults.inner_blend_uv),
             blend_curve: activity_float_extra(
                 env,
                 activity,
-                &["rustyxr.peripheralStretchBlendCurve"],
+                &["rustyquest.peripheralStretchBlendCurve"],
             )
             .unwrap_or(defaults.blend_curve),
-            blend_mode: activity_string_extra(env, activity, "rustyxr.peripheralStretchBlendMode")
-                .as_deref()
-                .and_then(OesPeripheralStretchBlendMode::parse)
-                .unwrap_or(defaults.blend_mode),
+            blend_mode: activity_string_extra(
+                env,
+                activity,
+                "rustyquest.peripheralStretchBlendMode",
+            )
+            .as_deref()
+            .and_then(OesPeripheralStretchBlendMode::parse)
+            .unwrap_or(defaults.blend_mode),
             corner_mode: activity_string_extra(
                 env,
                 activity,
-                "rustyxr.peripheralStretchCornerMode",
+                "rustyquest.peripheralStretchCornerMode",
             )
             .as_deref()
             .and_then(OesPeripheralStretchCornerMode::parse)
             .unwrap_or(defaults.corner_mode),
-            debug: activity_string_extra(env, activity, "rustyxr.peripheralStretchDebug")
+            debug: activity_string_extra(env, activity, "rustyquest.peripheralStretchDebug")
                 .as_deref()
                 .and_then(OesPeripheralStretchDebug::parse)
                 .unwrap_or(defaults.debug),

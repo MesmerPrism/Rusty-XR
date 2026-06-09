@@ -21,7 +21,7 @@ Current scope:
   per-eye camera IDs;
 - optionally open Camera2 directly inside the APK and route per-eye preview
   output to the same `SurfaceTexture`/OES render path;
-- select `rustyquest.makepad.projectionBorderPolicy=solid-red` for an opaque red
+- select `rustyquest.projectionBorderPolicy=solid-red` for an opaque red
   outside-projection hard mask or `passthrough-underlay` for the same region as
   transparent alpha with source-alpha blending;
 - when source alpha is requested and `XR_FB_passthrough` is available, submit a
@@ -120,17 +120,17 @@ rustyquest.makepad.brokerH264FrameRateHz
 rustyquest.makepad.brokerH264LiveStream
 rustyquest.makepad.brokerH264CommandTimeoutMs
 rustyquest.makepad.brokerH264DecodeTimeoutMs
-rustyquest.makepad.projectionBorderPolicy
-rustyquest.makepad.projectionAreaOffsetYUv
+rustyquest.projectionBorderPolicy
+rustyquest.projectionAreaOffsetYUv
 ```
 
 Use `rustyquest.makepad.brokerH264SourceMode=broker-synthetic` for deterministic source
 parity and `rustyquest.makepad.brokerH264SourceMode=broker-camera` for physical camera
 checks.
 
-Use `rustyquest.makepad.projectionBorderPolicy=solid-red` for image segmentation and
+Use `rustyquest.projectionBorderPolicy=solid-red` for image segmentation and
 projection-area footprint checks. Use
-`rustyquest.makepad.projectionBorderPolicy=passthrough-underlay` for operator alignment
+`rustyquest.projectionBorderPolicy=passthrough-underlay` for operator alignment
 against a native passthrough underlay. Both policies use the same hard public
 projection-area mask over the full submitted eye surface: solid-red fills the
 outside-projection region, while passthrough-underlay writes transparent alpha
@@ -143,23 +143,23 @@ the passthrough layer cannot be created, transparent regions can still resolve
 to the black compositor background and the feasibility status will include a
 passthrough issue code. A black outside region in a `solid-red` run is not valid
 footprint evidence; rerun after checking the launch extras and shader logs.
-Use `rustyquest.makepad.projectionAreaOffsetYUv=<value>` for controlled vertical
+Use `rustyquest.projectionAreaOffsetYUv=<value>` for controlled vertical
 projection-area centering sweeps after the hard-mask border is proven.
-Use `rustyquest.makepad.projectionAreaOpacity=<0..1>` to fade valid projected OES camera
-pixels and `rustyquest.makepad.projectionBorderOpacity=<0..1>` to fade the solid-red
+Use `rustyquest.projectionAreaOpacity=<0..1>` to fade valid projected OES camera
+pixels and `rustyquest.projectionBorderOpacity=<0..1>` to fade the solid-red
 outside-projection region independently. Opacity below `1.0` requests
 source-alpha composition for the projection layer and the same optional native
 passthrough underlay path.
-Use `rustyquest.makepad.projectionAlphaMode=red|green|blue|luma` or an inverse variant
+Use `rustyquest.projectionAlphaMode=red|green|blue|luma` or an inverse variant
 when a stable projection should blend native passthrough by source color. The
 effective alpha is projection-area opacity multiplied by the selected mask with
-optional `rustyquest.makepad.projectionAlphaScale` and `rustyquest.makepad.projectionAlphaBias`.
-Use `rustyquest.makepad.projectionDepthMeters=<meters>` for the head-anchored projection
+optional `rustyquest.projectionAlphaScale` and `rustyquest.projectionAlphaBias`.
+Use `rustyquest.projectionDepthMeters=<meters>` for the head-anchored projection
 surface depth. The default is `1.0`, and the value is emitted in projection
 contract markers so OES can be compared directly with HWB and Makepad.
-Set `rustyquest.makepad.processingLayer=blur` and `rustyquest.makepad.cameraBlurRadiusPx=<px>` to run
+Set `rustyquest.processingLayer=blur` and `rustyquest.cameraBlurRadiusPx=<px>` to run
 the same valid projected camera samples through the public 9-tap diagnostic blur
-layer. Leave `rustyquest.makepad.processingLayer=raw` for projection-only checks.
+layer. Leave `rustyquest.processingLayer=raw` for projection-only checks.
 
 The direct Camera2/OES path reads these launch extras:
 

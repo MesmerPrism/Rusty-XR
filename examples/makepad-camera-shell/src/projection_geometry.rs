@@ -2222,7 +2222,7 @@ pub(crate) fn makepad_projection_target_marker_fields() -> String {
         projection_target_radius_y_uv,
         projection_area_corner_radius_uv,
         marker_token(&hotload_text(
-            rusty_quest_makepad_runtime_config::KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
+            rusty_quest_projection_runtime_config::KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
             DEFAULT_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS,
         )),
         projection_canvas_mode,
