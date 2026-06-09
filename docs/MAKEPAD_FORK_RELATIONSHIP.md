@@ -152,7 +152,7 @@ as the ergonomic app-shell lane. A Makepad fork update should be validated in
 this order:
 
 1. Targeted formatting for the Makepad files changed by the branch, using the
-   maintained fork's metadata-driven formatter (`tools/rusty_xr_format.py`)
+   maintained fork's metadata-driven formatter (`tools/makepad_fork_format.py`)
    rather than `cargo fmt --all`. Cargo's `--all` formatter route walks local
    path dependencies, including vendored crates outside the Makepad patch
    surface.

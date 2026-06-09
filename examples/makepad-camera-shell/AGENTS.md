@@ -68,7 +68,7 @@ For Android build validation, use `cargo-makepad` from the maintained Makepad
 fork and keep the generated `target/` output uncommitted.
 
 When editing the maintained Makepad fork for this example, use that fork's
-metadata-driven changed-file formatter (`tools/rusty_xr_format.py`). Do not
+metadata-driven changed-file formatter (`tools/makepad_fork_format.py`). Do not
 use `cargo fmt --all` there: Cargo's `--all` formatter route also walks local
 path dependencies, including vendored crates outside the Makepad patch surface.
 
