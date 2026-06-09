@@ -66,8 +66,8 @@
     {
       "label": "Makepad framework source",
       "kind": "rust-git-dependency",
-      "providedBy": "Maintained public Makepad fork branch",
-      "notes": "The package consumes the branch listed in Cargo.toml; Cargo.lock records the resolved commit."
+      "providedBy": "Maintained public Makepad fork checkout",
+      "notes": "The package consumes the git branch listed in Cargo.toml; Cargo.lock records the resolved commit."
     },
     {
       "label": "Android SDK",
@@ -123,7 +123,7 @@
   ],
   "capabilities": [
     "makepad-quest-variant",
-    "maintained-makepad-fork-branch",
+    "maintained-makepad-fork-checkout",
     "openxr-generated-android-manifest",
     "makepad-quest-openxr-smoke",
     "makepad-quest-synthetic-stereo-scene",

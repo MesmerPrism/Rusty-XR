@@ -13,6 +13,11 @@ from typing import Any
 
 
 MANIFEST_SCHEMA_VERSION = "rusty.xr.android-build-manifest.v1"
+MAKEPAD_MANIFEST_SCHEMA_VERSION = "rusty.quest.makepad.android-build-manifest.v1"
+ALLOWED_MANIFEST_SCHEMA_VERSIONS = {
+    MANIFEST_SCHEMA_VERSION,
+    MAKEPAD_MANIFEST_SCHEMA_VERSION,
+}
 ABSOLUTE_PATH_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|/|\\\\)")
 LOCAL_PATH_HINT_RE = re.compile(
     r"(?:Users[\\/]|Program Files[\\/]|AppData[\\/]|Unity[\\/]Hub[\\/]Editor)",
@@ -263,9 +268,10 @@ def validate_manifest(path: Path) -> None:
     )
 
     schema_version = require_string(manifest["schemaVersion"], "manifest.schemaVersion")
-    if schema_version != MANIFEST_SCHEMA_VERSION:
+    if schema_version not in ALLOWED_MANIFEST_SCHEMA_VERSIONS:
+        allowed = ", ".join(sorted(repr(version) for version in ALLOWED_MANIFEST_SCHEMA_VERSIONS))
         raise ValueError(
-            f"manifest.schemaVersion must be {MANIFEST_SCHEMA_VERSION!r}, got {schema_version!r}"
+            f"manifest.schemaVersion must be one of {allowed}, got {schema_version!r}"
         )
     require_string(manifest["exampleId"], "manifest.exampleId")
     artifact_kind = require_string(manifest["artifactKind"], "manifest.artifactKind")

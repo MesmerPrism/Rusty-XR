@@ -13,7 +13,7 @@ default = []
 makepad-hwb-ycbcr-metadata = []
 
 [dependencies]
-rusty-quest-makepad-xr = { package = "makepad-xr", git = "https://github.com/MesmerPrism/makepad.git", branch = "rusty-quest/android-libstd-packaging", version = "1.0.0" }
+rusty-quest-makepad-xr = { package = "makepad-xr", git = "https://github.com/MesmerPrism/makepad.git", branch = "dev", version = "1.0.0" }
 rusty-xr-camera-model = { path = "../../crates/rusty-xr-camera-model" }
 rusty-xr-contracts = { path = "../../crates/rusty-xr-contracts" }
 rusty-quest-makepad-runtime-config = { path = "../../crates/rusty-quest-makepad-runtime-config" }

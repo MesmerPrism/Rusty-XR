@@ -1,8 +1,11 @@
 # Rusty Quest Makepad Camera Shell
 
-This is a standalone Makepad-first Quest lane. It exists so Rusty Morphospace can compare
-the current custom Android APK workflow with Makepad's generated Android/OpenXR
-packaging without replacing either path too early.
+This is a standalone Makepad-first Quest reference lane. It exists so Rusty
+Morphospace can compare the current custom Android APK workflow with Makepad's
+generated Android/OpenXR packaging without replacing either path too early. New
+active Makepad app/settings/profile work now lives in the Morphospace repos:
+`rusty-makepad`, `rusty-quest`, `rusty-quest-makepad`, and the
+`makepad-morphospace` fork checkout.
 
 The first pass was intentionally a synthetic OpenXR smoke app. It proved the
 Makepad Quest APK path, emitted Rusty Quest Makepad log markers, exercised Makepad's XR
@@ -13,18 +16,17 @@ probe plus a delayed Makepad-owned paired hardware-buffer import probe so
 renderer smoke runs can be lined up against the custom APK camera-stereo
 baseline before performance parity is measured.
 
-This example consumes the maintained Makepad fork branch as an app-shell
-dependency only. Morphospace core stays Makepad-independent; the relationship and
-fork-patch policy are documented in
+This example consumes the maintained Makepad fork default branch as an
+app-shell dependency only. Morphospace core stays Makepad-independent; the
+relationship and fork-patch policy are documented in
 [../../docs/MAKEPAD_FORK_RELATIONSHIP.md](../../docs/MAKEPAD_FORK_RELATIONSHIP.md).
 
 ## Current Scope
 
 - Uses `cargo-makepad android --variant=quest`.
-- Uses the maintained Makepad fork branch
-  `rusty-quest/android-libstd-packaging`. The exact Makepad revision for this
-  example is pinned in `Cargo.lock`. Local evidence builds run the wrapper
-  with `-MakepadSourceRoot <makepad-fork-checkout>` or
+- Uses the maintained Makepad fork default branch, currently `dev`. The exact
+  Makepad revision for this example is pinned in `Cargo.lock`. Local evidence
+  builds run the wrapper with `-MakepadSourceRoot <makepad-fork-checkout>` or
   `RUSTY_QUEST_MAKEPAD_SOURCE_ROOT` so the packager and app Makepad dependencies
   both come from the maintained fork checkout. The wrapper requires that source
   root by default. Use `-NoPatchMakepadXrFromSource` only for an intentional
@@ -673,7 +675,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
 ## Validation Status
 
 - `cargo check`: passes for this standalone package.
-- Quest APK build: passes with the maintained Makepad fork branch, including
+- Quest APK build: passes with the maintained Makepad fork checkout, including
   dependent Rust shared-library bundling.
 - Current projection parity slice: the example is on S91. S86 restored real
   camera detail through direct fullscreen YUV sampling, proving the current
@@ -880,7 +882,7 @@ window remains an `ok` run with the reason recorded. Record whether the run was
   successful paired import/projection marker gate, and should stay visible in
   the iteration ledger during performance comparison work.
 - Current source/build slice: paired Makepad hardware-buffer import and
-  projection-mapping markers are validated against the maintained fork branch,
+  projection-mapping markers are validated against the maintained fork checkout,
   launcher-path active presentation is validated, the fallback synthetic scene
   has been removed from the visual gate, and the rejected native `Video` widget
   diagnostic is disabled. S32 operator review reclassified the Makepad visual

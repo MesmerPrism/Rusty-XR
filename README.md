@@ -188,26 +188,16 @@ off the broker JSON path, and includes a guarded MediaCodec synthetic-Surface
 encoder probe plus a guarded shell `screenrecord` display-source probe behind
 the same framing. It is Developer Mode tooling, not an installed APK permission:
 [examples/quest-broker-shell-helper/README.md](examples/quest-broker-shell-helper/README.md).
-A standalone Makepad-first Quest comparison lane is available at
+A standalone Makepad-first Quest reference lane is available at
 [examples/makepad-camera-shell/README.md](examples/makepad-camera-shell/README.md).
 It uses Makepad's Android/OpenXR packaging surface, exercises `makepad-xr`, and
-emits a synthetic Rusty XR status marker before camera or broker behavior is
-added. The marker values already route through `rusty-quest-makepad-runtime-config`, so
-the lane is anchored to the same public core as the custom APK examples.
-Current device validation reaches the generated XR activity, but GPU page
-faults in the Quest log are still an active Makepad-lane blocker; the same
-symptom reproduced with Makepad's upstream XR example on the same headset. The
-depth-stack comparison showed useful differences against the non-Makepad
-composite example, but provider start, per-frame acquire/readback, and depth
-image view creation are not required for the fault. Later splits also faulted
-without passthrough creation, without environment-depth provider/swapchain
-creation, with zero composition layers submitted, without OpenXR color swapchain
-creation, without the OpenXR frame loop, without OpenXR session creation, and
-without Makepad OpenXR instance creation. A same-APK launch of the normal
-Makepad Android activity also reproduced the page-fault class. The current
-isolation target is Makepad's base Android graphics/activity path on Quest /
-Horizon OS; the attempt log is tracked in
-[docs/MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md](docs/MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md).
+emits public Makepad/Quest status markers for compatibility evidence. Active
+Morphospace Makepad settings, profile resolution, Quest-specific adapters, and
+fork maintenance now live in `rusty-makepad`, `rusty-quest`,
+`rusty-quest-makepad`, and the `makepad-morphospace` fork checkout. The older
+GPU-fault and stereo-comparison attempt logs remain public history in
+[docs/MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md](docs/MAKEPAD_XR_GPU_PAGE_FAULT_INVESTIGATION.md)
+and [docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).
 Quest ADB input smoke-test limits are documented in
 [docs/QUEST_ADB_INPUT_WORKFLOW.md](docs/QUEST_ADB_INPUT_WORKFLOW.md).
 Headset-local app launching and the boundary between normal PackageManager
@@ -309,9 +299,9 @@ The Makepad-first fork-lane comparison, including affordances, costs,
 dependencies, and remaining decision points, is tracked in
 [docs/MAKEPAD_CAMERA_PARALLEL_APPROACH_COMPARISON.md](docs/MAKEPAD_CAMERA_PARALLEL_APPROACH_COMPARISON.md).
 The public ownership boundary between Rusty XR core and the maintained Makepad
-fork branch is documented in
+fork checkout is documented in
 [docs/MAKEPAD_FORK_RELATIONSHIP.md](docs/MAKEPAD_FORK_RELATIONSHIP.md).
-The active Makepad stereo-comparison implementation ledger is tracked in
+The historical public Makepad stereo-comparison implementation ledger is tracked in
 [docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).
 The dedicated Quest stereo alignment workflow, including screenshot analysis
 and optional MediaProjection witness handling, is documented in

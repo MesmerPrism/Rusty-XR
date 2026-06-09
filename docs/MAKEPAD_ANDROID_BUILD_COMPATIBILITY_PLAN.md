@@ -263,10 +263,13 @@ Initial Phase 1 manifests now live beside the current public examples:
 - `examples/quest-broker-shell-helper/build-manifest.public.json`
 - `examples/makepad-camera-shell/build-manifest.public.json`
 
-They use schema version `rusty.xr.android-build-manifest.v1` and record source
+The standard examples use schema version `rusty.xr.android-build-manifest.v1`.
+The Makepad example uses `rusty.quest.makepad.android-build-manifest.v1` for
+the same validated shape because Makepad generates the Android manifest and
+activity source under ignored `target/` output. The manifests record source
 inputs, generated build inputs, external tool/library inputs, generated
-outputs, Android permissions/features, and scorecard-relevant capabilities. The
-manifests are intentionally descriptive: they do not replace the current build
+outputs, Android permissions/features, and scorecard-relevant capabilities.
+They are intentionally descriptive: they do not replace the current build
 scripts yet, and they do not contain local SDK paths, generated APK bytes,
 keystore paths, device serials, or run artifacts.
 

@@ -311,8 +311,8 @@ That reopens color conversion and makes S59 a simpler no-swap limited-BT.601
 control against Android YUV_420_888 plane-order semantics before paired/per-eye
 projection parity:
 
-- keep the maintained Makepad fork branch
-  `rusty-quest/android-libstd-packaging` as the Android app-shell dependency
+- keep the maintained Makepad fork default branch, currently `dev`, as the
+  Android app-shell dependency
 - preserve the completed Camera2 metadata, bounded acquisition, paired Makepad
   import, and metadata-backed projection-mapping markers
 - validate active Makepad XR presentation through the launcher/normal activity
