@@ -6,7 +6,7 @@ use std::{
     net::TcpStream,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     thread,
     time::Duration,
@@ -48,25 +48,42 @@ pub(crate) struct BreathFeedbackSample {
     pub volume01: f64,
     pub phase: String,
     pub quality: String,
+    pub quality01: Option<f64>,
     pub payload_hash: String,
 }
 
 pub(crate) struct ManifoldBreathFeedbackSubscriber {
     config: ManifoldBreathFeedbackConfig,
     stop: Arc<AtomicBool>,
+    latest_sample: Arc<Mutex<Option<BreathFeedbackSample>>>,
 }
 
 impl ManifoldBreathFeedbackSubscriber {
     pub(crate) fn new(config: ManifoldBreathFeedbackConfig) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
+        let latest_sample = Arc::new(Mutex::new(None));
         let worker_stop = stop.clone();
         let worker_config = config.clone();
-        thread::spawn(move || run_breath_feedback_worker(worker_config, worker_stop));
-        Self { config, stop }
+        let worker_latest_sample = latest_sample.clone();
+        thread::spawn(move || {
+            run_breath_feedback_worker(worker_config, worker_stop, worker_latest_sample)
+        });
+        Self {
+            config,
+            stop,
+            latest_sample,
+        }
     }
 
     pub(crate) fn config(&self) -> &ManifoldBreathFeedbackConfig {
         &self.config
+    }
+
+    pub(crate) fn latest_sample(&self) -> Option<BreathFeedbackSample> {
+        self.latest_sample
+            .lock()
+            .ok()
+            .and_then(|latest| latest.clone())
     }
 }
 
@@ -121,6 +138,8 @@ pub(crate) fn parse_breath_feedback_event(
         "unknown",
     );
     let quality = first_string(&[payload.get("quality")], "unknown");
+    let quality01 = first_f64(&[payload.get("quality01"), payload.get("tracking01")])
+        .map(|value| value.clamp(0.0, 1.0));
     let sequence_id =
         first_u64(&[message.get("sequence_id"), payload.get("sequence_id")]).unwrap_or_default();
     let sample_time_unix_ns = first_i64(&[
@@ -136,6 +155,7 @@ pub(crate) fn parse_breath_feedback_event(
         volume01: volume01.clamp(0.0, 1.0),
         phase,
         quality,
+        quality01,
         payload_hash: stable_json_hash(payload),
     })
 }
@@ -160,12 +180,17 @@ pub(crate) fn build_breath_feedback_receipt_command(
             "volume01": sample.volume01,
             "phase": sample.phase.clone(),
             "quality": sample.quality.clone(),
+            "quality01": sample.quality01,
             "payload_hash": sample.payload_hash.clone(),
         }
     })
 }
 
-fn run_breath_feedback_worker(config: ManifoldBreathFeedbackConfig, stop: Arc<AtomicBool>) {
+fn run_breath_feedback_worker(
+    config: ManifoldBreathFeedbackConfig,
+    stop: Arc<AtomicBool>,
+    latest_sample: Arc<Mutex<Option<BreathFeedbackSample>>>,
+) {
     let mut client = BrokerWebSocketClient::new(config.clone());
     let mut receipt_sequence_id = 1_u64;
     while !stop.load(Ordering::Relaxed) {
@@ -177,6 +202,9 @@ fn run_breath_feedback_worker(config: ManifoldBreathFeedbackConfig, stop: Arc<At
         match client.recv_json() {
             Ok(Some(message)) => {
                 if let Some(sample) = parse_breath_feedback_event(&message, &config.stream_id) {
+                    if let Ok(mut latest) = latest_sample.lock() {
+                        *latest = Some(sample.clone());
+                    }
                     let receipt = build_breath_feedback_receipt_command(
                         &config,
                         &sample,

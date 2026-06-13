@@ -54,6 +54,14 @@ pub(crate) const DEFAULT_MANIFOLD_BREATH_FEEDBACK_STREAM: &str = "stream.breath.
 pub(crate) const DEFAULT_MANIFOLD_BREATH_FEEDBACK_RECEIVER: &str =
     "app.makepad_camera_shell.breath_feedback";
 pub(crate) const DEFAULT_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS: u32 = 250;
+pub(crate) const DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_CONTROLS: &str = "off";
+pub(crate) const DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_STREAM: &str =
+    "stream.breath.volume.selected";
+pub(crate) const DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_MIN_SCALE: f32 = 1.0;
+pub(crate) const DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_MAX_SCALE: f32 = 0.1796;
+pub(crate) const DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA: f32 = 0.30;
+pub(crate) const DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_INVERT: bool = false;
+pub(crate) const DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_MIN_QUALITY: f32 = 0.0;
 pub(crate) const DEFAULT_MAKEPAD_MESH_REPLAY_ENABLED: bool = false;
 pub(crate) const DEFAULT_MAKEPAD_MESH_REPLAY_SOURCE: &str = "public-synthetic-hand-sequence";
 pub(crate) const DEFAULT_MAKEPAD_MESH_REPLAY_SPEED: f32 = 1.0;
@@ -251,6 +259,20 @@ pub(crate) const KEY_MANIFOLD_BREATH_FEEDBACK_STREAM: &str = "manifold_breath_fe
 pub(crate) const KEY_MANIFOLD_BREATH_FEEDBACK_RECEIVER: &str = "manifold_breath_feedback_receiver";
 pub(crate) const KEY_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS: &str =
     "manifold_breath_feedback_connect_timeout_ms";
+pub(crate) const KEY_MAKEPAD_PROJECTION_TARGET_BREATH_CONTROLS: &str =
+    "projection_target_breath_controls";
+pub(crate) const KEY_MAKEPAD_PROJECTION_TARGET_BREATH_STREAM: &str =
+    "projection_target_breath_stream";
+pub(crate) const KEY_MAKEPAD_PROJECTION_TARGET_BREATH_MIN_SCALE: &str =
+    "projection_target_breath_min_scale";
+pub(crate) const KEY_MAKEPAD_PROJECTION_TARGET_BREATH_MAX_SCALE: &str =
+    "projection_target_breath_max_scale";
+pub(crate) const KEY_MAKEPAD_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA: &str =
+    "projection_target_breath_smoothing_alpha";
+pub(crate) const KEY_MAKEPAD_PROJECTION_TARGET_BREATH_INVERT: &str =
+    "projection_target_breath_invert";
+pub(crate) const KEY_MAKEPAD_PROJECTION_TARGET_BREATH_MIN_QUALITY: &str =
+    "projection_target_breath_min_quality";
 
 pub(crate) fn makepad_runtime_config() -> RuntimeConfig {
     let mut config = RuntimeConfig::new();
@@ -479,18 +501,45 @@ pub(crate) fn hotload_text(key: &'static str, default: &str) -> String {
         .unwrap_or_else(|| default.to_string())
 }
 
+pub(crate) fn hotload_manifold_bool(key: &'static str, default: bool) -> bool {
+    manifold_runtime_value(key)
+        .map(|value| runtime_bool_from_token(&value))
+        .unwrap_or(default)
+}
+
+pub(crate) fn hotload_manifold_text(key: &'static str, default: &str) -> String {
+    manifold_runtime_value(key)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default.to_string())
+}
+
+pub(crate) fn hotload_manifold_f32(key: &'static str, default: f32, min: f32, max: f32) -> f32 {
+    manifold_runtime_value(key)
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(min, max))
+        .unwrap_or(default)
+}
+
+pub(crate) fn hotload_manifold_u32(key: &'static str, default: u32, min: u32, max: u32) -> u32 {
+    manifold_runtime_value(key)
+        .and_then(|value| value.parse::<u32>().ok())
+        .map(|value| value.clamp(min, max))
+        .unwrap_or(default)
+}
+
+pub(crate) fn hotload_manifold_u16(key: &'static str, default: u16, min: u16, max: u16) -> u16 {
+    hotload_manifold_u32(key, default as u32, min as u32, max as u32) as u16
+}
+
 pub(crate) fn hotload_bool_explicit_property(
     current_property: &'static str,
     current_env: &'static str,
     default: bool,
 ) -> bool {
     explicit_hotload_value(current_property, current_env)
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on" | "enabled"
-            )
-        })
+        .map(|value| runtime_bool_from_token(&value))
         .unwrap_or(default)
 }
 
@@ -542,6 +591,43 @@ fn runtime_env_key(key: &str) -> String {
     format!(
         "RUSTY_QUEST_MAKEPAD_{}",
         key.replace(['-', '.'], "_").to_ascii_uppercase()
+    )
+}
+
+fn runtime_bool_from_token(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on" | "enabled"
+    )
+}
+
+pub(crate) fn manifold_runtime_marker_value(key: &'static str) -> String {
+    manifold_runtime_value(key).unwrap_or_else(|| "default".to_string())
+}
+
+fn manifold_runtime_value(key: &'static str) -> Option<String> {
+    android_system_property_value(&manifold_property_name(key))
+        .or_else(|| runtime_property_value(key))
+        .or_else(|| std::env::var(manifold_env_key(key)).ok())
+        .or_else(|| std::env::var(runtime_env_key(key)).ok())
+}
+
+fn manifold_property_name(key: &str) -> String {
+    format!(
+        "debug.rusty.manifold.{}",
+        key.strip_prefix("manifold_")
+            .unwrap_or(key)
+            .replace(['_', '-'], ".")
+    )
+}
+
+fn manifold_env_key(key: &str) -> String {
+    format!(
+        "RUSTY_MANIFOLD_{}",
+        key.strip_prefix("manifold_")
+            .unwrap_or(key)
+            .replace(['-', '.'], "_")
+            .to_ascii_uppercase()
     )
 }
 
@@ -607,4 +693,29 @@ pub(crate) fn marker_token(value: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manifold_runtime_keys_map_to_global_manifold_properties() {
+        assert_eq!(
+            manifold_property_name(KEY_MANIFOLD_POSE_PUBLISH_ENABLED),
+            "debug.rusty.manifold.pose.publish.enabled"
+        );
+        assert_eq!(
+            manifold_property_name(KEY_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS),
+            "debug.rusty.manifold.breath.feedback.connect.timeout.ms"
+        );
+    }
+
+    #[test]
+    fn manifold_runtime_keys_have_global_env_fallbacks() {
+        assert_eq!(
+            manifold_env_key(KEY_MANIFOLD_POSE_SAMPLE_HZ),
+            "RUSTY_MANIFOLD_POSE_SAMPLE_HZ"
+        );
+    }
 }

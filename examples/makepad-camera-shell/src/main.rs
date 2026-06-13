@@ -82,13 +82,15 @@ use makepad_widgets::makepad_platform::{
     TextureFormat, TextureId, TextureUpdated,
 };
 use makepad_widgets::*;
-use manifold_breath_feedback::{ManifoldBreathFeedbackConfig, ManifoldBreathFeedbackSubscriber};
+use manifold_breath_feedback::{
+    BreathFeedbackSample, ManifoldBreathFeedbackConfig, ManifoldBreathFeedbackSubscriber,
+};
 use manifold_pose_publisher::{
     ManifoldPosePublisher, ManifoldPosePublisherConfig, ManifoldPoseSample,
 };
 use mesh_replay::{MeshReplayConfig, MeshReplayRuntime, MeshReplayUniforms};
-use rusty_quest_projection_runtime_config::RuntimeConfig;
 use rusty_quest_makepad_xr::scene::{xr_widget_world_transform, XrNode};
+use rusty_quest_projection_runtime_config::RuntimeConfig;
 use rusty_xr_camera_model::{Rect2, SourceSamplingMode, Vec2};
 use source_sampling::{
     makepad_cadence_sample_marker_line, makepad_cadence_start_marker_line,
@@ -118,6 +120,18 @@ static VIDEO_EVENT_RAW_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
 static TEXTURE_UPDATE_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
 static TEXTURE_CONTENT_PROBE_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
 static FRAME_ADOPTION_MARKERS_EMITTED: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Clone, Debug, PartialEq)]
+struct ProjectionTargetBreathScaleConfig {
+    enabled: bool,
+    controls: String,
+    stream_id: String,
+    scale_at_volume0: f32,
+    scale_at_volume1: f32,
+    smoothing_alpha: f32,
+    invert: bool,
+    min_quality: f32,
+}
 
 const CAMERA_PAIR_CLOSE_TIMESTAMP_NS: u64 = 25_000_000;
 const FRAME_ADOPTION_MARKER_LIMIT: usize = 24;
@@ -1532,6 +1546,14 @@ pub struct App {
     projection_target_joystick_last_time: f64,
     #[rust]
     projection_target_joystick_last_log_frame: u64,
+    #[rust]
+    projection_target_breath_scale_config_marker: Option<String>,
+    #[rust]
+    projection_target_breath_scale_ready: bool,
+    #[rust]
+    projection_target_breath_scale: f32,
+    #[rust]
+    projection_target_breath_last_sample_key: Option<String>,
     #[rust]
     cadence_next_frame: Option<NextFrame>,
     #[rust]
@@ -3286,34 +3308,43 @@ impl App {
 
     fn manifold_pose_publisher_config() -> ManifoldPosePublisherConfig {
         ManifoldPosePublisherConfig {
-            enabled: hotload_bool(
+            enabled: hotload_manifold_bool(
                 KEY_MANIFOLD_POSE_PUBLISH_ENABLED,
                 DEFAULT_MANIFOLD_POSE_PUBLISH_ENABLED,
             ),
-            broker_host: hotload_text(KEY_MANIFOLD_BROKER_HOST, DEFAULT_MANIFOLD_BROKER_HOST),
-            broker_port: hotload_u16(
+            broker_host: hotload_manifold_text(
+                KEY_MANIFOLD_BROKER_HOST,
+                DEFAULT_MANIFOLD_BROKER_HOST,
+            ),
+            broker_port: hotload_manifold_u16(
                 KEY_MANIFOLD_BROKER_PORT,
                 DEFAULT_MANIFOLD_BROKER_PORT,
                 1,
                 u16::MAX,
             ),
-            stream_id: hotload_text(KEY_MANIFOLD_POSE_STREAM, DEFAULT_MANIFOLD_POSE_STREAM),
-            source_id: hotload_text(KEY_MANIFOLD_POSE_SOURCE, DEFAULT_MANIFOLD_POSE_SOURCE),
-            controller: Self::normalized_manifold_pose_controller(&hotload_text(
+            stream_id: hotload_manifold_text(
+                KEY_MANIFOLD_POSE_STREAM,
+                DEFAULT_MANIFOLD_POSE_STREAM,
+            ),
+            source_id: hotload_manifold_text(
+                KEY_MANIFOLD_POSE_SOURCE,
+                DEFAULT_MANIFOLD_POSE_SOURCE,
+            ),
+            controller: Self::normalized_manifold_pose_controller(&hotload_manifold_text(
                 KEY_MANIFOLD_POSE_CONTROLLER,
                 DEFAULT_MANIFOLD_POSE_CONTROLLER,
             )),
-            pose_kind: Self::normalized_manifold_pose_kind(&hotload_text(
+            pose_kind: Self::normalized_manifold_pose_kind(&hotload_manifold_text(
                 KEY_MANIFOLD_POSE_KIND,
                 DEFAULT_MANIFOLD_POSE_KIND,
             )),
-            sample_hz: hotload_f32(
+            sample_hz: hotload_manifold_f32(
                 KEY_MANIFOLD_POSE_SAMPLE_HZ,
                 DEFAULT_MANIFOLD_POSE_SAMPLE_HZ,
                 1.0,
                 120.0,
             ),
-            connect_timeout_ms: hotload_u32(
+            connect_timeout_ms: hotload_manifold_u32(
                 KEY_MANIFOLD_POSE_CONNECT_TIMEOUT_MS,
                 DEFAULT_MANIFOLD_POSE_CONNECT_TIMEOUT_MS,
                 50,
@@ -3324,26 +3355,29 @@ impl App {
 
     fn manifold_breath_feedback_config() -> ManifoldBreathFeedbackConfig {
         ManifoldBreathFeedbackConfig {
-            enabled: hotload_bool(
+            enabled: hotload_manifold_bool(
                 KEY_MANIFOLD_BREATH_FEEDBACK_ENABLED,
                 DEFAULT_MANIFOLD_BREATH_FEEDBACK_ENABLED,
             ),
-            broker_host: hotload_text(KEY_MANIFOLD_BROKER_HOST, DEFAULT_MANIFOLD_BROKER_HOST),
-            broker_port: hotload_u16(
+            broker_host: hotload_manifold_text(
+                KEY_MANIFOLD_BROKER_HOST,
+                DEFAULT_MANIFOLD_BROKER_HOST,
+            ),
+            broker_port: hotload_manifold_u16(
                 KEY_MANIFOLD_BROKER_PORT,
                 DEFAULT_MANIFOLD_BROKER_PORT,
                 1,
                 u16::MAX,
             ),
-            stream_id: hotload_text(
+            stream_id: hotload_manifold_text(
                 KEY_MANIFOLD_BREATH_FEEDBACK_STREAM,
                 DEFAULT_MANIFOLD_BREATH_FEEDBACK_STREAM,
             ),
-            receiver_id: hotload_text(
+            receiver_id: hotload_manifold_text(
                 KEY_MANIFOLD_BREATH_FEEDBACK_RECEIVER,
                 DEFAULT_MANIFOLD_BREATH_FEEDBACK_RECEIVER,
             ),
-            connect_timeout_ms: hotload_u32(
+            connect_timeout_ms: hotload_manifold_u32(
                 KEY_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS,
                 DEFAULT_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS,
                 50,
@@ -3364,17 +3398,17 @@ impl App {
             "RUSTY_QUEST_MAKEPAD_BREATH_FEEDBACK_CONFIG schema=rusty.quest.makepad-breath-feedback-config.v1 phase=hotload status={} enabled={} enabledRaw={} stream={} streamRaw={} receiver={} receiverRaw={} brokerHost={} brokerHostRaw={} brokerPort={} brokerPortRaw={} connectTimeoutMs={} connectTimeoutRaw={} flagsOwner=hostessctl.record_values",
             status,
             config.enabled,
-            marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_ENABLED)),
+            marker_token(&manifold_runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_ENABLED)),
             marker_token(&config.stream_id),
-            marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_STREAM)),
+            marker_token(&manifold_runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_STREAM)),
             marker_token(&config.receiver_id),
-            marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_RECEIVER)),
+            marker_token(&manifold_runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_RECEIVER)),
             marker_token(&config.broker_host),
-            marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BROKER_HOST)),
+            marker_token(&manifold_runtime_marker_value(KEY_MANIFOLD_BROKER_HOST)),
             config.broker_port,
-            marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BROKER_PORT)),
+            marker_token(&manifold_runtime_marker_value(KEY_MANIFOLD_BROKER_PORT)),
             config.connect_timeout_ms,
-            marker_token(&Self::runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS)),
+            marker_token(&manifold_runtime_marker_value(KEY_MANIFOLD_BREATH_FEEDBACK_CONNECT_TIMEOUT_MS)),
         )
     }
 
@@ -3405,6 +3439,92 @@ impl App {
             rxrc::KEY_PROJECTION_TARGET_JOYSTICK_CONTROLS,
             DEFAULT_MAKEPAD_PROJECTION_TARGET_JOYSTICK_CONTROLS,
         ))
+    }
+
+    fn projection_target_breath_scale_config() -> ProjectionTargetBreathScaleConfig {
+        let controls = hotload_text(
+            KEY_MAKEPAD_PROJECTION_TARGET_BREATH_CONTROLS,
+            DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_CONTROLS,
+        );
+        ProjectionTargetBreathScaleConfig {
+            enabled: makepad_projection_target_breath_controls_enabled_from_value(&controls),
+            controls,
+            stream_id: hotload_text(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_STREAM,
+                DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_STREAM,
+            ),
+            scale_at_volume0: hotload_f32(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_MIN_SCALE,
+                DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_MIN_SCALE,
+                PROJECTION_TARGET_MIN_SCALE,
+                PROJECTION_TARGET_MAX_SCALE,
+            ),
+            scale_at_volume1: hotload_f32(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_MAX_SCALE,
+                DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_MAX_SCALE,
+                PROJECTION_TARGET_MIN_SCALE,
+                PROJECTION_TARGET_MAX_SCALE,
+            ),
+            smoothing_alpha: hotload_f32(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA,
+                DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA,
+                0.0,
+                1.0,
+            ),
+            invert: hotload_bool(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_INVERT,
+                DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_INVERT,
+            ),
+            min_quality: hotload_f32(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_MIN_QUALITY,
+                DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_MIN_QUALITY,
+                0.0,
+                1.0,
+            ),
+        }
+    }
+
+    fn projection_target_breath_scale_config_marker_line(
+        config: &ProjectionTargetBreathScaleConfig,
+    ) -> String {
+        let status = if config.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        };
+        format!(
+            "RUSTY_QUEST_MAKEPAD_BREATH_SCALE_CONFIG schema=rusty.quest.makepad-breath-scale-config.v1 phase=hotload status={} enabled={} controls={} controlsRaw={} stream={} streamRaw={} scaleAtVolume0={:.4} scaleAtVolume0Raw={} scaleAtVolume1={:.4} scaleAtVolume1Raw={} smoothingAlpha={:.4} smoothingAlphaRaw={} invert={} invertRaw={} minQuality={:.4} minQualityRaw={} scaleOwner=makepad-projection-target consumer=manifold-breath-volume flagsOwner=hostessctl.record_values",
+            status,
+            config.enabled,
+            marker_token(&config.controls),
+            marker_token(&Self::runtime_marker_value(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_CONTROLS
+            )),
+            marker_token(&config.stream_id),
+            marker_token(&Self::runtime_marker_value(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_STREAM
+            )),
+            config.scale_at_volume0,
+            marker_token(&Self::runtime_marker_value(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_MIN_SCALE
+            )),
+            config.scale_at_volume1,
+            marker_token(&Self::runtime_marker_value(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_MAX_SCALE
+            )),
+            config.smoothing_alpha,
+            marker_token(&Self::runtime_marker_value(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_SMOOTHING_ALPHA
+            )),
+            config.invert,
+            marker_token(&Self::runtime_marker_value(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_INVERT
+            )),
+            config.min_quality,
+            marker_token(&Self::runtime_marker_value(
+                KEY_MAKEPAD_PROJECTION_TARGET_BREATH_MIN_QUALITY
+            )),
+        )
     }
 
     fn handle_projection_target_joystick(&mut self, cx: &mut Cx, update: &XrUpdateEvent) {
@@ -3554,6 +3674,106 @@ impl App {
             ));
             self.projection_target_joystick_last_log_frame = frame;
         }
+    }
+
+    fn handle_projection_target_breath_scale(&mut self, cx: &mut Cx) {
+        let config = Self::projection_target_breath_scale_config();
+        let config_marker = Self::projection_target_breath_scale_config_marker_line(&config);
+        if self
+            .projection_target_breath_scale_config_marker
+            .as_ref()
+            .is_none_or(|previous| previous != &config_marker)
+        {
+            emit_marker_line(&config_marker);
+            self.projection_target_breath_scale_config_marker = Some(config_marker);
+        }
+        if !config.enabled {
+            self.projection_target_breath_scale_ready = false;
+            self.projection_target_breath_last_sample_key = None;
+            return;
+        }
+
+        let Some(sample) = self
+            .manifold_breath_feedback_subscriber
+            .as_ref()
+            .and_then(ManifoldBreathFeedbackSubscriber::latest_sample)
+        else {
+            return;
+        };
+        if sample.stream_id != config.stream_id {
+            return;
+        }
+
+        let sample_key = makepad_projection_target_breath_sample_key(&sample);
+        if self
+            .projection_target_breath_last_sample_key
+            .as_ref()
+            .is_some_and(|previous| previous == &sample_key)
+        {
+            return;
+        }
+        self.projection_target_breath_last_sample_key = Some(sample_key);
+
+        let sample_quality01 = sample.quality01.unwrap_or(-1.0);
+        if !makepad_projection_target_breath_quality_passes(&sample, config.min_quality) {
+            Self::emit_stereo_projection_marker(&format!(
+                "phase=projection-target-breath-scale status=rejected reason=quality-below-min source=manifold-breath-volume stream={} sequenceId={} volume01={:.4} quality={} quality01={:.4} minQuality={:.4}",
+                marker_token(&sample.stream_id),
+                sample.sequence_id,
+                sample.volume01,
+                marker_token(&sample.quality),
+                sample_quality01,
+                config.min_quality,
+            ));
+            return;
+        }
+
+        let target_scale = makepad_projection_target_breath_scale_for_volume(
+            sample.volume01 as f32,
+            config.scale_at_volume0,
+            config.scale_at_volume1,
+            config.invert,
+        );
+        let current_tuning = self.current_horizontal_alignment_tuning();
+        let previous_scale = if self.projection_target_breath_scale_ready {
+            self.projection_target_breath_scale
+        } else {
+            current_tuning.projection_target_scale
+        };
+        let next_scale = makepad_projection_target_breath_smoothed_scale(
+            previous_scale,
+            target_scale,
+            config.smoothing_alpha,
+            self.projection_target_breath_scale_ready,
+        );
+        self.projection_target_breath_scale_ready = true;
+        self.projection_target_breath_scale = next_scale;
+        self.projection_target_joystick_scale = next_scale;
+
+        let mut tuning = current_tuning;
+        tuning.projection_target_scale = next_scale;
+        self.projection_target_scale = tuning.projection_target_scale;
+        let panel_bound = self.apply_horizontal_alignment_tuning_to_panel(cx, tuning);
+        Self::emit_stereo_projection_marker(&format!(
+            "phase=projection-target-breath-scale status=applied source=manifold-breath-volume stream={} sequenceId={} sampleTimeUnixNs={} volume01={:.4} phase={} quality={} quality01={:.4} scaleAtVolume0={:.4} scaleAtVolume1={:.4} invert={} smoothingAlpha={:.4} targetScale={:.4} previousScale={:.4} projectionTargetScale={:.4} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} panelBound={}",
+            marker_token(&sample.stream_id),
+            sample.sequence_id,
+            sample.sample_time_unix_ns,
+            sample.volume01,
+            marker_token(&sample.phase),
+            marker_token(&sample.quality),
+            sample_quality01,
+            config.scale_at_volume0,
+            config.scale_at_volume1,
+            config.invert,
+            config.smoothing_alpha,
+            target_scale,
+            previous_scale,
+            tuning.projection_target_scale,
+            tuning.projection_target_offset_x_uv,
+            tuning.projection_target_offset_y_uv,
+            panel_bound,
+        ));
     }
 
     fn handle_manifold_breath_feedback_subscription(&mut self) {
@@ -4256,6 +4476,7 @@ impl App {
                 self.handle_manifold_breath_feedback_subscription();
                 self.handle_manifold_pose_publish(_update);
                 self.handle_projection_target_joystick(cx, _update);
+                self.handle_projection_target_breath_scale(cx);
                 self.handle_mesh_replay_update(cx, _update);
                 #[cfg(target_os = "android")]
                 self.update_runtime_xr_projection(_update);
@@ -7548,6 +7769,10 @@ fn makepad_projection_target_joystick_controls_enabled_from_value(value: &str) -
     value.trim().eq_ignore_ascii_case("offset-scale")
 }
 
+fn makepad_projection_target_breath_controls_enabled_from_value(value: &str) -> bool {
+    value.trim().eq_ignore_ascii_case("scale")
+}
+
 fn makepad_projection_target_scale() -> f32 {
     hotload_f32(
         rxrc::KEY_PROJECTION_TARGET_SCALE,
@@ -7615,6 +7840,54 @@ fn makepad_projection_target_scale_step(
     )
 }
 
+fn makepad_projection_target_breath_scale_for_volume(
+    volume01: f32,
+    scale_at_volume0: f32,
+    scale_at_volume1: f32,
+    invert: bool,
+) -> f32 {
+    let volume01 = if invert {
+        1.0 - volume01.clamp(0.0, 1.0)
+    } else {
+        volume01.clamp(0.0, 1.0)
+    };
+    (scale_at_volume0 + (scale_at_volume1 - scale_at_volume0) * volume01)
+        .clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE)
+}
+
+fn makepad_projection_target_breath_smoothed_scale(
+    previous_scale: f32,
+    target_scale: f32,
+    smoothing_alpha: f32,
+    scale_ready: bool,
+) -> f32 {
+    if !scale_ready {
+        return target_scale.clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE);
+    }
+    let smoothing_alpha = smoothing_alpha.clamp(0.0, 1.0);
+    (previous_scale + (target_scale - previous_scale) * smoothing_alpha)
+        .clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE)
+}
+
+fn makepad_projection_target_breath_quality_passes(
+    sample: &BreathFeedbackSample,
+    min_quality: f32,
+) -> bool {
+    if min_quality <= 0.0 {
+        return true;
+    }
+    sample
+        .quality01
+        .is_some_and(|quality01| quality01 >= f64::from(min_quality))
+}
+
+fn makepad_projection_target_breath_sample_key(sample: &BreathFeedbackSample) -> String {
+    format!(
+        "{}:{}:{}",
+        sample.sequence_id, sample.sample_time_unix_ns, sample.payload_hash
+    )
+}
+
 #[cfg(test)]
 mod projection_target_joystick_tests {
     use super::*;
@@ -7670,5 +7943,60 @@ mod projection_target_joystick_tests {
         let next = makepad_projection_target_scale_step(PROJECTION_TARGET_MAX_SCALE, -1.0, 1.0)
             .expect("upward stick at the ceiling should still produce a clamped scale");
         assert_eq!(next, PROJECTION_TARGET_MAX_SCALE);
+    }
+
+    #[test]
+    fn breath_controls_parse_canonical_scale_mode() {
+        assert!(makepad_projection_target_breath_controls_enabled_from_value("scale"));
+        assert!(makepad_projection_target_breath_controls_enabled_from_value(" SCALE "));
+        assert!(!makepad_projection_target_breath_controls_enabled_from_value("off"));
+    }
+
+    #[test]
+    fn breath_volume_maps_between_configured_scale_endpoints() {
+        let scale = makepad_projection_target_breath_scale_for_volume(0.5, 1.0, 0.2, false);
+
+        assert!((scale - 0.6).abs() < 0.0001);
+    }
+
+    #[test]
+    fn breath_volume_mapping_can_be_inverted() {
+        let scale = makepad_projection_target_breath_scale_for_volume(0.25, 1.0, 0.2, true);
+
+        assert!((scale - 0.4).abs() < 0.0001);
+    }
+
+    #[test]
+    fn breath_scale_smoothing_uses_alpha_after_first_sample() {
+        let first = makepad_projection_target_breath_smoothed_scale(1.0, 0.2, 0.3, false);
+        let next = makepad_projection_target_breath_smoothed_scale(first, 0.8, 0.5, true);
+
+        assert!((first - 0.2).abs() < 0.0001);
+        assert!((next - 0.5).abs() < 0.0001);
+    }
+
+    #[test]
+    fn breath_quality_gate_requires_numeric_quality_when_minimum_is_set() {
+        let mut sample = BreathFeedbackSample {
+            stream_id: DEFAULT_MAKEPAD_PROJECTION_TARGET_BREATH_STREAM.to_string(),
+            sequence_id: 7,
+            sample_time_unix_ns: 0,
+            volume01: 0.5,
+            phase: "inhale".to_string(),
+            quality: "ok".to_string(),
+            quality01: None,
+            payload_hash: "hash".to_string(),
+        };
+
+        assert!(makepad_projection_target_breath_quality_passes(
+            &sample, 0.0
+        ));
+        assert!(!makepad_projection_target_breath_quality_passes(
+            &sample, 0.5
+        ));
+        sample.quality01 = Some(0.75);
+        assert!(makepad_projection_target_breath_quality_passes(
+            &sample, 0.5
+        ));
     }
 }
