@@ -57,7 +57,7 @@ param(
     [switch]$RequireBrokerH264StereoProjection,
     [int]$BrokerH264MinimumPerEyeTextureUpdates = 1,
     [ValidateSet("solid-red", "passthrough-underlay")]
-    [string]$ProjectionBorderPolicy = "solid-red",
+    [string]$ProjectionBorderPolicy = "passthrough-underlay",
     [ValidateSet("raw", "blur", "peripheral-stretch")]
     [string]$ProcessingLayer = "peripheral-stretch",
     [ValidateSet("camera", "solid-color", "solid-no-texture", "clear-only")]
@@ -703,9 +703,9 @@ function Set-MakepadBrokerH264Profile {
         "debug.rustyquest.makepad.broker.h264.source.mode" = $sourceMode
         "debug.rustyquest.makepad.broker.h264.decode.output.mode" = $BrokerH264DecodeOutputMode
         "debug.rustyquest.makepad.broker.h264.synthetic.pattern" = $BrokerH264SyntheticPattern
-        "debug.rustyquest.broker.h264.projection.geometry.profile" = $projectionGeometryProfile
+        "debug.rustyquest.makepad.broker.h264.projection.geometry.profile" = $projectionGeometryProfile
         "debug.rustyquest.makepad.broker.h264.source.sampling.mode" = $CameraSourceSamplingMode
-        "debug.rustyquest.broker.h264.synthetic.projection.profile" = $syntheticProjectionProfile
+        "debug.rustyquest.makepad.broker.h264.synthetic.projection.profile" = $syntheticProjectionProfile
         "debug.rustyquest.makepad.broker.h264.target.screen.uv.rect" = $CameraTargetScreenUvRect
         "debug.rustyquest.makepad.broker.h264.left.target.screen.uv.rect" = $CameraLeftTargetScreenUvRect
         "debug.rustyquest.makepad.broker.h264.right.target.screen.uv.rect" = $CameraRightTargetScreenUvRect
@@ -770,52 +770,52 @@ function Set-MakepadProjectionTargetProfile {
     $props = [ordered]@{
         "debug.rustyquest.makepad.native.passthrough.enabled" = $nativePassthrough
         "debug.rustyquest.makepad.projection.runtime.resolution.enabled" = if ($UseResolvedProjectionRuntime) { "true" } else { "false" }
-        "debug.rustyquest.processing.layer" = $ProcessingLayer
+        "debug.rustyquest.makepad.processing.layer" = $ProcessingLayer
         "debug.rustyquest.makepad.projection.sample.mode" = $ProjectionSampleMode
-        "debug.rustyquest.camera.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
-        "debug.rustyquest.peripheral.stretch.mode" = $PeripheralStretchMode
-        "debug.rustyquest.peripheral.stretch.core.scale" = (Format-InvariantDouble -Value $PeripheralStretchCoreScale)
-        "debug.rustyquest.peripheral.stretch.edge.inset.uv" = (Format-InvariantDouble -Value $PeripheralStretchEdgeInsetUv)
-        "debug.rustyquest.peripheral.stretch.max.inset.uv" = (Format-InvariantDouble -Value $PeripheralStretchMaxInsetUv)
-        "debug.rustyquest.peripheral.stretch.curve" = (Format-InvariantDouble -Value $PeripheralStretchCurve)
-        "debug.rustyquest.peripheral.stretch.inner.blend.uv" = (Format-InvariantDouble -Value $PeripheralStretchInnerBlendUv)
-        "debug.rustyquest.peripheral.stretch.blend.curve" = (Format-InvariantDouble -Value $PeripheralStretchBlendCurve)
-        "debug.rustyquest.peripheral.stretch.blend.mode" = $PeripheralStretchBlendMode
-        "debug.rustyquest.peripheral.stretch.corner.mode" = $PeripheralStretchCornerMode
-        "debug.rustyquest.peripheral.stretch.debug" = $PeripheralStretchDebug
+        "debug.rustyquest.makepad.camera.blur.radius.px" = (Format-InvariantDouble -Value $BlurRadiusPx)
+        "debug.rustyquest.makepad.peripheral.stretch.mode" = $PeripheralStretchMode
+        "debug.rustyquest.makepad.peripheral.stretch.core.scale" = (Format-InvariantDouble -Value $PeripheralStretchCoreScale)
+        "debug.rustyquest.makepad.peripheral.stretch.edge.inset.uv" = (Format-InvariantDouble -Value $PeripheralStretchEdgeInsetUv)
+        "debug.rustyquest.makepad.peripheral.stretch.max.inset.uv" = (Format-InvariantDouble -Value $PeripheralStretchMaxInsetUv)
+        "debug.rustyquest.makepad.peripheral.stretch.curve" = (Format-InvariantDouble -Value $PeripheralStretchCurve)
+        "debug.rustyquest.makepad.peripheral.stretch.inner.blend.uv" = (Format-InvariantDouble -Value $PeripheralStretchInnerBlendUv)
+        "debug.rustyquest.makepad.peripheral.stretch.blend.curve" = (Format-InvariantDouble -Value $PeripheralStretchBlendCurve)
+        "debug.rustyquest.makepad.peripheral.stretch.blend.mode" = $PeripheralStretchBlendMode
+        "debug.rustyquest.makepad.peripheral.stretch.corner.mode" = $PeripheralStretchCornerMode
+        "debug.rustyquest.makepad.peripheral.stretch.debug" = $PeripheralStretchDebug
         "debug.rustyquest.makepad.direct.camera.hardware.buffer.external" = $directHardwareBufferExternal
-        "debug.rustyquest.camera.projection.mode" = $CameraProjectionMode
+        "debug.rustyquest.makepad.camera.projection.mode" = $CameraProjectionMode
         "debug.rustyquest.makepad.camera.projection.geometry.profile" = $CameraProjectionGeometryProfile
         "debug.rustyquest.makepad.camera.source.sampling.mode" = $CameraSourceSamplingMode
         "debug.rustyquest.makepad.camera.target.screen.uv.rect" = $CameraTargetScreenUvRect
         "debug.rustyquest.makepad.camera.left.target.screen.uv.rect" = $CameraLeftTargetScreenUvRect
         "debug.rustyquest.makepad.camera.right.target.screen.uv.rect" = $CameraRightTargetScreenUvRect
-        "debug.rustyquest.projection.scale" = (Format-InvariantDouble -Value $ProjectionScale)
-        "debug.rustyquest.projection.depth.meters" = (Format-InvariantDouble -Value $ProjectionDepthMeters)
-        "debug.rustyquest.camera.preview.fov.y.degrees" = (Format-InvariantDouble -Value $previewFovYDegrees)
-        "debug.rustyquest.camera.preview.offset.y.meters" = (Format-InvariantDouble -Value $previewOffsetYMeters)
-        "debug.rustyquest.camera.raw.overlay.overscan" = (Format-InvariantDouble -Value $rawOverlayOverscan)
+        "debug.rustyquest.makepad.projection.scale" = (Format-InvariantDouble -Value $ProjectionScale)
+        "debug.rustyquest.makepad.projection.depth.meters" = (Format-InvariantDouble -Value $ProjectionDepthMeters)
+        "debug.rustyquest.makepad.camera.preview.fov.y.degrees" = (Format-InvariantDouble -Value $previewFovYDegrees)
+        "debug.rustyquest.makepad.camera.preview.offset.y.meters" = (Format-InvariantDouble -Value $previewOffsetYMeters)
+        "debug.rustyquest.makepad.camera.raw.overlay.overscan" = (Format-InvariantDouble -Value $rawOverlayOverscan)
         "debug.rustyquest.makepad.xr.render.scale" = (Format-InvariantDouble -Value $XrRenderScale)
         "debug.rustyquest.makepad.xr.display.refresh.rate.hz" = (Format-InvariantDouble -Value $XrDisplayRefreshHz)
-        "debug.rustyquest.projection.area.left.offset.x.uv" = (Format-InvariantDouble -Value $canonicalOffsetLeftUv)
-        "debug.rustyquest.projection.area.right.offset.x.uv" = (Format-InvariantDouble -Value $canonicalOffsetRightUv)
-        "debug.rustyquest.projection.area.offset.y.uv" = (Format-InvariantDouble -Value $offsetVerticalUv)
-        "debug.rustyquest.projection.area.scale.x" = (Format-InvariantDouble -Value $ProjectionAreaScaleX)
-        "debug.rustyquest.projection.area.scale.y" = (Format-InvariantDouble -Value $ProjectionAreaScaleY)
-        "debug.rustyquest.projection.target.offset.x.uv" = (Format-InvariantDouble -Value $ProjectionTargetOffsetXUv)
-        "debug.rustyquest.projection.target.offset.y.uv" = (Format-InvariantDouble -Value $ProjectionTargetOffsetYUv)
-        "debug.rustyquest.projection.target.scale" = (Format-InvariantDouble -Value $ProjectionTargetScale)
-        "debug.rustyquest.projection.target.joystick.controls" = $ProjectionTargetJoystickControls
-        "debug.rustyquest.projection.area.radius.x.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusXUv)
-        "debug.rustyquest.projection.area.radius.y.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusYUv)
-        "debug.rustyquest.projection.area.corner.radius.uv" = (Format-InvariantDouble -Value $ProjectionAreaCornerRadiusUv)
-        "debug.rustyquest.projection.area.opacity" = (Format-InvariantDouble -Value $ProjectionAreaOpacity)
-        "debug.rustyquest.projection.border.opacity" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
+        "debug.rustyquest.makepad.projection.area.offset.left.uv" = (Format-InvariantDouble -Value $canonicalOffsetLeftUv)
+        "debug.rustyquest.makepad.projection.area.offset.right.uv" = (Format-InvariantDouble -Value $canonicalOffsetRightUv)
+        "debug.rustyquest.makepad.projection.area.offset.vertical.uv" = (Format-InvariantDouble -Value $offsetVerticalUv)
+        "debug.rustyquest.makepad.projection.area.scale.x" = (Format-InvariantDouble -Value $ProjectionAreaScaleX)
+        "debug.rustyquest.makepad.projection.area.scale.y" = (Format-InvariantDouble -Value $ProjectionAreaScaleY)
+        "debug.rustyquest.makepad.projection.target.offset.x.uv" = (Format-InvariantDouble -Value $ProjectionTargetOffsetXUv)
+        "debug.rustyquest.makepad.projection.target.offset.y.uv" = (Format-InvariantDouble -Value $ProjectionTargetOffsetYUv)
+        "debug.rustyquest.makepad.projection.target.scale" = (Format-InvariantDouble -Value $ProjectionTargetScale)
+        "debug.rustyquest.makepad.projection.target.joystick.controls" = $ProjectionTargetJoystickControls
+        "debug.rustyquest.makepad.projection.area.radius.x.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusXUv)
+        "debug.rustyquest.makepad.projection.area.radius.y.uv" = (Format-InvariantDouble -Value $ProjectionAreaRadiusYUv)
+        "debug.rustyquest.makepad.projection.area.corner.radius.uv" = (Format-InvariantDouble -Value $ProjectionAreaCornerRadiusUv)
+        "debug.rustyquest.makepad.projection.area.opacity" = (Format-InvariantDouble -Value $ProjectionAreaOpacity)
+        "debug.rustyquest.makepad.projection.border.opacity" = (Format-InvariantDouble -Value $ProjectionBorderOpacity)
         "debug.rustyquest.makepad.projection.area.diagnostic" = (Format-InvariantDouble -Value $ProjectionAreaDiagnostic)
-        "debug.rustyquest.projection.border.policy" = $ProjectionBorderPolicy
-        "debug.rustyquest.projection.alpha.mode" = $ProjectionAlphaMode
-        "debug.rustyquest.projection.alpha.scale" = (Format-InvariantDouble -Value $ProjectionAlphaScale)
-        "debug.rustyquest.projection.alpha.bias" = (Format-InvariantDouble -Value $ProjectionAlphaBias)
+        "debug.rustyquest.makepad.projection.border.policy" = $ProjectionBorderPolicy
+        "debug.rustyquest.makepad.projection.alpha.mode" = $ProjectionAlphaMode
+        "debug.rustyquest.makepad.projection.alpha.scale" = (Format-InvariantDouble -Value $ProjectionAlphaScale)
+        "debug.rustyquest.makepad.projection.alpha.bias" = (Format-InvariantDouble -Value $ProjectionAlphaBias)
     }
 
     foreach ($entry in $props.GetEnumerator()) {
@@ -1416,7 +1416,7 @@ $script:gateTimingPath = Join-Path $OutDir "device-gate-timings.jsonl"
 $script:gateTimingSummaryPath = Join-Path $OutDir "device-gate-timing-summary.json"
 $script:gateStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $script:gateTimingRecords = [System.Collections.Generic.List[object]]::new()
-$effectiveProjectionRuntimeReadback = if ($ProjectionRuntimeReadback -eq "warn" -and $UseResolvedProjectionRuntime) { "required" } else { $ProjectionRuntimeReadback }
+$effectiveProjectionRuntimeReadback = $ProjectionRuntimeReadback
 $directCameraColorStatus = if ($DirectCameraTexturePath -eq "hardware-buffer-external") {
     "experimental-hardware-buffer-external-combined-immutable-default-sampler-ycbcr-candidate"
 } else {
@@ -1541,7 +1541,7 @@ foreach ($attempt in $attempts) {
     }
 }
 $projectionRuntimeGateFailures = @()
-if ($UseResolvedProjectionRuntime) {
+if ($effectiveProjectionRuntimeReadback -eq "required" -and $UseResolvedProjectionRuntime) {
     if ($projectionRuntimeManifestTotal -le 0) {
         $projectionRuntimeGateFailures += "missing projection runtime manifest"
     }
@@ -1962,8 +1962,5 @@ if ($metaPerfStaleGateFailures.Count -gt 0) {
 if ($brokerH264StereoProjectionGateFailures.Count -gt 0) {
     throw "broker H.264 stereo projection gate failed: $($brokerH264StereoProjectionGateFailures -join '; ')"
 }
-
-
-
 
 

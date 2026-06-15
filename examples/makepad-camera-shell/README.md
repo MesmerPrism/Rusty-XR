@@ -314,22 +314,52 @@ on `127.0.0.1:8765`, publishing `stream.motion.object_pose` at 20 Hz from the
 right controller grip pose:
 
 ```powershell
-adb -s <quest-serial> shell setprop debug.rustyquest.makepad.manifold.pose.publish.enabled true
-adb -s <quest-serial> shell setprop debug.rustyquest.makepad.manifold.pose.stream stream.motion.object_pose
-adb -s <quest-serial> shell setprop debug.rustyquest.makepad.manifold.pose.controller right
-adb -s <quest-serial> shell setprop debug.rustyquest.makepad.manifold.pose.kind grip
-adb -s <quest-serial> shell setprop debug.rustyquest.makepad.manifold.pose.sample.hz 20
+adb -s <quest-serial> shell setprop debug.rusty.manifold.pose.publish.enabled true
+adb -s <quest-serial> shell setprop debug.rusty.manifold.pose.stream stream.motion.object_pose
+adb -s <quest-serial> shell setprop debug.rusty.manifold.pose.controller right
+adb -s <quest-serial> shell setprop debug.rusty.manifold.pose.kind grip
+adb -s <quest-serial> shell setprop debug.rusty.manifold.pose.sample.hz 20
 ```
 
 The projection-target joystick scale control is on by default for the current
 calibration profile and can be made explicit with:
 
 ```powershell
-adb -s <quest-serial> shell setprop debug.rustyquest.projection.target.joystick.controls offset-scale
+adb -s <quest-serial> shell setprop debug.rustyquest.makepad.projection.target.joystick.controls offset-scale
 ```
 
 Use `off` for comparison captures where controller input must not affect the
 projection area scale.
+
+The current working live-camera projection setup is the direct hardware-buffer
+Makepad XR profile with a passthrough underlay border and the peripheral stretch
+target-inner-band blend. The guarded launcher now defaults to that profile:
+`-ProjectionBorderPolicy passthrough-underlay`,
+`-ProcessingLayer peripheral-stretch`, `-ProjectionSampleMode camera`,
+`-PeripheralStretchBlendMode target-inner-band`,
+`-PeripheralStretchCornerMode target-footprint`,
+`-ProjectionTargetJoystickControls offset-scale`, and direct camera hardware
+buffer external enabled. Runtime properties for this app must use the
+`debug.rustyquest.makepad.*` namespace, while Manifold broker/PMB controls use
+`debug.rusty.manifold.*`. A successful generic `debug.rustyquest.*` readback is
+not proof that this Makepad XR app consumed the setting.
+
+For PMB scale bridge setup after manually tuning the headset target scale with
+the right joystick, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\Start-MakepadPmbScaleBridge.ps1 `
+  -Serial <quest-serial> `
+  -Mode controller
+```
+
+Use `-Mode polar` for the Polar acceleration path. The script maps volume 0 to
+the loaded base scale (`debug.rustyquest.makepad.projection.target.scale`, or
+`1.0` when unset) and maps volume 1 to the most recent
+`projectionTargetScale` logged by the headset. Pressing the right primary
+button resets the in-app scale back to the loaded base. Add
+`-SendCalibrationCommand` when a local Manifold broker is ready to accept
+`command.breath.begin_calibration`.
 
 MediaProjection is different: it still requires the headset consent flow for
 each capture session. A launcher can prepare install, launch, and ordinary
@@ -451,7 +481,7 @@ powershell -ExecutionPolicy Bypass -File .\examples\makepad-camera-shell\tools\I
 
 The same `-ProjectionBorderPolicy` switch can be combined with
 `-UseBrokerH264Camera` or `-UseBrokerH264Synthetic`. It sets
-`debug.rustyquest.projection.border.policy` and pairs
+`debug.rustyquest.makepad.projection.border.policy` and pairs
 `passthrough-underlay` with
 `debug.rustyquest.makepad.native.passthrough.enabled=true`. The app writes alpha
 zero outside the projected camera region for the underlay policy and keeps the
@@ -466,7 +496,7 @@ fades only valid projected camera pixels; the border opacity fades the
 non-projection matte/border independently.
 Add `-ProjectionDepthMeters <meters>` to set the head-anchored projection
 surface depth explicitly. The guarded launcher writes
-`debug.rustyquest.projection.depth.meters`, defaults to `1.0`, and logs the value
+`debug.rustyquest.makepad.projection.depth.meters`, defaults to `1.0`, and logs the value
 as `projectionDepthMeters` / `panelTargetDepthMeters` so Makepad depth remains
 visible beside HWB and GL/OES. For canvas/custom parity runs, pass
 `-CameraProjectionMode world-canvas -CameraProjectionGeometryProfile
@@ -486,8 +516,8 @@ camera color. `tools\Send-MakepadCameraControls.ps1` accepts the same
 alpha mode, scale, and bias properties for short headset A/B checks.
 Add `-ProcessingLayer blur -BlurRadiusPx 2.0` to enable the public diagnostic
 blur layer for valid camera samples while keeping the same projection border
-policy. The gate writes `debug.rustyquest.processing.layer` and
-`debug.rustyquest.makepad.blur.radius.px`, and the running app also accepts those
+policy. The gate writes `debug.rustyquest.makepad.processing.layer` and
+`debug.rustyquest.makepad.camera.blur.radius.px`, and the running app also accepts those
 properties through `tools\Send-MakepadCameraControls.ps1` for short
 operator A/B checks.
 

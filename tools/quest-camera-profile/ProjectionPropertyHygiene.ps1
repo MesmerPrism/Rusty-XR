@@ -1,6 +1,8 @@
 function Get-RustyQuestMakepadProjectionPropertyHygieneKeys {
-    # Legacy Makepad property names are retained here only as stale-device cleanup targets.
-    $legacyMakepadCleanupKeys = @(
+    # The current Makepad XR app consumes debug.rustyquest.makepad.* keys.
+    # Generic debug.rustyquest.* keys stay in this hygiene list only so older
+    # runs cannot leave stale values that confuse launch readbacks.
+    $makepadCleanupKeys = @(
         "debug.rustyquest.makepad.camera.projection.mode",
         "debug.rustyquest.makepad.camera.projection.geometry.profile",
         "debug.rustyquest.makepad.camera.source.sampling.mode",
@@ -33,6 +35,13 @@ function Get-RustyQuestMakepadProjectionPropertyHygieneKeys {
         "debug.rustyquest.makepad.projection.target.offset.y.uv",
         "debug.rustyquest.makepad.projection.target.scale",
         "debug.rustyquest.makepad.projection.target.joystick.controls",
+        "debug.rustyquest.makepad.projection.target.breath.controls",
+        "debug.rustyquest.makepad.projection.target.breath.stream",
+        "debug.rustyquest.makepad.projection.target.breath.min.scale",
+        "debug.rustyquest.makepad.projection.target.breath.max.scale",
+        "debug.rustyquest.makepad.projection.target.breath.smoothing.alpha",
+        "debug.rustyquest.makepad.projection.target.breath.invert",
+        "debug.rustyquest.makepad.projection.target.breath.min.quality",
         "debug.rustyquest.makepad.processing.layer",
         "debug.rustyquest.makepad.camera.blur.radius.px",
         "debug.rustyquest.makepad.peripheral.stretch.mode",
@@ -163,7 +172,7 @@ function Get-RustyQuestMakepadProjectionPropertyHygieneKeys {
         "debug.rustyquest.source.visible.rect.height.uv",
         "debug.rustyquest.oes.projection.runtime.resolution.enabled"
     )
-    return @($legacyMakepadCleanupKeys + $sharedQuestProjectionKeys)
+    return @($makepadCleanupKeys + $sharedQuestProjectionKeys)
 }
 
 function Invoke-RustyQuestMakepadProjectionPropertyHygieneAdb {

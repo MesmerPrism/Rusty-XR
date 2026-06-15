@@ -1537,6 +1537,8 @@ pub struct App {
     #[rust]
     projection_target_joystick_scale_ready: bool,
     #[rust]
+    projection_target_base_scale: f32,
+    #[rust]
     projection_target_joystick_offset_x_uv: f32,
     #[rust]
     projection_target_joystick_offset_y_uv: f32,
@@ -3545,14 +3547,16 @@ impl App {
             self.projection_target_joystick_scale = tuning
                 .projection_target_scale
                 .clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE);
+            self.projection_target_base_scale = self.projection_target_joystick_scale;
             self.projection_target_joystick_scale_ready = true;
             self.projection_target_joystick_last_time = now_seconds;
             Self::emit_stereo_projection_marker(&format!(
-                "phase=projection-target-controller status=active source=makepad-quest-actions referenceSource=quest-composite-layer-apk projectionTargetJoystickControls=offset-scale controls=leftStick:projectionTargetOffsetUv,rightStickY:projectionTargetScale,rightA:resetOffsetAndProjectionTargetScale coordinateSpace=display-eye-screen-uv yConvention=stickUpMovesTargetUp projectionAreaScaleControlRole=diagnostic-canvas-scale-runtime-property projectionAreaScaleMin={:.4} projectionAreaScaleMax={:.4} projectionTargetScaleControlRole=reference-target-footprint-runtime-adjustment projectionTargetScaleMin={:.4} projectionTargetScaleMax={:.4} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4}",
+                "phase=projection-target-controller status=active source=makepad-quest-actions referenceSource=quest-composite-layer-apk projectionTargetJoystickControls=offset-scale controls=leftStick:projectionTargetOffsetUv,rightStickY:projectionTargetScale,rightA:resetOffsetAndProjectionTargetScaleToLoadedBase coordinateSpace=display-eye-screen-uv yConvention=stickUpMovesTargetUp projectionAreaScaleControlRole=diagnostic-canvas-scale-runtime-property projectionAreaScaleMin={:.4} projectionAreaScaleMax={:.4} projectionTargetScaleControlRole=reference-target-footprint-runtime-adjustment projectionTargetScaleMin={:.4} projectionTargetScaleMax={:.4} projectionTargetBaseScale={:.4} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4}",
                 PROJECTION_AREA_MIN_SCALE,
                 PROJECTION_AREA_MAX_SCALE,
                 PROJECTION_TARGET_MIN_SCALE,
                 PROJECTION_TARGET_MAX_SCALE,
+                self.projection_target_base_scale,
                 self.projection_target_joystick_offset_x_uv,
                 self.projection_target_joystick_offset_y_uv,
                 tuning.projection_target_scale,
@@ -3573,7 +3577,8 @@ impl App {
         if update.clicked_a() {
             self.projection_target_joystick_offset_x_uv = 0.0;
             self.projection_target_joystick_offset_y_uv = 0.0;
-            self.projection_target_joystick_scale = 1.0;
+            self.projection_target_joystick_scale =
+                makepad_projection_target_reset_scale(self.projection_target_base_scale);
             changed = true;
             reset = true;
         }
@@ -3655,13 +3660,14 @@ impl App {
             || frame.saturating_sub(self.projection_target_joystick_last_log_frame) >= 30
         {
             Self::emit_stereo_projection_marker(&format!(
-                "phase=projection-target-tuning status=ok source=controller referenceSource=quest-composite-layer-apk changed={} reset={} projectionTargetJoystickControls=offset-scale projectionAreaScaleControlRole=diagnostic-canvas-scale-runtime-property projectionAreaScaleMin={:.4} projectionAreaScaleMax={:.4} projectionTargetScaleControlRole=reference-target-footprint-runtime-adjustment projectionTargetScaleMin={:.4} projectionTargetScaleMax={:.4} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} leftStickX={:.4} leftStickY={:.4} rightStickY={:.4} panelBound={}",
+                "phase=projection-target-tuning status=ok source=controller referenceSource=quest-composite-layer-apk changed={} reset={} projectionTargetJoystickControls=offset-scale projectionAreaScaleControlRole=diagnostic-canvas-scale-runtime-property projectionAreaScaleMin={:.4} projectionAreaScaleMax={:.4} projectionTargetScaleControlRole=reference-target-footprint-runtime-adjustment projectionTargetScaleMin={:.4} projectionTargetScaleMax={:.4} projectionTargetBaseScale={:.4} projectionTargetOffsetXUv={:.4} projectionTargetOffsetYUv={:.4} projectionTargetScale={:.4} projectionAreaScaleX={:.4} projectionAreaScaleY={:.4} leftStickX={:.4} leftStickY={:.4} rightStickY={:.4} panelBound={}",
                 changed,
                 reset,
                 PROJECTION_AREA_MIN_SCALE,
                 PROJECTION_AREA_MAX_SCALE,
                 PROJECTION_TARGET_MIN_SCALE,
                 PROJECTION_TARGET_MAX_SCALE,
+                self.projection_target_base_scale,
                 self.projection_target_joystick_offset_x_uv,
                 self.projection_target_joystick_offset_y_uv,
                 tuning.projection_target_scale,
@@ -7840,6 +7846,10 @@ fn makepad_projection_target_scale_step(
     )
 }
 
+fn makepad_projection_target_reset_scale(base_scale: f32) -> f32 {
+    base_scale.clamp(PROJECTION_TARGET_MIN_SCALE, PROJECTION_TARGET_MAX_SCALE)
+}
+
 fn makepad_projection_target_breath_scale_for_volume(
     volume01: f32,
     scale_at_volume0: f32,
@@ -7943,6 +7953,16 @@ mod projection_target_joystick_tests {
         let next = makepad_projection_target_scale_step(PROJECTION_TARGET_MAX_SCALE, -1.0, 1.0)
             .expect("upward stick at the ceiling should still produce a clamped scale");
         assert_eq!(next, PROJECTION_TARGET_MAX_SCALE);
+    }
+
+    #[test]
+    fn right_primary_reset_returns_to_loaded_projection_target_base_scale() {
+        let loaded_base_scale = 0.42;
+
+        assert_eq!(
+            makepad_projection_target_reset_scale(loaded_base_scale),
+            loaded_base_scale
+        );
     }
 
     #[test]

@@ -41,6 +41,22 @@ param(
     [double]$ProjectionTargetScale = [double]::NaN,
     [ValidateSet("", "off", "offset-scale")]
     [string]$ProjectionTargetJoystickControls = "",
+    [ValidateSet("", "off", "scale")]
+    [string]$ProjectionTargetBreathControls = "",
+    [string]$ProjectionTargetBreathStream = "",
+    [double]$ProjectionTargetBreathMinScale = [double]::NaN,
+    [double]$ProjectionTargetBreathMaxScale = [double]::NaN,
+    [double]$ProjectionTargetBreathSmoothingAlpha = [double]::NaN,
+    [ValidateSet("", "true", "false")]
+    [string]$ProjectionTargetBreathInvert = "",
+    [double]$ProjectionTargetBreathMinQuality = [double]::NaN,
+    [ValidateSet("", "true", "false")]
+    [string]$ManifoldBreathFeedbackEnabled = "",
+    [string]$ManifoldBreathFeedbackStream = "",
+    [string]$ManifoldBreathFeedbackReceiver = "",
+    [string]$ManifoldBrokerHost = "",
+    [int]$ManifoldBrokerPort = 0,
+    [int]$ManifoldBreathFeedbackConnectTimeoutMs = 0,
     [double]$ProjectionAreaRadiusXUv = [double]::NaN,
     [double]$ProjectionAreaRadiusYUv = [double]::NaN,
     [double]$ProjectionAreaCornerRadiusUv = [double]::NaN,
@@ -104,41 +120,54 @@ $properties = [ordered]@{
     RightUv = "debug.rustyquest.makepad.horizontal.offset.right.uv"
     VerticalUv = "debug.rustyquest.makepad.vertical.offset.uv"
     ContentScale = "debug.rustyquest.makepad.content.uv.scale"
-    ProjectionBorderOpacity = "debug.rustyquest.projection.border.opacity"
-    ProjectionBorderPolicy = "debug.rustyquest.projection.border.policy"
+    ProjectionBorderOpacity = "debug.rustyquest.makepad.projection.border.opacity"
+    ProjectionBorderPolicy = "debug.rustyquest.makepad.projection.border.policy"
     NativePassthroughEnabled = "debug.rustyquest.makepad.native.passthrough.enabled"
-    ProcessingLayer = "debug.rustyquest.processing.layer"
+    ProcessingLayer = "debug.rustyquest.makepad.processing.layer"
     ProjectionSampleMode = "debug.rustyquest.makepad.projection.sample.mode"
-    BlurRadiusPx = "debug.rustyquest.camera.blur.radius.px"
-    PeripheralStretchMode = "debug.rustyquest.peripheral.stretch.mode"
-    PeripheralStretchCoreScale = "debug.rustyquest.peripheral.stretch.core.scale"
-    PeripheralStretchEdgeInsetUv = "debug.rustyquest.peripheral.stretch.edge.inset.uv"
-    PeripheralStretchMaxInsetUv = "debug.rustyquest.peripheral.stretch.max.inset.uv"
-    PeripheralStretchCurve = "debug.rustyquest.peripheral.stretch.curve"
-    PeripheralStretchInnerBlendUv = "debug.rustyquest.peripheral.stretch.inner.blend.uv"
-    PeripheralStretchBlendCurve = "debug.rustyquest.peripheral.stretch.blend.curve"
-    PeripheralStretchBlendMode = "debug.rustyquest.peripheral.stretch.blend.mode"
-    PeripheralStretchCornerMode = "debug.rustyquest.peripheral.stretch.corner.mode"
-    PeripheralStretchDebug = "debug.rustyquest.peripheral.stretch.debug"
-    ProjectionDepthMeters = "debug.rustyquest.projection.depth.meters"
+    BlurRadiusPx = "debug.rustyquest.makepad.camera.blur.radius.px"
+    PeripheralStretchMode = "debug.rustyquest.makepad.peripheral.stretch.mode"
+    PeripheralStretchCoreScale = "debug.rustyquest.makepad.peripheral.stretch.core.scale"
+    PeripheralStretchEdgeInsetUv = "debug.rustyquest.makepad.peripheral.stretch.edge.inset.uv"
+    PeripheralStretchMaxInsetUv = "debug.rustyquest.makepad.peripheral.stretch.max.inset.uv"
+    PeripheralStretchCurve = "debug.rustyquest.makepad.peripheral.stretch.curve"
+    PeripheralStretchInnerBlendUv = "debug.rustyquest.makepad.peripheral.stretch.inner.blend.uv"
+    PeripheralStretchBlendCurve = "debug.rustyquest.makepad.peripheral.stretch.blend.curve"
+    PeripheralStretchBlendMode = "debug.rustyquest.makepad.peripheral.stretch.blend.mode"
+    PeripheralStretchCornerMode = "debug.rustyquest.makepad.peripheral.stretch.corner.mode"
+    PeripheralStretchDebug = "debug.rustyquest.makepad.peripheral.stretch.debug"
+    ProjectionDepthMeters = "debug.rustyquest.makepad.projection.depth.meters"
     ProjectionAreaDiagnostic = "debug.rustyquest.makepad.projection.area.diagnostic"
-    ProjectionAreaLeftOffsetXUv = "debug.rustyquest.projection.area.left.offset.x.uv"
-    ProjectionAreaRightOffsetXUv = "debug.rustyquest.projection.area.right.offset.x.uv"
-    ProjectionAreaOffsetYUv = "debug.rustyquest.projection.area.offset.y.uv"
-    ProjectionAreaScaleX = "debug.rustyquest.projection.area.scale.x"
-    ProjectionAreaScaleY = "debug.rustyquest.projection.area.scale.y"
-    ProjectionTargetOffsetXUv = "debug.rustyquest.projection.target.offset.x.uv"
-    ProjectionTargetOffsetYUv = "debug.rustyquest.projection.target.offset.y.uv"
-    ProjectionTargetScale = "debug.rustyquest.projection.target.scale"
-    ProjectionTargetJoystickControls = "debug.rustyquest.projection.target.joystick.controls"
-    ProjectionAreaRadiusXUv = "debug.rustyquest.projection.area.radius.x.uv"
-    ProjectionAreaRadiusYUv = "debug.rustyquest.projection.area.radius.y.uv"
-    ProjectionAreaCornerRadiusUv = "debug.rustyquest.projection.area.corner.radius.uv"
+    ProjectionAreaLeftOffsetXUv = "debug.rustyquest.makepad.projection.area.offset.left.uv"
+    ProjectionAreaRightOffsetXUv = "debug.rustyquest.makepad.projection.area.offset.right.uv"
+    ProjectionAreaOffsetYUv = "debug.rustyquest.makepad.projection.area.offset.vertical.uv"
+    ProjectionAreaScaleX = "debug.rustyquest.makepad.projection.area.scale.x"
+    ProjectionAreaScaleY = "debug.rustyquest.makepad.projection.area.scale.y"
+    ProjectionTargetOffsetXUv = "debug.rustyquest.makepad.projection.target.offset.x.uv"
+    ProjectionTargetOffsetYUv = "debug.rustyquest.makepad.projection.target.offset.y.uv"
+    ProjectionTargetScale = "debug.rustyquest.makepad.projection.target.scale"
+    ProjectionTargetJoystickControls = "debug.rustyquest.makepad.projection.target.joystick.controls"
+    ProjectionTargetBreathControls = "debug.rustyquest.makepad.projection.target.breath.controls"
+    ProjectionTargetBreathStream = "debug.rustyquest.makepad.projection.target.breath.stream"
+    ProjectionTargetBreathMinScale = "debug.rustyquest.makepad.projection.target.breath.min.scale"
+    ProjectionTargetBreathMaxScale = "debug.rustyquest.makepad.projection.target.breath.max.scale"
+    ProjectionTargetBreathSmoothingAlpha = "debug.rustyquest.makepad.projection.target.breath.smoothing.alpha"
+    ProjectionTargetBreathInvert = "debug.rustyquest.makepad.projection.target.breath.invert"
+    ProjectionTargetBreathMinQuality = "debug.rustyquest.makepad.projection.target.breath.min.quality"
+    ManifoldBreathFeedbackEnabled = "debug.rusty.manifold.breath.feedback.enabled"
+    ManifoldBreathFeedbackStream = "debug.rusty.manifold.breath.feedback.stream"
+    ManifoldBreathFeedbackReceiver = "debug.rusty.manifold.breath.feedback.receiver"
+    ManifoldBrokerHost = "debug.rusty.manifold.broker.host"
+    ManifoldBrokerPort = "debug.rusty.manifold.broker.port"
+    ManifoldBreathFeedbackConnectTimeoutMs = "debug.rusty.manifold.breath.feedback.connect.timeout.ms"
+    ProjectionAreaRadiusXUv = "debug.rustyquest.makepad.projection.area.radius.x.uv"
+    ProjectionAreaRadiusYUv = "debug.rustyquest.makepad.projection.area.radius.y.uv"
+    ProjectionAreaCornerRadiusUv = "debug.rustyquest.makepad.projection.area.corner.radius.uv"
     ProjectionAreaKeystoneX = "debug.rustyquest.makepad.projection.area.keystone.x"
     ProjectionAreaBowX = "debug.rustyquest.makepad.projection.area.bow.x"
-    ProjectionAlphaMode = "debug.rustyquest.projection.alpha.mode"
-    ProjectionAlphaScale = "debug.rustyquest.projection.alpha.scale"
-    ProjectionAlphaBias = "debug.rustyquest.projection.alpha.bias"
+    ProjectionAlphaMode = "debug.rustyquest.makepad.projection.alpha.mode"
+    ProjectionAlphaScale = "debug.rustyquest.makepad.projection.alpha.scale"
+    ProjectionAlphaBias = "debug.rustyquest.makepad.projection.alpha.bias"
     ResolvedProjectionRuntime = "debug.rustyquest.makepad.projection.runtime.resolution.enabled"
 }
 
@@ -150,8 +179,8 @@ if ($Reset) {
     $VerticalUv = 0.0
     $ContentScale = 1.60
     $ProjectionBorderOpacity = 1.0
-    $ProjectionBorderPolicy = "solid-red"
-    $ProcessingLayer = "raw"
+    $ProjectionBorderPolicy = "passthrough-underlay"
+    $ProcessingLayer = "peripheral-stretch"
     $BlurRadiusPx = 2.0
     $PeripheralStretchMode = "edge-stretch"
     $PeripheralStretchCoreScale = 1.0
@@ -174,6 +203,19 @@ if ($Reset) {
     $ProjectionTargetOffsetYUv = 0.0
     $ProjectionTargetScale = 1.0
     $ProjectionTargetJoystickControls = "offset-scale"
+    $ProjectionTargetBreathControls = "off"
+    $ProjectionTargetBreathStream = "stream.breath.feedback_state"
+    $ProjectionTargetBreathMinScale = 1.0
+    $ProjectionTargetBreathMaxScale = 1.0
+    $ProjectionTargetBreathSmoothingAlpha = 0.30
+    $ProjectionTargetBreathInvert = "false"
+    $ProjectionTargetBreathMinQuality = 0.0
+    $ManifoldBreathFeedbackEnabled = "false"
+    $ManifoldBreathFeedbackStream = "stream.breath.feedback_state"
+    $ManifoldBreathFeedbackReceiver = "app.makepad_camera_shell.breath_feedback"
+    $ManifoldBrokerHost = "127.0.0.1"
+    $ManifoldBrokerPort = 8765
+    $ManifoldBreathFeedbackConnectTimeoutMs = 250
     $ProjectionAreaRadiusXUv = 0.5
     $ProjectionAreaRadiusYUv = 0.5
     $ProjectionAreaCornerRadiusUv = 0.0
@@ -215,6 +257,10 @@ Assert-Range -Name "ProjectionAreaScaleY" -Value $ProjectionAreaScaleY -Min $Pro
 Assert-Range -Name "ProjectionTargetOffsetXUv" -Value $ProjectionTargetOffsetXUv -Min -0.5 -Max 0.5
 Assert-Range -Name "ProjectionTargetOffsetYUv" -Value $ProjectionTargetOffsetYUv -Min -0.5 -Max 0.5
 Assert-Range -Name "ProjectionTargetScale" -Value $ProjectionTargetScale -Min 0.05 -Max 1.50
+Assert-Range -Name "ProjectionTargetBreathMinScale" -Value $ProjectionTargetBreathMinScale -Min 0.05 -Max 1.50
+Assert-Range -Name "ProjectionTargetBreathMaxScale" -Value $ProjectionTargetBreathMaxScale -Min 0.05 -Max 1.50
+Assert-Range -Name "ProjectionTargetBreathSmoothingAlpha" -Value $ProjectionTargetBreathSmoothingAlpha -Min 0.0 -Max 1.0
+Assert-Range -Name "ProjectionTargetBreathMinQuality" -Value $ProjectionTargetBreathMinQuality -Min 0.0 -Max 1.0
 Assert-Range -Name "ProjectionAreaRadiusXUv" -Value $ProjectionAreaRadiusXUv -Min 0.05 -Max 0.5
 Assert-Range -Name "ProjectionAreaRadiusYUv" -Value $ProjectionAreaRadiusYUv -Min 0.05 -Max 0.5
 Assert-Range -Name "ProjectionAreaCornerRadiusUv" -Value $ProjectionAreaCornerRadiusUv -Min 0.0 -Max 0.5
@@ -222,6 +268,12 @@ Assert-Range -Name "ProjectionAreaKeystoneX" -Value $ProjectionAreaKeystoneX -Mi
 Assert-Range -Name "ProjectionAreaBowX" -Value $ProjectionAreaBowX -Min -0.25 -Max 0.25
 Assert-Range -Name "ProjectionAlphaScale" -Value $ProjectionAlphaScale -Min 0.0 -Max 4.0
 Assert-Range -Name "ProjectionAlphaBias" -Value $ProjectionAlphaBias -Min -1.0 -Max 1.0
+if ($ManifoldBrokerPort -lt 0 -or $ManifoldBrokerPort -gt 65535) {
+    throw "ManifoldBrokerPort must be within [0, 65535]; got $ManifoldBrokerPort"
+}
+if ($ManifoldBreathFeedbackConnectTimeoutMs -lt 0) {
+    throw "ManifoldBreathFeedbackConnectTimeoutMs must be non-negative; got $ManifoldBreathFeedbackConnectTimeoutMs"
+}
 
 if (-not [double]::IsNaN($Strength)) {
     Set-Prop -Name $properties.Strength -Value $Strength
@@ -326,6 +378,45 @@ if (-not [double]::IsNaN($ProjectionTargetScale)) {
 }
 if ($ProjectionTargetJoystickControls) {
     Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionTargetJoystickControls, $ProjectionTargetJoystickControls)
+}
+if ($ProjectionTargetBreathControls) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionTargetBreathControls, $ProjectionTargetBreathControls)
+}
+if ($ProjectionTargetBreathStream) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionTargetBreathStream, $ProjectionTargetBreathStream)
+}
+if (-not [double]::IsNaN($ProjectionTargetBreathMinScale)) {
+    Set-Prop -Name $properties.ProjectionTargetBreathMinScale -Value $ProjectionTargetBreathMinScale
+}
+if (-not [double]::IsNaN($ProjectionTargetBreathMaxScale)) {
+    Set-Prop -Name $properties.ProjectionTargetBreathMaxScale -Value $ProjectionTargetBreathMaxScale
+}
+if (-not [double]::IsNaN($ProjectionTargetBreathSmoothingAlpha)) {
+    Set-Prop -Name $properties.ProjectionTargetBreathSmoothingAlpha -Value $ProjectionTargetBreathSmoothingAlpha
+}
+if ($ProjectionTargetBreathInvert) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ProjectionTargetBreathInvert, $ProjectionTargetBreathInvert)
+}
+if (-not [double]::IsNaN($ProjectionTargetBreathMinQuality)) {
+    Set-Prop -Name $properties.ProjectionTargetBreathMinQuality -Value $ProjectionTargetBreathMinQuality
+}
+if ($ManifoldBreathFeedbackEnabled) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ManifoldBreathFeedbackEnabled, $ManifoldBreathFeedbackEnabled)
+}
+if ($ManifoldBreathFeedbackStream) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ManifoldBreathFeedbackStream, $ManifoldBreathFeedbackStream)
+}
+if ($ManifoldBreathFeedbackReceiver) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ManifoldBreathFeedbackReceiver, $ManifoldBreathFeedbackReceiver)
+}
+if ($ManifoldBrokerHost) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ManifoldBrokerHost, $ManifoldBrokerHost)
+}
+if ($ManifoldBrokerPort -gt 0) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ManifoldBrokerPort, $ManifoldBrokerPort.ToString([Globalization.CultureInfo]::InvariantCulture))
+}
+if ($ManifoldBreathFeedbackConnectTimeoutMs -gt 0) {
+    Invoke-Adb -Arguments @("shell", "setprop", $properties.ManifoldBreathFeedbackConnectTimeoutMs, $ManifoldBreathFeedbackConnectTimeoutMs.ToString([Globalization.CultureInfo]::InvariantCulture))
 }
 if (-not [double]::IsNaN($ProjectionAreaRadiusXUv)) {
     Set-Prop -Name $properties.ProjectionAreaRadiusXUv -Value $ProjectionAreaRadiusXUv
