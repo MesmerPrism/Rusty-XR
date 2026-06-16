@@ -17,10 +17,15 @@ THREADTIME_RE = re.compile(
     r"(?P<pid>\d+)\s+(?P<tid>\d+)\s+(?P<level>[A-Z])\s+"
     r"(?P<tag>[^:]+?)\s*:\s*(?P<body>.*)$"
 )
-MAKEPAD_CADENCE_MARKER = "RUSTY_QUEST_MAKEPAD_CADENCE"
+MAKEPAD_CADENCE_MARKERS = (
+    "RUSTY_QUEST_MAKEPAD_CADENCE",
+    "RUSTY_XR_MAKEPAD_CADENCE",
+)
 MAKEPAD_FRAME_FLOW_MARKERS = (
     "RUSTY_QUEST_MAKEPAD_CAMERA_FRAME_FLOW",
     "RUSTY_QUEST_MAKEPAD_FRAME_FLOW",
+    "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW",
+    "RUSTY_XR_MAKEPAD_FRAME_FLOW",
 )
 APP_MARKER_SUBSTRINGS = (
     "RustyXRMakepad",
@@ -28,6 +33,7 @@ APP_MARKER_SUBSTRINGS = (
     "Rusty XR OpenXR frame",
     "Rusty XR final projection status",
     "RUSTY_QUEST_MAKEPAD_",
+    "RUSTY_XR_MAKEPAD_",
 )
 KV_RE = re.compile(r"([A-Za-z0-9_%&_]+)=([^,\s]+)")
 
@@ -379,8 +385,10 @@ def analyze(logcat: Path, explicit_pids: set[str]) -> dict[str, Any]:
             row["pid"] = record["pid"]
             row["tid"] = record["tid"]
             vrapi_rows.append(row)
-        if MAKEPAD_CADENCE_MARKER in body:
-            cadence_rows.append(parse_marker_key_values(body.split(MAKEPAD_CADENCE_MARKER, 1)[1]))
+        for marker in MAKEPAD_CADENCE_MARKERS:
+            if marker in body:
+                cadence_rows.append(parse_marker_key_values(body.split(marker, 1)[1]))
+                break
         for marker in MAKEPAD_FRAME_FLOW_MARKERS:
             if marker in body:
                 frame_flow_rows.append(parse_marker_key_values(body.split(marker, 1)[1]))
@@ -451,20 +459,30 @@ def _fixture_vrapi_line(index: int, stale: int, fps: str, app_ms: float, cpu_gpu
     )
 
 
-def _fixture_cadence_line(index: int) -> str:
+def _fixture_cadence_line(index: int, marker: str = "RUSTY_QUEST_MAKEPAD_CADENCE") -> str:
+    schema = "rusty.xr.makepad-cadence.v1" if marker.startswith("RUSTY_XR") else "rusty.quest.makepad-cadence.v1"
     return (
         f"05-26 15:12:{index:02d}.000 12345 12347 I RustyXRMakepad : "
-        "RUSTY_QUEST_MAKEPAD_CADENCE schema=rusty.quest.makepad-cadence.v1 "
+        f"{marker} schema={schema} "
         "phase=sample status=ok elapsedMs=10020 intervalMs=5014 "
         "appFrameRateHz=71.41 xrUpdateRateHz=71.41 pairedTextureUpdateRateHz=46.67 "
         "xrDisplayRefreshRateHz=90.00 xrEffectiveFrameRateHz=72.01"
     )
 
 
-def _fixture_frame_flow_line(index: int, body: str) -> str:
+def _fixture_frame_flow_line(
+    index: int,
+    body: str,
+    marker: str = "RUSTY_QUEST_MAKEPAD_CAMERA_FRAME_FLOW",
+) -> str:
+    schema = (
+        "rusty.xr.makepad-camera-frame-flow.v1"
+        if marker.startswith("RUSTY_XR")
+        else "rusty.quest.makepad-camera-frame-flow.v1"
+    )
     return (
         f"05-26 15:13:{index:02d}.000 12345 12348 I RustyXRMakepad : "
-        f"RUSTY_QUEST_MAKEPAD_CAMERA_FRAME_FLOW schema=rusty.quest.makepad-camera-frame-flow.v1 {body}"
+        f"{marker} schema={schema} {body}"
     )
 
 
@@ -505,6 +523,7 @@ def run_self_test() -> int:
                 "phase=xr-end-frame status=submitted renderPath=makepad-xr xrFrameSeq=91 "
                 "shouldRender=true submitTimeMs=1012 predictedDisplayTimeNs=456 "
                 "predictedDisplayPeriodNs=13888888 resultCode=0 layerCount=1",
+                marker="RUSTY_XR_MAKEPAD_FRAME_FLOW",
             ),
         ]
     )
@@ -541,11 +560,12 @@ def run_self_test() -> int:
             _fixture_vrapi_line(3, 8, "58/72", 17.00, 20.00),
             _fixture_vrapi_line(4, 7, "58/72", 17.00, 20.00),
             _fixture_vrapi_line(5, 7, "58/72", 17.00, 20.00),
-            _fixture_cadence_line(6),
+            _fixture_cadence_line(6, marker="RUSTY_XR_MAKEPAD_CADENCE"),
         ]
     )
     assert sustained_report["status"] == "stale", sustained_report
     assert "vrapi-app-recent-stale-positive" in sustained_report["reasons"], sustained_report
+    assert sustained_report["makepadCadence"]["rowCount"] == 1, sustained_report
     print("Analyze-MetaPerfStale self-test passed")
     return 0
 

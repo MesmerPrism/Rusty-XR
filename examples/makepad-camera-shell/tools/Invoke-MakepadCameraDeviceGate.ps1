@@ -185,6 +185,15 @@ $publicExampleAppHygieneHelper = Join-Path $repoRoot "tools\quest-camera-profile
 . $projectionPropertyHygieneHelper
 . $publicExampleAppHygieneHelper
 
+$MakepadOpenXrEndFrameMarkers = @(
+    "RUSTY_QUEST_MAKEPAD_OPENXR_END_FRAME",
+    "RUSTY_XR_MAKEPAD_OPENXR_END_FRAME"
+)
+$MakepadFrameFlowEndFramePattern = "RUSTY_(?:QUEST|XR)_MAKEPAD(?:_CAMERA)?_FRAME_FLOW.*phase=xr-end-frame.*status=submitted"
+$MakepadNonzeroXrCadencePattern = "RUSTY_(?:QUEST|XR)_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\\.00)"
+$MakepadCadenceMarkerPattern = "RUSTY_(?:QUEST|XR)_MAKEPAD_CADENCE"
+$MakepadBrokerH264HardwareBufferFramePattern = "RUSTY_(?:QUEST|XR)_MAKEPAD_BROKER_H264(?:_STEREO)?_HARDWARE_BUFFER_FRAME"
+
 function Invoke-Adb {
     param([string[]]$Arguments)
     & adb -s $Serial @Arguments
@@ -900,8 +909,11 @@ function Capture-LaunchState {
         $windowHasExpectedPackage -and
         $activityHasExpectedXrActivity -and
         $windowHasExpectedXrActivity
-    $openxrEndFrame = @($log | Select-String -SimpleMatch "RUSTY_QUEST_MAKEPAD_OPENXR_END_FRAME").Count
-    $frameFlowEndFrame = @($log | Select-String -Pattern "RUSTY_QUEST_MAKEPAD_FRAME_FLOW.*phase=xr-end-frame.*status=submitted").Count
+    $openxrEndFrame = 0
+    foreach ($marker in $MakepadOpenXrEndFrameMarkers) {
+        $openxrEndFrame += @($log | Select-String -SimpleMatch $marker).Count
+    }
+    $frameFlowEndFrame = @($log | Select-String -Pattern $MakepadFrameFlowEndFramePattern).Count
     $endFrame = $openxrEndFrame + $frameFlowEndFrame
     $frameAdoptionLines = @($log | Select-String -SimpleMatch "RUSTY_QUEST_MAKEPAD_FRAME_ADOPTION" | ForEach-Object { $_.Line })
     $frameAdoptionCount = @($frameAdoptionLines).Count
@@ -910,7 +922,7 @@ function Capture-LaunchState {
     $frameAdoptionTimingGapCount = @($frameAdoptionLines | Select-String -SimpleMatch "pairingStatus=latest-complete-with-timing-gap").Count
     $latestFrameAdoptionLine = @($frameAdoptionLines | Select-Object -Last 1)
     $visiblePanel = @($log | Select-String -SimpleMatch "visibleCameraProjectionReady=true").Count
-    $xrCadence = @($log | Select-String -Pattern "RUSTY_QUEST_MAKEPAD_CADENCE.*xrUpdateRateHz=(?!0\\.00)").Count
+    $xrCadence = @($log | Select-String -Pattern $MakepadNonzeroXrCadencePattern).Count
     $loadingSignals = @($log | Select-String -Pattern "(?i)XrPermissionsFlow|preflight|loading").Count
     $brokerH264PrepareRequestCount = @($log | Select-String -SimpleMatch "phase=broker-h264-prepare-request status=sent").Count
     $brokerH264UnboundedHeaderCount = @($log | Select-String -SimpleMatch "packets=0 metadataBytes=").Count
@@ -927,7 +939,7 @@ function Capture-LaunchState {
     $brokerH264YuvTexturesReadyCount = @($log | Select-String -SimpleMatch "textureMode=cpu-yuv-decoded-broker-h264").Count
     $brokerH264YuvTextureUpdateCount = @($log | Select-String -Pattern "phase=texture-updated status=ok.*cpuUploadPath=broker-h264-mediacodec-cpu-yuv").Count
     $brokerH264HardwareBufferTextureUpdateCount = @($log | Select-String -Pattern "phase=texture-updated status=ok.*cameraTexturePath=broker-h264-mediacodec-hardware-buffer").Count
-    $brokerH264HardwareBufferFrameCount = @($log | Select-String -SimpleMatch "RUSTY_QUEST_MAKEPAD_BROKER_H264_HARDWARE_BUFFER_FRAME").Count
+    $brokerH264HardwareBufferFrameCount = @($log | Select-String -Pattern $MakepadBrokerH264HardwareBufferFramePattern).Count
     $brokerH264TextureUpdateCount = $brokerH264YuvTextureUpdateCount + $brokerH264HardwareBufferTextureUpdateCount
     $brokerH264DecodeErrorCount = @($log | Select-String -Pattern "event=decode-error|Broker H[.]264 playback failed").Count
     $brokerH264ProgressLines = @($log | Select-String -SimpleMatch "Broker H.264 playback progress" | ForEach-Object { $_.Line })
@@ -988,7 +1000,7 @@ function Capture-LaunchState {
     $projectionMappingReadyCadenceCount = @($log | Select-String -SimpleMatch "projectionMappingReady=true").Count
     $leftTextureUpdateMax = 0
     $rightTextureUpdateMax = 0
-    foreach ($line in @($log | Select-String -SimpleMatch "RUSTY_QUEST_MAKEPAD_CADENCE" | ForEach-Object { $_.Line })) {
+    foreach ($line in @($log | Select-String -Pattern $MakepadCadenceMarkerPattern | ForEach-Object { $_.Line })) {
         if ($line -match "leftTextureUpdateCount=(\d+)") {
             $leftTextureUpdateMax = [Math]::Max($leftTextureUpdateMax, [int]$Matches[1])
         }
@@ -1962,4 +1974,3 @@ if ($metaPerfStaleGateFailures.Count -gt 0) {
 if ($brokerH264StereoProjectionGateFailures.Count -gt 0) {
     throw "broker H.264 stereo projection gate failed: $($brokerH264StereoProjectionGateFailures -join '; ')"
 }
-

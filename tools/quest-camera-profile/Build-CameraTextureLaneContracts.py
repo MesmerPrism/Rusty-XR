@@ -33,10 +33,18 @@ MAKEPAD_IMPORT_MARKER = "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT"
 MAKEPAD_FRAME_FLOW_MARKERS = (
     "RUSTY_QUEST_MAKEPAD_CAMERA_FRAME_FLOW",
     "RUSTY_QUEST_MAKEPAD_FRAME_FLOW",
+    "RUSTY_XR_MAKEPAD_CAMERA_FRAME_FLOW",
+    "RUSTY_XR_MAKEPAD_FRAME_FLOW",
 )
-MAKEPAD_CADENCE_MARKER = "RUSTY_QUEST_MAKEPAD_CADENCE"
+MAKEPAD_CADENCE_MARKERS = (
+    "RUSTY_QUEST_MAKEPAD_CADENCE",
+    "RUSTY_XR_MAKEPAD_CADENCE",
+)
 MAKEPAD_STEREO_PROJECTION_MARKER = "RUSTY_QUEST_MAKEPAD_STEREO_PROJECTION"
-MAKEPAD_DESCRIPTOR_MARKER = "RUSTY_QUEST_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE"
+MAKEPAD_DESCRIPTOR_MARKERS = (
+    "RUSTY_QUEST_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE",
+    "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE",
+)
 TIMING_KEYS = (
     "camera_frame_sequence",
     "camera_timestamp_ns",
@@ -1273,11 +1281,14 @@ def scan_line(line: str, state: ScanState) -> None:
         if phase == "xr-end-frame":
             state.update_makepad_global(fields)
         break
-    if MAKEPAD_CADENCE_MARKER in line:
-        fields = parse_marker_fields(line.split(MAKEPAD_CADENCE_MARKER, 1)[1])
+    for marker in MAKEPAD_CADENCE_MARKERS:
+        if marker not in line:
+            continue
+        fields = parse_marker_fields(line.split(marker, 1)[1])
         path = makepad_path_from_flow_path(str(fields.get("cameraTexturePath") or ""))
         if path:
             state.update_makepad(path, fields)
+        break
     if MAKEPAD_STEREO_PROJECTION_MARKER in line:
         fields = parse_marker_fields(line.split(MAKEPAD_STEREO_PROJECTION_MARKER, 1)[1])
         phase = str(fields.get("phase") or "")
@@ -1293,14 +1304,17 @@ def scan_line(line: str, state: ScanState) -> None:
                 state.update_makepad(path, fields)
             else:
                 state.update_makepad_global(fields)
-    if MAKEPAD_DESCRIPTOR_MARKER in line:
-        fields = parse_marker_fields(line.split(MAKEPAD_DESCRIPTOR_MARKER, 1)[1])
+    for marker in MAKEPAD_DESCRIPTOR_MARKERS:
+        if marker not in line:
+            continue
+        fields = parse_marker_fields(line.split(marker, 1)[1])
         path = state.last_makepad_hwb_path or makepad_path_from_fields_or_context(
             fields, state.makepad_global_fields
         )
         if path is None or not is_makepad_hwb_external_path(path):
             path = "direct-camera-hardware-buffer-external"
         state.update_makepad(path, fields)
+        break
 
 
 def build_records(
@@ -1623,8 +1637,8 @@ def self_test() -> None:
             "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 phase=prepared status=ok side=left width=1280 height=1280 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none",
             "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=direct-camera-hardware-buffer-external makepadVulkanImport=true textureImportPath=makepad-camera-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=combined-immutable-sampler-ycbcr-conversion cameraInputId=11 cameraFormatId=21 cameraFrameSeq=4 cameraTimestampNs=789 acquireTimeNs=700 importSeq=5 importTimeNs=800 textureUpdateSeq=5 textureWidth=1280 textureHeight=1280 vulkanFormat=UNDEFINED vulkanExternalFormat=42 resourceReused=false suggestedYcbcrModel=YCBCR_IDENTITY suggestedYcbcrRange=ITU_FULL effectiveYcbcrModel=YCBCR_601 effectiveYcbcrRange=ITU_NARROW ycbcrComponents=r,g,b,a suggestedXChromaOffset=COSITED_EVEN suggestedYChromaOffset=MIDPOINT conversionMode=forced-bt601-limited-cpuyuv-reference samplerBindingMode=combined-immutable-sampler samplerBindingCompliance=pure-hwb-reference-combined-immutable combinedImageSampler=true immutableSampler=true shaderSampleLowering=textureSampleLevel_combined_image_sampler_same_binding colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap",
             "RUSTY_QUEST_MAKEPAD_HARDWARE_BUFFER_IMPORT schema=rusty.quest.makepad-hardware-buffer-import.v1 phase=texture-updated status=ok side=left yuvEnabled=false yuvBiplanar=false rotationSteps=0 cameraTexturePath=broker-h264-mediacodec-hardware-buffer makepadVulkanImport=true textureImportPath=broker-h264-mediacodec-hardware-buffer-vulkan-import cpuUploadPath=none eventResourcePath=hardware-buffer-external descriptorShape=combined-immutable-sampler-ycbcr-conversion sourceMode=broker-camera source=broker_app.camera2_h264_stream cameraFrameSeq=8 cameraTimestampNs=456 importSeq=9 importTimeNs=1000 textureUpdateSeq=9 textureWidth=1280 textureHeight=1280",
-            "RUSTY_QUEST_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE schema=rusty.quest.makepad-vulkan-video-descriptor-shape.v1 textureDescriptorType=COMBINED_IMAGE_SAMPLER samplerDescriptorType=COMBINED_IMAGE_SAMPLER combinedImageSampler=true immutableSampler=true samplerBindingMode=combined-immutable-sampler samplerBindingCompliance=pure-hwb-reference-combined-immutable effectiveYcbcrModel=YCBCR_601 effectiveYcbcrRange=ITU_NARROW conversionMode=forced-bt601-limited-cpuyuv-reference shaderSampleLowering=textureSampleLevel_combined_image_sampler_same_binding colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap",
-            "RUSTY_QUEST_MAKEPAD_FRAME_FLOW schema=rusty.quest.makepad-camera-frame-flow.v1 phase=xr-end-frame status=submitted renderPath=makepad-xr xrFrameSeq=9 shouldRender=true submitTimeNs=900 predictedDisplayTimeNs=1000 predictedDisplayPeriodNs=13888888 resultCode=0 layerCount=1",
+            "RUSTY_XR_MAKEPAD_VULKAN_VIDEO_DESCRIPTOR_SHAPE schema=rusty.xr.makepad-vulkan-video-descriptor-shape.v1 textureDescriptorType=COMBINED_IMAGE_SAMPLER samplerDescriptorType=COMBINED_IMAGE_SAMPLER combinedImageSampler=true immutableSampler=true samplerBindingMode=combined-immutable-sampler samplerBindingCompliance=pure-hwb-reference-combined-immutable effectiveYcbcrModel=YCBCR_601 effectiveYcbcrRange=ITU_NARROW conversionMode=forced-bt601-limited-cpuyuv-reference shaderSampleLowering=textureSampleLevel_combined_image_sampler_same_binding colorFixAttempt=hwb-external-combined-immutable-v4-default-sampler-remap",
+            "RUSTY_XR_MAKEPAD_FRAME_FLOW schema=rusty.xr.makepad-camera-frame-flow.v1 phase=xr-end-frame status=submitted renderPath=makepad-xr xrFrameSeq=9 shouldRender=true submitTimeNs=900 predictedDisplayTimeNs=1000 predictedDisplayPeriodNs=13888888 resultCode=0 layerCount=1",
         ]
     )
     with tempfile.TemporaryDirectory() as tmp:
