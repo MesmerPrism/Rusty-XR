@@ -796,7 +796,7 @@ function Set-MakepadProjectionTargetProfile {
         "debug.rustyquest.makepad.camera.preview.offset.y.meters" = (Format-InvariantDouble -Value $previewOffsetYMeters)
         "debug.rustyquest.makepad.camera.raw.overlay.overscan" = (Format-InvariantDouble -Value $rawOverlayOverscan)
         "debug.rustyquest.makepad.xr.render.scale" = (Format-InvariantDouble -Value $XrRenderScale)
-        "debug.rustyquest.makepad.xr.display.refresh.rate.hz" = (Format-InvariantDouble -Value $XrDisplayRefreshHz)
+        "debug.rustyquest.makepad.display.refresh.rate.hz" = (Format-InvariantDouble -Value $XrDisplayRefreshHz)
         "debug.rustyquest.makepad.projection.area.offset.left.uv" = (Format-InvariantDouble -Value $canonicalOffsetLeftUv)
         "debug.rustyquest.makepad.projection.area.offset.right.uv" = (Format-InvariantDouble -Value $canonicalOffsetRightUv)
         "debug.rustyquest.makepad.projection.area.offset.vertical.uv" = (Format-InvariantDouble -Value $offsetVerticalUv)
@@ -1962,5 +1962,4 @@ if ($metaPerfStaleGateFailures.Count -gt 0) {
 if ($brokerH264StereoProjectionGateFailures.Count -gt 0) {
     throw "broker H.264 stereo projection gate failed: $($brokerH264StereoProjectionGateFailures -join '; ')"
 }
-
 

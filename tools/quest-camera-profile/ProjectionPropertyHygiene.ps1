@@ -65,6 +65,8 @@ function Get-RustyQuestMakepadProjectionPropertyHygieneKeys {
         "debug.rustyquest.makepad.source.visible.rect.height.uv",
         "debug.rustyquest.makepad.oes.projection.runtime.resolution.enabled",
         "debug.rustyquest.makepad.xr.render.scale",
+        "debug.rustyquest.makepad.display.refresh.rate.hz",
+        # Retired compatibility key from the pre-Makepad-authority launcher path.
         "debug.rustyquest.makepad.xr.display.refresh.rate.hz",
         "debug.rustyquest.makepad.broker.h264.enabled",
         "debug.rustyquest.makepad.broker.h264.host",
