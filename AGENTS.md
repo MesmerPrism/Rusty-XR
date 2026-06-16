@@ -117,12 +117,12 @@ Then verify it from the companion repo:
 dotnet run --project .\src\RustyXr.Companion.Cli -- catalog verify --path ..\Rusty-XR\examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json --app rusty-xr-quest-composite-layer --serial <serial> --stop-catalog-apps --install --launch --device-profile xr-composite-smoke-test --runtime-profile camera-stereo-gpu-composite --settle-ms 9000 --logcat-lines 1400 --out .\artifacts\verify
 ```
 
-The companion-managed tooling cache covers `adb`, `hzdb`, and `scrcpy`.
-Rust/Cargo, Android SDK/NDK/JDK, OpenXR loader binaries, and signing material
-remain explicit local build inputs.
+The companion-managed tooling cache covers `adb`, Meta VR CLI / `hzdb`
+compatibility tooling, and `scrcpy`. Rust/Cargo, Android SDK/NDK/JDK, OpenXR
+loader binaries, and signing material remain explicit local build inputs.
 
-Treat `hzdb` as an optional Meta Quest provider, not a required core
-dependency. Before adding `hzdb`, MCP, docs/API search, Perfetto, device
+Treat Meta VR CLI / `hzdb` as an optional Meta Quest provider, not a required
+core dependency. Before adding `hzdb`, MCP, docs/API search, Perfetto, device
 health, app lifecycle, file, log, screenshot, or proximity workflows, read
 `docs/META_QUEST_HZDB_PROVIDER_PLAN.md`. Mutating operations such as shell
 commands, file deletion, app clear/uninstall, proximity changes, port

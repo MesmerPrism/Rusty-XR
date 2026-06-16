@@ -2,7 +2,7 @@ param(
     [string]$Serial = "",
     [string]$Adb = "adb",
     [string]$Npx = "npx",
-    [string]$HzdbNpxPackage = "@meta-quest/hzdb",
+    [string]$HzdbNpxPackage = "metavr",
     [string]$Catalog = "examples\quest-composite-layer-apk\catalog\rusty-xr-quest-composite-layer.catalog.json",
     [string]$AppId = "rusty-xr-quest-composite-layer",
     [string]$DeviceProfile = "xr-composite-smoke-test",

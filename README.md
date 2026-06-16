@@ -55,8 +55,8 @@ Initial crate layout:
   and synthetic eye-data contracts.
 - `rusty-xr-polar`: Polar H10 data contracts and protocol helpers.
 - `rusty-xr-quest-diagnostics`: reusable Quest diagnostic status, tooling
-  provider, `hzdb`/ADB/MCP, health, app, log, screenshot, file, Perfetto,
-  docs/API, and artifact-report models.
+  provider, Meta VR CLI / `hzdb` / ADB / MCP, health, app, log, screenshot,
+  file, Perfetto, docs/API, and artifact-report models.
 - `rusty-xr-camera-model`: camera metadata and projection helpers.
 - `rusty-xr-depth-model`: depth-frame and environment-depth contracts.
 - `rusty-xr-sdf`: signed-distance-field, mesh snapshot, sparse TSDF, and
@@ -224,9 +224,9 @@ documented in
 The public boundary for headset/controller tracking, Android sensors, and ADB
 diagnostics is documented in
 [docs/QUEST_TRACKING_ACCESS_BOUNDARY.md](docs/QUEST_TRACKING_ACCESS_BOUNDARY.md).
-The optional Meta Quest `hzdb` provider, MCP bridge, docs-first verification,
-Perfetto analysis, and structured safety-gated device-operation plan is
-documented in
+The optional Meta Quest Meta VR CLI / `hzdb` provider, MCP bridge, docs-first
+verification, Perfetto analysis, and structured safety-gated device-operation
+plan is documented in
 [docs/META_QUEST_HZDB_PROVIDER_PLAN.md](docs/META_QUEST_HZDB_PROVIDER_PLAN.md).
 For Rusty Kiosk, that provider loop is part of the default tracking setup:
 record command goal, provider, fallback, foreground before/after, broker
@@ -279,8 +279,8 @@ scene-space anchoring and Vulkan screen-space viewport conventions, live in
 Direct-device Quest render artifact diagnosis, including `VrApi`, OVR Metrics,
 Perfetto, screenshot, and one-variable A/B workflows, is documented in
 [docs/QUEST_RENDER_ARTIFACT_DIAGNOSTICS.md](docs/QUEST_RENDER_ARTIFACT_DIAGNOSTICS.md).
-`hzdb` is treated as an optional Meta Quest provider for those workflows, not a
-core dependency; the provider boundary and MCP safety model live in
+Meta VR CLI / `hzdb` is treated as an optional Meta Quest provider for those
+workflows, not a core dependency; the provider boundary and MCP safety model live in
 [docs/META_QUEST_HZDB_PROVIDER_PLAN.md](docs/META_QUEST_HZDB_PROVIDER_PLAN.md).
 Quest streaming and camera-composite cost isolation, including direct in-app
 Camera2 versus broker H.264 projected paths, render-scale interpretation, and

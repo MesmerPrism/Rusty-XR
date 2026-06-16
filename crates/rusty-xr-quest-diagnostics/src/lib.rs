@@ -85,8 +85,8 @@ impl ProviderOperationSafety {
     }
 }
 
-/// Capability descriptor for a Quest tooling provider such as ADB, hzdb, or a
-/// companion-side wrapper.
+/// Capability descriptor for a Quest tooling provider such as ADB, Meta VR CLI
+/// / hzdb compatibility tooling, or a companion-side wrapper.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProviderCapability {
@@ -502,7 +502,7 @@ impl McpServerConfig {
             command: String::from("npx"),
             args: vec![
                 String::from("-y"),
-                String::from("@meta-quest/hzdb"),
+                String::from("metavr"),
                 String::from("mcp"),
                 String::from("server"),
             ],
@@ -1245,7 +1245,7 @@ mod tests {
             config.args,
             vec![
                 String::from("-y"),
-                String::from("@meta-quest/hzdb"),
+                String::from("metavr"),
                 String::from("mcp"),
                 String::from("server")
             ]

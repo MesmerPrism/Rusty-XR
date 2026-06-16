@@ -77,20 +77,20 @@ function Read-DoublePropertyOrDefault {
 
 function Read-CurrentProjectionTargetScaleFromLogcat {
     $lines = Invoke-Adb -Arguments @("logcat", "-d")
-    $matches = @()
+    $projectionScaleMatches = @()
     foreach ($line in $lines) {
         $match = [regex]::Match($line, "projectionTargetScale=([0-9]+(?:\.[0-9]+)?)")
         if ($match.Success) {
             $parsed = 0.0
             if ([double]::TryParse($match.Groups[1].Value, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed) -and -not [double]::IsNaN($parsed) -and -not [double]::IsInfinity($parsed)) {
-                $matches += $parsed
+                $projectionScaleMatches += $parsed
             }
         }
     }
-    if ($matches.Count -eq 0) {
+    if ($projectionScaleMatches.Count -eq 0) {
         return [double]::NaN
     }
-    return $matches[$matches.Count - 1]
+    return $projectionScaleMatches[$projectionScaleMatches.Count - 1]
 }
 
 function Send-ManifoldCommand {

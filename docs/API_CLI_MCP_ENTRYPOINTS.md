@@ -49,8 +49,8 @@ these paths:
 - Companion CLI command with `--json`.
 - Shell helper CLI command.
 - Direct ADB fallback.
-- `hzdb` CLI.
-- `hzdb` MCP server.
+- Meta VR CLI / `hzdb` CLI.
+- Meta VR CLI / `hzdb` MCP server.
 - Manual operator note.
 
 Each run record should include:

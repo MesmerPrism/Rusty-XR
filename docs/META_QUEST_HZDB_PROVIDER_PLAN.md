@@ -1,4 +1,4 @@
-# Meta Quest hzdb Provider Plan
+# Meta Quest Meta VR CLI / hzdb Provider Plan
 
 This note folds the May 13, 2026 Meta Horizon OS developer-tooling update into
 Rusty XR. It keeps the focus on development workflows, not distribution,
@@ -10,24 +10,23 @@ Sources:
   <https://developers.meta.com/horizon/blog/build-faster-and-earn-more-helping-VR-developers-succeed-on-meta-quest/>
 - Meta AI tooling / MCP documentation:
   <https://developers.meta.com/horizon/essentials/ai-tooling-mcp/>
-- Meta Quest agentic-tools and `hzdb` reference:
+- Meta Quest agentic-tools and Meta VR CLI reference:
   <https://github.com/meta-quest/agentic-tools>
-  and
-  <https://github.com/meta-quest/agentic-tools/blob/main/docs/hzdb.md>
 - Meta XR Unity MCP Extension:
   <https://developers.meta.com/horizon/documentation/unity/unity-mcp-extension/>
-- Meta Horizon OS `hzdb` / MCP setup:
-  <https://developers.meta.com/horizon/documentation/unity/ts-mqdh-mcp/>
 - Unity Project Setup Tool:
   <https://developers.meta.com/horizon/documentation/unity/unity-upst-overview/>
 
 ## Development Signal
 
-Meta's relevant development signal is Horizon Debug Bridge (`hzdb`). The public
-documentation describes it as a Meta Quest development CLI and MCP server. It
-overlaps with ADB-style device operations, but it also adds Quest-specific
-tooling around documentation search, app and device management, file transfer,
-screenshots, Perfetto capture/analysis, and AI-agent access through MCP.
+Meta's current public development-tooling route is **Meta VR CLI** through the
+`metavr` npm package. The CLI currently exposes Horizon Debug Bridge (`hzdb`)
+commands and MQDH/editor bundles may still ship a `hzdb` executable, so Rusty
+XR keeps `hzdb` as a compatibility/provider label while new manual setup
+examples use `npx -y metavr`. The tooling overlaps with ADB-style device
+operations, but it also adds Quest-specific documentation search, app and
+device management, file transfer, screenshots, Perfetto capture/analysis, and
+AI-agent access through MCP.
 
 Rusty XR should treat `hzdb` as a vendor-specific provider, not as core
 protocol. The public Rusty XR core owns data contracts, safety policy,
@@ -46,6 +45,12 @@ On developer machines that use Meta Quest Developer Hub, MQDH may provide the
 record the MCP server name, provider route, provider version, and tool-count
 probe in the run evidence or local graph inventory. Do not encode a local MQDH
 install path in public Rusty XR contracts.
+
+Horizon OS 2.x changes the evidence context for Kiosk/headset runs. Record the
+exact OS/PTC state, Navigator/Home state, restored or snapped panels, privacy
+indicators, and intentional Meta system-panel transitions before interpreting a
+screenshot, foreground-app result, or launch/return failure as Rusty XR
+behavior.
 
 ## Already Present
 
@@ -86,8 +91,8 @@ Core may model:
 
 Core must not:
 
-- vendor `hzdb`, ADB, Meta SDK binaries, Unity packages, or generated tool
-  caches
+- vendor Meta VR CLI / `hzdb`, ADB, Meta SDK binaries, Unity packages, or
+  generated tool caches
 - run device shell commands from core crates
 - make `hzdb` required for Rusty XR consumers
 - let an MCP server mutate a project or headset without explicit safety gates
@@ -185,15 +190,16 @@ Add a companion/provider probe that can discover `hzdb` without making it a
 core dependency:
 
 ```powershell
-npx -y @meta-quest/hzdb --version
+npx -y metavr --version
 ```
 
 If MQDH is installed, an operator tool may instead probe the MQDH-bundled
 `hzdb` executable or the configured Codex MCP server. The normalized result
-should say which route was used: `mqdh-bundled`, `npx`, `global-path`,
-`companion-managed`, or `unknown`. Provider snapshots can model direct MQDH or
-managed executable routes with `McpServerConfig::hzdb_stdio_command(...)`
-without storing local paths in public examples.
+should say which route was used: `metavr-npx`, `mqdh-bundled`, `global-path`,
+`companion-managed`, or `unknown`. Provider snapshots can model direct MQDH,
+manual `metavr`, or managed executable routes with
+`McpServerConfig::hzdb_stdio_command(...)` without storing local paths in
+public examples.
 
 Record the result as a `QuestDevelopmentProviderSnapshot` with capabilities
 for `device`, `app`, `files`, `log`, `capture`, `perf`, `docs`, `asset`, and
@@ -265,7 +271,7 @@ Support project-local MCP descriptors without making MCP the only path:
   "servers": {
     "meta-horizon-mcp": {
       "command": "npx",
-      "args": ["-y", "@meta-quest/hzdb", "mcp", "server"]
+      "args": ["-y", "metavr", "mcp", "server"]
     }
   }
 }
@@ -287,7 +293,7 @@ Rusty XR should expose or consume this as an optional provider named
 AI agent
   -> Rusty XR/Companion MCP safety layer
   -> provider operation catalog
-  -> hzdb CLI/MCP or ADB fallback
+  -> Meta VR CLI / hzdb CLI/MCP or ADB fallback
   -> Quest device
 ```
 
@@ -299,15 +305,18 @@ Keep these optional and downstream/tooling-owned:
 
 - Meta XR Unity MCP Extension for Unity scene edits such as creating objects,
   transforms, grabbable interactions, UI interaction setup, and teleport
-  hotspots. It requires modern Unity and Meta XR SDK packages and should not
-  become a Rusty XR core dependency.
+  hotspots. Current public release notes put Meta XR SDK 203.0 on Unity
+  6000.0.66f2+ for multiple packages; downstream Unity projects should verify
+  their exact package pins before treating a Quest provider issue as a Rusty XR
+  contract issue.
 - Unity Project Setup Tool report ingestion. Rusty XR can parse JSON setup
   reports later, but Unity Editor automation belongs in Unity project tooling.
 - Android Studio plugin and Spatial Simulator workflows for Android panel app
   iteration. Physical-device validation is still required for multiple panels
   and immersive features.
-- Meta Asset Library / `hzdb asset search` for placeholder assets. Keep it
-  auth-aware and optional; do not vendor assets or generated models in core.
+- Meta Asset Library / `metavr asset search` or compatible `hzdb asset search`
+  for placeholder assets. Keep it auth-aware and optional; do not vendor
+  assets or generated models in core.
 
 ## Rusty Kiosk Tracking Setup
 
@@ -365,7 +374,7 @@ Use placeholders for app ids and paths in public docs.
 
 | Goal | Preferred command shape | Fallback / companion shape | Safety |
 | --- | --- | --- | --- |
-| Confirm provider availability | `npx -y @meta-quest/hzdb --version` | Companion provider probe or configured binary path check | Read-only |
+| Confirm provider availability | `npx -y metavr --version` | Companion provider probe or configured binary path check | Read-only |
 | Preflight headset state | `hzdb device health-check --json` | `adb devices`; `adb shell dumpsys power`; broker `/status` | Read-only |
 | Check battery/controllers | `hzdb device battery --json`; `hzdb device controllers --json` | `adb shell dumpsys battery`; controller-specific app/runtime status when available | Read-only |
 | Confirm current surface | `hzdb app foreground --json` | broker `GET /kiosk/status`; `adb shell dumpsys window` focused-window filter; broker `shellHelper` status | Read-only |

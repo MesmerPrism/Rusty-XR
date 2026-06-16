@@ -43,7 +43,7 @@ dotnet run --project .\src\RustyXr.Companion.Cli -- workspace guide --root <work
 Use Rusty XR to build public example APKs into ignored example `build\`
 folders. Use Companion to install, launch, apply device/runtime profiles, pull
 diagnostics, capture logcat, and write verification bundles. Companion manages
-`adb`, `hzdb`, and `scrcpy`; Rust/Cargo, Android SDK/NDK/JDK, OpenXR loader
+`adb`, Meta VR CLI / `hzdb`, and `scrcpy`; Rust/Cargo, Android SDK/NDK/JDK, OpenXR loader
 binaries, and signing material remain local build inputs.
 
 ## Public Boundary

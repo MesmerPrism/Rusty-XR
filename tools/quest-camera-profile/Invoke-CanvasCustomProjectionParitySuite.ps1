@@ -1481,7 +1481,7 @@ function Invoke-MakepadCase {
         if ($HeadsetCaptureProvider -eq "hzdb") {
             Invoke-TimedStep -CaseId $caseId -Step "makepad-foreground-before-hzdb" -Action { Wait-MakepadForegroundForHzdb -CaseId $caseId -CaseRoot $caseRoot }
             Invoke-TimedStep -CaseId $caseId -Step "hzdb-screencap" -Action {
-                $hzdbArgs = @("-y", "@meta-quest/hzdb", "capture", "screenshot")
+                $hzdbArgs = @("-y", "metavr", "capture", "screenshot")
                 if ($Serial) {
                     $hzdbArgs += @("--device", $Serial)
                 }

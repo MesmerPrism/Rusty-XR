@@ -21,8 +21,8 @@ Rusty XR Companion Apps owns:
 
 The companion release can install or update the operator-side tools that are
 reasonable to manage in a per-user cache: Android platform-tools / `adb`, Meta
-`hzdb`, `scrcpy`, and an optional FFmpeg media runtime for saved H.264 preview
-decode. The FFmpeg path follows the same explicit managed-runtime pattern as
+VR CLI / `hzdb` compatibility tooling, `scrcpy`, and an optional FFmpeg media
+runtime for saved H.264 preview decode. The FFmpeg path follows the same explicit managed-runtime pattern as
 `scrcpy`: the app zip does not bundle FFmpeg binaries, the user can choose a
 managed download or a user-supplied executable, and the companion records
 source/version/hash/license metadata after verifying the upstream checksum.
@@ -32,10 +32,11 @@ source.
 
 ## Meta Quest Tool Providers
 
-Companion should treat `adb`, `hzdb`, shell helpers, and future MCP servers as
-providers behind one operation catalog. Rusty XR core owns the typed report
-surface in `rusty-xr-quest-diagnostics`; Companion owns invocation, process
-management, path resolution, operator prompts, and fallback order.
+Companion should treat `adb`, Meta VR CLI / `hzdb`, shell helpers, and future
+MCP servers as providers behind one operation catalog. Rusty XR core owns the
+typed report surface in `rusty-xr-quest-diagnostics`; Companion owns
+invocation, process management, path resolution, operator prompts, and fallback
+order.
 
 For Rusty Kiosk, this is not just optional tooling inventory. Companion should
 make provider evidence part of the normal run record for the custom developer
@@ -51,8 +52,9 @@ The recommended provider order is:
 3. platform SDK / Android Studio / Meta Quest Developer Hub installs
 4. device-side ADB fallbacks
 
-`hzdb` should be probed with `npx -y @meta-quest/hzdb --version` or a managed
-binary path and reported as a `QuestDevelopmentProviderSnapshot`. The first
+New manual provider probes should use `npx -y metavr --version`. Managed
+Companion caches or MQDH/editor bundles may still expose `hzdb.exe`; report the
+selected route and version in `QuestDevelopmentProviderSnapshot`. The first
 Companion integration should expose read-only provider status, device health,
 foreground app, app info/path, screenshot capability, log filter support,
 Perfetto capability, docs/API search availability, and MCP config availability.
@@ -74,7 +76,7 @@ tools can be exposed first; mutating MCP calls should return a blocked plan
 until the local operator shell grants the operation family.
 
 The full provider plan is tracked in
-[Meta Quest hzdb Provider Plan](META_QUEST_HZDB_PROVIDER_PLAN.md).
+[Meta Quest Meta VR CLI / hzdb Provider Plan](META_QUEST_HZDB_PROVIDER_PLAN.md).
 
 For headset-local launchers, keep a clear split between normal Android app
 launching and ADB shell helpers. A normal 2D headset app can launch installed
