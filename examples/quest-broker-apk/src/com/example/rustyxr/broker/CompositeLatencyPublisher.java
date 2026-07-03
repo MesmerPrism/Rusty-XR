@@ -12,7 +12,7 @@ final class CompositeLatencyPublisher implements LatencyPublisher {
     }
 
     static LatencyPublisher create(BrokerRuntimeConfig config) {
-        LatencyPublisher lsl = NativeLslLatencyPublisher.createOrFallback();
+        LatencyPublisher lsl = NativeLslLatencyPublisher.createOrFallback(config);
         OscUdpLatencyPublisher osc = OscUdpLatencyPublisher.createOrNull(config);
         if (osc == null) {
             return lsl;
@@ -39,6 +39,21 @@ final class CompositeLatencyPublisher implements LatencyPublisher {
     @Override
     public String blocker() {
         return lslPublisher.blocker();
+    }
+
+    @Override
+    public String lslStreamName() {
+        return lslPublisher.lslStreamName();
+    }
+
+    @Override
+    public String lslStreamType() {
+        return lslPublisher.lslStreamType();
+    }
+
+    @Override
+    public String lslSourceId() {
+        return lslPublisher.lslSourceId();
     }
 
     @Override

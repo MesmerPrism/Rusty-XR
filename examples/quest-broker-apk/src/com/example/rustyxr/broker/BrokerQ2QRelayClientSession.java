@@ -59,9 +59,11 @@ final class BrokerQ2QRelayClientSession {
     private static final int MAX_TIMEOUT_MS = 6 * 60 * 60 * 1000;
     private static final int MAX_HELLO_BYTES = 16 * 1024;
     private static final int BUFFER_BYTES = 64 * 1024;
-    private static final byte[] STREAM_MAGIC_BYTES = new byte[] {
-        'R', 'X', 'Y', 'R', 'V', 'I', 'D', '1'
-    };
+    private static final String STREAM_LEGACY_MAGIC = "RXYRVID1";
+    private static final String STREAM_MANIFOLD_MAGIC = "RMANVID1";
+    private static final byte[] STREAM_LEGACY_MAGIC_BYTES = STREAM_LEGACY_MAGIC.getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] STREAM_MANIFOLD_MAGIC_BYTES = STREAM_MANIFOLD_MAGIC.getBytes(StandardCharsets.US_ASCII);
+    private static final int STREAM_MAGIC_BYTES = STREAM_LEGACY_MAGIC_BYTES.length;
     private static final int STREAM_FIXED_HEADER_BYTES = 24;
     private static final int STREAM_PACKET_HEADER_V1_BYTES = 16;
     private static final int STREAM_PACKET_HEADER_V2_BYTES = 32;
@@ -378,6 +380,7 @@ final class BrokerQ2QRelayClientSession {
 
     private static void copyLoop(InputStream input, OutputStream output, Lane lane) throws Exception {
         byte[] buffer = new byte[BUFFER_BYTES];
+        MediaMagicNormalizer normalizer = new MediaMagicNormalizer(DEFAULT_CHANNEL.equals(lane.channel));
         while (!lane.stopRequested) {
             int read = input.read(buffer);
             if (read < 0) {
@@ -389,12 +392,32 @@ final class BrokerQ2QRelayClientSession {
             lane.bytesRead.addAndGet(read);
             lane.lastReadElapsedMs = SystemClock.elapsedRealtime();
             lane.streamStats.observe(buffer, 0, read);
-            output.write(buffer, 0, read);
-            lane.bytesCopied.addAndGet(read);
-            lane.bytesWritten.addAndGet(read);
+            int written = normalizer.write(output, buffer, 0, read);
+            if (written > 0) {
+                lane.bytesCopied.addAndGet(written);
+                lane.bytesWritten.addAndGet(written);
+                lane.lastByteElapsedMs = SystemClock.elapsedRealtime();
+            }
+        }
+        int flushed = normalizer.flush(output);
+        if (flushed > 0) {
+            lane.bytesCopied.addAndGet(flushed);
+            lane.bytesWritten.addAndGet(flushed);
             lane.lastByteElapsedMs = SystemClock.elapsedRealtime();
         }
         output.flush();
+    }
+
+    private static boolean bytesEqual(byte[] left, byte[] right, int length) {
+        if (left.length < length || right.length < length) {
+            return false;
+        }
+        for (int i = 0; i < length; i++) {
+            if (left[i] != right[i]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static JSONObject buildSourceParams(
@@ -962,6 +985,55 @@ final class BrokerQ2QRelayClientSession {
         }
     }
 
+    private static final class MediaMagicNormalizer {
+        private final boolean enabled;
+        private final byte[] prefix = new byte[STREAM_MAGIC_BYTES];
+        private int prefixLen;
+        private boolean resolved;
+
+        MediaMagicNormalizer(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        int write(OutputStream output, byte[] buffer, int offset, int length) throws Exception {
+            if (!enabled || resolved) {
+                output.write(buffer, offset, length);
+                return length;
+            }
+            int position = offset;
+            int end = offset + length;
+            while (prefixLen < STREAM_MAGIC_BYTES && position < end) {
+                prefix[prefixLen] = buffer[position];
+                prefixLen++;
+                position++;
+            }
+            if (prefixLen < STREAM_MAGIC_BYTES) {
+                return 0;
+            }
+            if (bytesEqual(prefix, STREAM_MANIFOLD_MAGIC_BYTES, STREAM_MAGIC_BYTES)) {
+                output.write(STREAM_LEGACY_MAGIC_BYTES, 0, STREAM_MAGIC_BYTES);
+            } else {
+                output.write(prefix, 0, STREAM_MAGIC_BYTES);
+            }
+            if (position < end) {
+                output.write(buffer, position, end - position);
+            }
+            resolved = true;
+            return STREAM_MAGIC_BYTES + (end - position);
+        }
+
+        int flush(OutputStream output) throws Exception {
+            if (!enabled || resolved || prefixLen == 0) {
+                return 0;
+            }
+            output.write(prefix, 0, prefixLen);
+            int flushed = prefixLen;
+            prefixLen = 0;
+            resolved = true;
+            return flushed;
+        }
+    }
+
     private static final class RxyRvidStats {
         private static final int STATE_MAGIC = 0;
         private static final int STATE_FIXED_HEADER = 1;
@@ -995,6 +1067,7 @@ final class BrokerQ2QRelayClientSession {
         private long lastSourceUnixNs;
         private long firstPacketElapsedMs;
         private long lastPacketElapsedMs;
+        private String streamMagic = "";
         private String parseError = "";
 
         synchronized void observe(byte[] buffer, int offset, int length) {
@@ -1040,6 +1113,7 @@ final class BrokerQ2QRelayClientSession {
             JSONObject json = new JSONObject();
             json.put("schema", "rusty.xr.broker.q2q_relay.stream_stats.v1");
             json.put("header_seen", schemaVersion > 0);
+            json.put("stream_magic", streamMagic);
             json.put("schema_version", schemaVersion);
             json.put("codec_id", codecId);
             json.put("codec", codecId == STREAM_CODEC_H264 ? "h264" : "");
@@ -1075,7 +1149,7 @@ final class BrokerQ2QRelayClientSession {
 
         private int neededBytes() {
             if (state == STATE_MAGIC) {
-                return STREAM_MAGIC_BYTES.length;
+                return STREAM_MAGIC_BYTES;
             }
             if (state == STATE_FIXED_HEADER) {
                 return STREAM_FIXED_HEADER_BYTES;
@@ -1088,11 +1162,13 @@ final class BrokerQ2QRelayClientSession {
 
         private void parseScratch() {
             if (state == STATE_MAGIC) {
-                for (int i = 0; i < STREAM_MAGIC_BYTES.length; i++) {
-                    if (scratch[i] != STREAM_MAGIC_BYTES[i]) {
-                        parseError = "stream magic mismatch";
-                        return;
-                    }
+                if (bytesEqual(scratch, STREAM_LEGACY_MAGIC_BYTES, STREAM_MAGIC_BYTES)) {
+                    streamMagic = STREAM_LEGACY_MAGIC;
+                } else if (bytesEqual(scratch, STREAM_MANIFOLD_MAGIC_BYTES, STREAM_MAGIC_BYTES)) {
+                    streamMagic = STREAM_MANIFOLD_MAGIC;
+                } else {
+                    parseError = "stream magic mismatch";
+                    return;
                 }
                 state = STATE_FIXED_HEADER;
                 return;

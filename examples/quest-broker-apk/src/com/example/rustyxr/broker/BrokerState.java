@@ -222,8 +222,9 @@ final class BrokerState {
         JSONObject lsl = new JSONObject();
         lsl.put("enabled", publisher != null && publisher.isLslAvailable());
         lsl.put("publisher", publisher != null ? publisher.mode() : "none");
-        lsl.put("streamName", NativeLslLatencyPublisher.STREAM_NAME);
-        lsl.put("streamType", NativeLslLatencyPublisher.STREAM_TYPE);
+        lsl.put("streamName", publisher != null ? publisher.lslStreamName() : NativeLslLatencyPublisher.STREAM_NAME);
+        lsl.put("streamType", publisher != null ? publisher.lslStreamType() : NativeLslLatencyPublisher.STREAM_TYPE);
+        lsl.put("sourceId", publisher != null ? publisher.lslSourceId() : NativeLslLatencyPublisher.SOURCE_ID);
         if (publisher != null && publisher.blocker() != null && publisher.blocker().length() > 0) {
             lsl.put("blocker", publisher.blocker());
         }

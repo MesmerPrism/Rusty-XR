@@ -13,6 +13,9 @@ final class BrokerRuntimeConfig {
     static final String EXTRA_OSC_INGRESS_ADDRESS = "rustyxr.oscIngressAddress";
     static final String EXTRA_BROKER_LAN_ENABLED = "rustyxr.brokerLanEnabled";
     static final String EXTRA_BROKER_BIND_HOST = "rustyxr.brokerBindHost";
+    static final String EXTRA_LSL_STREAM_NAME = "rustyxr.lslStreamName";
+    static final String EXTRA_LSL_STREAM_TYPE = "rustyxr.lslStreamType";
+    static final String EXTRA_LSL_SOURCE_ID = "rustyxr.lslSourceId";
     static final String EXTRA_POLAR_PMD_ENABLED = "rustyxr.polarPmdEnabled";
     static final String EXTRA_POLAR_ENABLED = "rustyxr.polarEnabled";
     static final String EXTRA_POLAR_DEVICE_ADDRESS = "rustyxr.polarDeviceAddress";
@@ -23,6 +26,9 @@ final class BrokerRuntimeConfig {
     static final String DEFAULT_OSC_INGRESS_ADDRESS = "/rusty-xr/drive/radius";
     static final String DEFAULT_BROKER_BIND_HOST = "127.0.0.1";
     static final String DEFAULT_BROKER_LAN_BIND_HOST = "0.0.0.0";
+    static final String DEFAULT_LSL_STREAM_NAME = NativeLslLatencyPublisher.STREAM_NAME;
+    static final String DEFAULT_LSL_STREAM_TYPE = NativeLslLatencyPublisher.STREAM_TYPE;
+    static final String DEFAULT_LSL_SOURCE_ID = NativeLslLatencyPublisher.SOURCE_ID;
     static final long DEFAULT_POLAR_SCAN_TIMEOUT_MS = 30_000L;
 
     final boolean oscEnabled;
@@ -34,6 +40,9 @@ final class BrokerRuntimeConfig {
     final String oscIngressAddress;
     final boolean brokerLanEnabled;
     final String brokerBindHost;
+    final String lslStreamName;
+    final String lslStreamType;
+    final String lslSourceId;
     final boolean polarPmdEnabled;
     final String polarDeviceAddress;
     final long polarScanTimeoutMs;
@@ -48,6 +57,9 @@ final class BrokerRuntimeConfig {
         String oscIngressAddress,
         boolean brokerLanEnabled,
         String brokerBindHost,
+        String lslStreamName,
+        String lslStreamType,
+        String lslSourceId,
         boolean polarPmdEnabled,
         String polarDeviceAddress,
         long polarScanTimeoutMs) {
@@ -67,6 +79,9 @@ final class BrokerRuntimeConfig {
         this.brokerBindHost = brokerLanEnabled
             ? (requestedBrokerBindHost.length() > 0 ? requestedBrokerBindHost : DEFAULT_BROKER_LAN_BIND_HOST)
             : DEFAULT_BROKER_BIND_HOST;
+        this.lslStreamName = nonBlankOrDefault(lslStreamName, DEFAULT_LSL_STREAM_NAME);
+        this.lslStreamType = nonBlankOrDefault(lslStreamType, DEFAULT_LSL_STREAM_TYPE);
+        this.lslSourceId = nonBlankOrDefault(lslSourceId, DEFAULT_LSL_SOURCE_ID);
         this.polarPmdEnabled = polarPmdEnabled;
         this.polarDeviceAddress = polarDeviceAddress != null ? polarDeviceAddress.trim() : "";
         this.polarScanTimeoutMs = polarScanTimeoutMs > 0L
@@ -85,6 +100,9 @@ final class BrokerRuntimeConfig {
             address,
             false,
             DEFAULT_BROKER_BIND_HOST,
+            DEFAULT_LSL_STREAM_NAME,
+            DEFAULT_LSL_STREAM_TYPE,
+            DEFAULT_LSL_SOURCE_ID,
             false,
             "",
             DEFAULT_POLAR_SCAN_TIMEOUT_MS);
@@ -105,6 +123,9 @@ final class BrokerRuntimeConfig {
             "oscIngressAddress");
         boolean brokerLanEnabled = getBoolean(extras, false, EXTRA_BROKER_LAN_ENABLED, "brokerLanEnabled");
         String brokerBindHost = getString(extras, DEFAULT_BROKER_BIND_HOST, EXTRA_BROKER_BIND_HOST, "brokerBindHost");
+        String lslStreamName = getString(extras, DEFAULT_LSL_STREAM_NAME, EXTRA_LSL_STREAM_NAME, "lslStreamName");
+        String lslStreamType = getString(extras, DEFAULT_LSL_STREAM_TYPE, EXTRA_LSL_STREAM_TYPE, "lslStreamType");
+        String lslSourceId = getString(extras, DEFAULT_LSL_SOURCE_ID, EXTRA_LSL_SOURCE_ID, "lslSourceId");
         boolean polarPmdEnabled = getBoolean(extras, false, EXTRA_POLAR_PMD_ENABLED, EXTRA_POLAR_ENABLED, "polarPmdEnabled", "polarEnabled");
         String polarDeviceAddress = getString(extras, "", EXTRA_POLAR_DEVICE_ADDRESS, "polarDeviceAddress");
         long polarScanTimeoutMs = getLong(
@@ -122,9 +143,21 @@ final class BrokerRuntimeConfig {
             oscIngressAddress,
             brokerLanEnabled,
             brokerBindHost,
+            lslStreamName,
+            lslStreamType,
+            lslSourceId,
             polarPmdEnabled,
             polarDeviceAddress,
             polarScanTimeoutMs);
+    }
+
+    private static String nonBlankOrDefault(String value, String fallback) {
+        if (value == null) {
+            return fallback;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.length() > 0 ? trimmed : fallback;
     }
 
     private static boolean getBoolean(Bundle extras, boolean fallback, String... keys) {

@@ -13,6 +13,18 @@ interface LatencyPublisher {
 
     String blocker();
 
+    default String lslStreamName() {
+        return NativeLslLatencyPublisher.STREAM_NAME;
+    }
+
+    default String lslStreamType() {
+        return NativeLslLatencyPublisher.STREAM_TYPE;
+    }
+
+    default String lslSourceId() {
+        return NativeLslLatencyPublisher.SOURCE_ID;
+    }
+
     default JSONObject oscStatus() throws Exception {
         JSONObject status = new JSONObject();
         status.put("enabled", false);

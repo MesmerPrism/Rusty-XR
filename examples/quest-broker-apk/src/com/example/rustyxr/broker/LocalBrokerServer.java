@@ -318,7 +318,7 @@ final class LocalBrokerServer implements Closeable {
             }
 
             if ("GET".equals(method) && isEventsWebSocketPath(endpointPath) && wantsWebSocket(headers)) {
-                handleWebSocket(headers, input, output);
+                handleWebSocket(headers, input, output, path);
                 return;
             }
 
@@ -333,7 +333,7 @@ final class LocalBrokerServer implements Closeable {
         }
     }
 
-    private void handleWebSocket(Map<String, String> headers, BufferedInputStream input, OutputStream output) throws Exception {
+    private void handleWebSocket(Map<String, String> headers, BufferedInputStream input, OutputStream output, String path) throws Exception {
         String key = headers.get("sec-websocket-key");
         if (key == null || key.length() == 0) {
             writeJsonResponse(output, 400, "{\"type\":\"error\",\"message\":\"missing Sec-WebSocket-Key\"}");
@@ -355,7 +355,14 @@ final class LocalBrokerServer implements Closeable {
         synchronized (websocketClients) {
             websocketClients.add(connection);
         }
-        connection.sendText(statusForConnection(connection).toString());
+        String startupMode = webSocketStartupMode(headers, path);
+        if (!"none".equals(startupMode)) {
+            if ("compact".equals(startupMode)) {
+                connection.sendText(webSocketReadyJson(connection, path).toString());
+            } else {
+                connection.sendText(statusForConnection(connection).toString());
+            }
+        }
         Log.i(BrokerService.TAG, "WebSocket client connected id=" + connection.connectionId);
 
         try {
@@ -2716,6 +2723,69 @@ final class LocalBrokerServer implements Closeable {
     private static boolean isEventsWebSocketPath(String path) {
         return BrokerState.MANIFOLD_EVENTS_PATH.equals(path) ||
             BrokerState.LEGACY_RUSTY_XR_EVENTS_PATH.equals(path);
+    }
+
+    private JSONObject webSocketReadyJson(WebSocketClientConnection connection, String path) throws Exception {
+        JSONObject ready = new JSONObject();
+        ready.put("type", "websocket_ready");
+        ready.put("connection_id", connection != null ? connection.connectionId : 0L);
+        ready.put("path", stripQuery(path));
+        ready.put("startup_mode", "compact");
+        ready.put("broker_unix_ns", unixNowNs());
+        ready.put("clock_stamp", state.clockStampJson());
+        return ready;
+    }
+
+    private static String webSocketStartupMode(Map<String, String> headers, String path) {
+        String headerMode = headers.get("x-rusty-websocket-startup");
+        String mode = normalizeWebSocketStartupMode(headerMode);
+        if (mode != null) {
+            return mode;
+        }
+
+        int queryIndex = path.indexOf('?');
+        if (queryIndex < 0 || queryIndex >= path.length() - 1) {
+            return "status";
+        }
+
+        String[] parameters = path.substring(queryIndex + 1).split("&");
+        for (String parameter : parameters) {
+            String[] parts = parameter.split("=", 2);
+            String name = parts.length > 0 ? parts[0] : "";
+            String value = parts.length > 1 ? parts[1] : "";
+            if ("startup".equalsIgnoreCase(name) || "initial".equalsIgnoreCase(name)) {
+                mode = normalizeWebSocketStartupMode(value);
+                if (mode != null) {
+                    return mode;
+                }
+            } else if ("no_initial_status".equalsIgnoreCase(name) || "no-startup-status".equalsIgnoreCase(name)) {
+                return "none";
+            }
+        }
+
+        return "status";
+    }
+
+    private static String normalizeWebSocketStartupMode(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if ("none".equals(normalized) || "off".equals(normalized) || "false".equals(normalized)) {
+            return "none";
+        }
+        if ("compact".equals(normalized) || "ready".equals(normalized)) {
+            return "compact";
+        }
+        if ("status".equals(normalized) || "full".equals(normalized) || "true".equals(normalized)) {
+            return "status";
+        }
+        return null;
+    }
+
+    private static String stripQuery(String path) {
+        int queryIndex = path.indexOf('?');
+        return queryIndex >= 0 ? path.substring(0, queryIndex) : path;
     }
 
     private static String websocketAccept(String key) throws Exception {
