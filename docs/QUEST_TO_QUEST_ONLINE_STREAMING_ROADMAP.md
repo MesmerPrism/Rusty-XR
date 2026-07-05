@@ -124,6 +124,33 @@ another measured two-Quest remote run.
 The public-safe retrospective and next-run checklist live in
 [Quest-to-Quest native relay session, 2026-05-19](QUEST_TO_QUEST_NATIVE_RELAY_SESSION_2026_05_19.md).
 
+## 2026-07-05 Direct-Link Diagnostics Update
+
+Recent direct-link diagnostics sharpened the public roadmap but do not replace
+the LAN and online-relay path. AP-less Wi-Fi Direct can be a valuable
+diagnostic/product-candidate topology, and BLE/GATT can be useful for low-rate
+control/status, but neither should become the default public streaming topology
+from a lower-level proof alone.
+
+Public claims should now keep these gates separate:
+
+- topology lifecycle and cleanup
+- route-clear preflight before launch
+- control/session descriptors for the measured epoch
+- receiver-observed media bytes and stream counters
+- decode/import counters
+- final-window renderer adoption scorecards
+- native/system fatal-line absence
+
+This matters because a run can receive fresh packets and still fail if the
+receiver does not adopt frames in the intended renderer, if stale direct-link
+routes survive from a prior run, or if Android/system fatal lines appear during
+the measured window.
+
+Termux and other sidecars can rehearse status, leases, route-health summaries,
+and scorecard workflows. They should not own high-rate media transport, Wi-Fi
+Direct lifecycle, or renderer acceptance.
+
 ## Target Shape
 
 The online target should remain native Quest-to-Quest streaming. Browser and
@@ -337,7 +364,8 @@ Required additions:
 - reconnect and failure reasons for each stereo lane
 
 Acceptance should require the same scorecard fields as the laptop-loop gate,
-plus sender and receiver role logs.
+plus sender and receiver role logs, route-clear preflight, cleanup evidence, and
+zero native/system fatal lines during the measured window.
 
 The receiver should not launch projection until a readiness check confirms:
 
@@ -345,6 +373,8 @@ The receiver should not launch projection until a readiness check confirms:
 - projection metadata is available
 - receiver proxy or direct receiver is connected
 - first headers are validated
+- no stale direct-link route or stale receiver port from a prior run is still
+  active
 
 ### Phase 5: One-Way Mediated LAN
 
@@ -506,6 +536,8 @@ After two-way online connectivity works, add adaptation:
 | Transport | Best Use | Tradeoff |
 | --- | --- | --- |
 | LAN TCP with `RXYRVID1` | Current diagnostics and LAN validation | Simple and debuggable, but not internet/NAT-ready. |
+| AP-less Wi-Fi Direct | Direct-link diagnostics and possible product-candidate route | Role- and epoch-sensitive; needs explicit route-clear, lifecycle, reconnect, cleanup, receiver-byte, renderer, and fatal-line gates before promotion. |
+| BLE/GATT | Low-rate control/status fallback | Not a camera/H.264 media transport. |
 | Mediated WebSocket/TLS | Fast online MVP using current framing | Easy pairing and firewall behavior, but media quality control is custom. |
 | WebRTC | Long-term online Quest-to-Quest media | More integration work, but best fit for low-latency interactive video. |
 | WebTransport | Experimental post-relay lane | Promising multiplexing/datagram shape, but not the first MVP dependency. |
@@ -585,9 +617,13 @@ WebRTC without moving native SDKs or generated media artifacts into core.
 
 Do not promote a network session unless all of these are captured:
 
+- route-clear preflight for direct-link or relay-local state
 - sender stream start acknowledgements
 - camera/source capability manifest
 - timestamp-domain manifest
+- fresh session, role, peer, track, and stream identifiers for the measured
+  epoch
+- receiver-observed bytes and packet counters for every promoted media lane
 - receiver stream headers for both eyes
 - SPS/PPS priming for both eyes
 - decoder names and output mode
@@ -598,9 +634,12 @@ Do not promote a network session unless all of these are captured:
 - final projection status with `projectionShaderPath=projected`
 - aligned projection state
 - OpenXR frame cadence summary
+- final-window renderer adoption scorecard
 - multiple visible non-identical screenshots
 - relay or WebRTC connection stats
 - close reason for every stream
+- post-run cleanup or explicit handoff state
+- zero native/system fatal lines in the acceptance window
 
 ## Do Not Do Yet
 
@@ -613,6 +652,9 @@ Do not make these the next implementation step:
 - FFmpeg-on-Quest
 - opaque `RXYRVID1` packets shoved into RTP/WebRTC video tracks
 - online release profiles that rely on cleartext base network config
+- same-group Wi-Fi Direct, LocalOnlyHotspot, Bluetooth, or Wi-Fi ADB as the
+  default product path before route lifecycle, reconnect, cleanup, and renderer
+  gates pass
 - timestamp-nearest pairing without timestamp-domain manifests
 - two-way `1280x1280` before one-way `720`/`960` is stable
 

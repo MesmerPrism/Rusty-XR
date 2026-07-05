@@ -309,6 +309,27 @@ Use the generated `scorecard.md` in working notes and PR summaries. Keep
 `scorecard.json` and raw artifacts local unless a sanitized public report is
 explicitly needed.
 
+## Direct-Link And System-Fatal Gates
+
+For direct-link work, keep topology, control, media, decode/import, projection,
+cleanup, and platform stability as separate gates. Do not collapse them into
+"stream worked" because one counter advanced.
+
+Before a direct-link media launch, record route-clear state: no stale
+Wi-Fi-Direct-like route from a prior run, no stale receiver ports, and no
+leftover proxy/relay process that can satisfy a connection with old data. For a
+relay run, record the relay-local equivalent: listener epoch, session id, stream
+ids, and previous-client cleanup.
+
+Reject acceptance when native crash, system-server fatal, VR Wi-Fi fatal, or
+other platform fatal lines appear in the measured window. Packet, decode, and
+import counters remain useful diagnostics, but they do not promote an
+end-to-end renderer path while platform fatal evidence is present.
+
+Existing-stream acceptance must be same-epoch: the stream headers, receiver byte
+counters, decoder counters, native handoff counters, and final renderer
+scorecard must all belong to the same measured session.
+
 ## Required Stage Timings
 
 When adding or changing streaming paths, keep these timing windows available:
@@ -345,6 +366,7 @@ rule out that stage. Compare them against full frame time and `VrApi` rows.
 
 Reject a run before interpreting the matrix when:
 
+- route-clear preflight fails for the selected direct-link or relay-local path
 - the active tier is not the intended tier
 - `alignedProjection=true` is expected but the logs show `flat-probe`
 - left/right decoded counts, native accepted counts, or source packet rates are
@@ -357,8 +379,12 @@ Reject a run before interpreting the matrix when:
 - timestamp-nearest pairing is used without explicit timestamp-domain evidence
 - the headset entered sleep, an interstitial, or a consent panel during the
   measured window
+- native crash, system-server fatal, VR Wi-Fi fatal, or other platform fatal
+  lines appear in the measured window
 - existing-stream mode is compared as a projected run without projection
   metadata
+- existing-stream counters are fresh but do not share the same session epoch as
+  the renderer scorecard
 
 Downgrade a run to "transport/decode only" when it receives and decodes frames
 correctly but lacks projection metadata or final `gpu-projected` status.
