@@ -385,6 +385,7 @@ impl CameraColorMode {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum CameraSamplerBindingMode {
     #[default]
     CombinedImmutableSampler,

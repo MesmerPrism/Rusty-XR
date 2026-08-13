@@ -805,8 +805,10 @@ mod tests {
     fn hwb_handoff_reports_world_canvas_geometry_profile() {
         let frame = stereo_frame(None);
         let controls = controls();
-        let mut config = RuntimeConfig::default();
-        config.camera_projection_mode = CameraProjectionMode::WorldCanvas;
+        let config = RuntimeConfig {
+            camera_projection_mode: CameraProjectionMode::WorldCanvas,
+            ..RuntimeConfig::default()
+        };
         let fields = HwbSourceSamplingHandoff::new(&frame, &controls, &config).marker_fields();
         assert!(fields.contains("projectionGeometryProfile=full-frame-diagnostic"));
         assert!(fields.contains("geometry_profile=full-frame-diagnostic"));
