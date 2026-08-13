@@ -16,7 +16,7 @@ probe plus a delayed Makepad-owned paired hardware-buffer import probe so
 renderer smoke runs can be lined up against the custom APK camera-stereo
 baseline before performance parity is measured.
 
-This example consumes the maintained Makepad fork default branch as an
+This example consumes one full revision of the maintained Makepad fork as an
 app-shell dependency only. Morphospace core stays Makepad-independent; the
 relationship and fork-patch policy are documented in
 [../../docs/MAKEPAD_FORK_RELATIONSHIP.md](../../docs/MAKEPAD_FORK_RELATIONSHIP.md).
@@ -24,9 +24,11 @@ relationship and fork-patch policy are documented in
 ## Current Scope
 
 - Uses `cargo-makepad android --variant=quest`.
-- Uses the maintained Makepad fork default branch, currently `dev`. The exact
-  Makepad revision for this example is pinned in `Cargo.lock`. Local evidence
-  builds run the wrapper with `-MakepadSourceRoot <makepad-fork-checkout>` or
+- Uses maintained Makepad fork revision
+  `407caacaa8a1bd1070986ef3fe6eadebee602143`, pinned by full `rev` in
+  `Cargo.toml` and mirrored in `Cargo.lock`. The `dev` branch is an update
+  source, not a dependency-resolution input. Local evidence builds run the
+  wrapper with `-MakepadSourceRoot <makepad-fork-checkout>` or
   `RUSTY_QUEST_MAKEPAD_SOURCE_ROOT` so the packager and app Makepad dependencies
   both come from the maintained fork checkout. The wrapper requires that source
   root by default. Use `-NoPatchMakepadXrFromSource` only for an intentional
@@ -1002,4 +1004,3 @@ window remains an `ok` run with the reason recorded. Record whether the run was
 
 The current step-by-step implementation ledger is tracked in
 [../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md](../../docs/MAKEPAD_STEREO_COMPARISON_ITERATION.md).
-
