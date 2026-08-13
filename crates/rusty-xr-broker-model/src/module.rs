@@ -585,8 +585,7 @@ impl BrokerModuleClockPolicy {
             && (!self.correlation_required
                 || !self
                     .allowed_source_domains
-                    .iter()
-                    .any(|domain| *domain == BrokerTimestampDomain::Unknown))
+                    .contains(&BrokerTimestampDomain::Unknown))
     }
 }
 

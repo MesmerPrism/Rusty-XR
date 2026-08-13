@@ -408,7 +408,7 @@ impl BrokerCommandAuthorityRequirement {
         }
         for capability in &self.required_capabilities {
             let capability = capability.as_str();
-            if !capabilities.iter().any(|existing| *existing == capability) {
+            if !capabilities.contains(&capability) {
                 capabilities.push(capability);
             }
         }
